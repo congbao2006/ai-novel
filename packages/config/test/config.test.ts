@@ -10,13 +10,30 @@ describe("config package", () => {
       API_PORT: "4000",
       DATABASE_URL: "postgresql://user:pass@localhost:5432/ai_novel",
       AI_PROVIDER: "disabled",
-      AI_PROVIDER_API_KEY: "secret"
+      OPENAI_API_KEY: "secret",
+      OPENAI_MODEL: "gpt-5.6",
+      AI_REQUEST_TIMEOUT_MS: "10000",
+      AI_MAX_RETRIES: "1",
+      AI_MAX_OUTPUT_TOKENS: "128",
+      AI_INTERNAL_SMOKE_ENABLED: "false"
     };
 
-    expect(getServerConfig(env).ai.providerApiKey).toBe("secret");
+    expect(getServerConfig(env).ai.openaiApiKey).toBe("secret");
+    expect(getServerConfig(env).ai.internalSmokeEnabled).toBe(false);
     expect(getPublicServerConfig(env)).toEqual({
       nodeEnv: "test",
       webAppUrl: "http://localhost:3000"
     });
+  });
+
+  it("fails clearly when OpenAI is enabled without a key", () => {
+    expect(() =>
+      getServerConfig({
+        NODE_ENV: "production",
+        WEB_APP_URL: "https://example.com",
+        AI_PROVIDER: "openai",
+        OPENAI_MODEL: "gpt-5.6"
+      })
+    ).toThrow("OPENAI_API_KEY");
   });
 });

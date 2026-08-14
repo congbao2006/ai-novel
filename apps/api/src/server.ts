@@ -1,4 +1,5 @@
 import { getServerConfig } from "@ai-novel/config";
+import { createAIGateway } from "@ai-novel/ai-engine";
 import {
   createRepositories,
   getDatabaseClient
@@ -29,12 +30,21 @@ const sessionService = repositories
 const gameplayService = repositories
   ? new GameplayService(repositories, database)
   : undefined;
+const aiGateway = createAIGateway({
+  provider: config.ai.provider,
+  ...(config.ai.openaiApiKey ? { openaiApiKey: config.ai.openaiApiKey } : {}),
+  ...(config.ai.openaiModel ? { openaiModel: config.ai.openaiModel } : {}),
+  timeoutMs: config.ai.requestTimeoutMs,
+  maxRetries: config.ai.maxRetries,
+  maxOutputTokens: config.ai.maxOutputTokens
+});
 const dependencies = {
   ...(repositories ? { repositories } : {}),
   ...(authService ? { authService } : {}),
   ...(storyService ? { storyService } : {}),
   ...(sessionService ? { sessionService } : {}),
-  ...(gameplayService ? { gameplayService } : {})
+  ...(gameplayService ? { gameplayService } : {}),
+  ...(aiGateway ? { aiGateway } : {})
 };
 const app = await buildApp({
   dependencies

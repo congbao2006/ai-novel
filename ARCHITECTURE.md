@@ -70,7 +70,20 @@ The domain package contains deterministic rules and validated state transitions.
 
 ### AI Engine Package
 
-The AI engine package defines provider-neutral contracts for prompt assembly, model routing, token budgeting, response normalization, safety checks, and structured output validation. It must not directly write to the database.
+The AI engine package defines provider-neutral contracts for prompt assembly, model routing, token budgeting, response normalization, safety checks, and structured output validation. It now includes an OpenAI provider behind `AIGateway`, but it must not directly write to the database.
+
+AI dependency flow:
+
+```text
+apps/api
+  -> AIGateway
+  -> ModelPolicy
+  -> LLMProvider
+  -> OpenAIProvider
+  -> OpenAI Responses API
+```
+
+Gameplay still uses the deterministic turn engine. OpenAI is available only through internal smoke paths until a future AI narrative proposal phase.
 
 ### Database Package
 
@@ -159,6 +172,13 @@ The platform should depend on interfaces such as:
 
 Provider adapters can later implement OpenAI, Anthropic, Google, local models, or routing services without rewriting gameplay code.
 
+The current provider factory supports:
+
+- `disabled`
+- `openai`
+
+Unsupported providers fail with a provider-neutral configuration error.
+
 ## Cost Control
 
 AI cost control must be part of request orchestration:
@@ -169,6 +189,8 @@ AI cost control must be part of request orchestration:
 - Hard caps on prompt and completion tokens.
 - Usage ledger storing input tokens, output tokens, model, provider, latency, and estimated cost.
 - Graceful fallback when budget is exceeded.
+
+The current gateway captures provider usage when available and estimates cost through an injectable pricing registry. The default registry is empty because provider pricing is operational configuration and can change independently of source code.
 
 ## Security
 
@@ -181,6 +203,8 @@ AI cost control must be part of request orchestration:
 - Session reads are scoped to `request.currentUser`; user IDs from request bodies are ignored.
 - Gameplay turn requests accept only player action text. Clients cannot send state patches, user IDs, session owners, or event payloads.
 - `game_states.version` provides optimistic concurrency. A stale turn receives HTTP 409 rather than being silently retried.
+- `OPENAI_API_KEY` is server-only and must never be exposed through frontend config, logs, or API responses.
+- Internal AI smoke endpoints are disabled in production unless explicitly gated by server config.
 
 ## Authentication
 

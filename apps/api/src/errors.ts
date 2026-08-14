@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AIError } from "@ai-novel/ai-engine";
 import {
   AuthUnavailableError,
   UnauthenticatedError
@@ -62,6 +63,24 @@ export function sendApplicationError(error: unknown, reply: {
 
   if (error instanceof ApplicationError) {
     return reply.code(error.statusCode).send({
+      error: error.code,
+      message: error.message
+    });
+  }
+
+  if (error instanceof AIError) {
+    const statusCode =
+      error.code === "ai_authentication_error"
+        ? 401
+        : error.code === "ai_rate_limit_error"
+          ? 429
+          : error.code === "ai_timeout_error"
+            ? 504
+            : error.code === "ai_configuration_error"
+              ? 503
+              : 502;
+
+    return reply.code(statusCode).send({
       error: error.code,
       message: error.message
     });

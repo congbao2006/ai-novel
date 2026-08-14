@@ -31,6 +31,7 @@ In scope:
 - Story detail pages with public character templates.
 - Authenticated session creation and resume.
 - Deterministic gameplay turns for simple typed commands.
+- Provider-neutral AI gateway with OpenAI smoke testing, not yet used by gameplay.
 
 Out of scope:
 

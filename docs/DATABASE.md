@@ -350,6 +350,25 @@ Current deterministic commands:
 
 Session detail reads load at most 50 recent messages for the play page. Full transcript pagination remains the responsibility of future transcript/history endpoints.
 
+## AI Usage Ledger
+
+There is no `ai_usage_ledger` table yet. The AI gateway exposes an application-level ledger interface so future calls can persist provider/model usage without changing provider adapters.
+
+Future ledger rows should capture:
+
+- `user_id`
+- `session_id`, nullable
+- provider
+- model
+- input tokens
+- output tokens
+- estimated cost micros
+- latency milliseconds
+- status
+- created time
+
+This table should be added in a dedicated migration when AI gameplay or billing/accounting is in scope. The current OpenAI smoke path does not write usage to PostgreSQL.
+
 ## JSONB Strategy
 
 JSONB is used only for flexible data whose shape may vary by story or future gameplay module:

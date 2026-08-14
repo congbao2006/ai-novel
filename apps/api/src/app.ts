@@ -8,6 +8,7 @@ import { registerAiRoutes } from "./modules/ai/routes.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { registerGameplayRoutes } from "./modules/gameplay/routes.js";
 import { registerHealthRoutes } from "./modules/health/routes.js";
+import { registerInternalAiRoutes } from "./modules/internal-ai/routes.js";
 import { registerSessionsRoutes } from "./modules/sessions/routes.js";
 import { registerStoriesRoutes } from "./modules/stories/routes.js";
 import { registerUsersRoutes } from "./modules/users/routes.js";
@@ -46,6 +47,7 @@ export async function buildApp(
   });
 
   await app.register(registerHealthRoutes);
+  await app.register(registerInternalAiRoutes, { prefix: "/internal/ai" });
   await app.register(registerAuthRoutes, { prefix: "/auth" });
   await app.register(registerStoriesRoutes, { prefix: "/stories" });
   await app.register(registerSessionsRoutes, { prefix: "/sessions" });

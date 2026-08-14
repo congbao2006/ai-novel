@@ -189,7 +189,7 @@ Next step:
 
 ## Phase 4: AI Gateway Provider Integration
 
-Status: pending.
+Status: completed.
 
 Goals:
 
@@ -200,6 +200,34 @@ Goals:
 - Usage ledger.
 - Structured output validation.
 - No direct database writes from AI output.
+
+Completed:
+
+- Added provider-neutral `AIGateway`.
+- Added `OpenAIProvider` using the official OpenAI SDK and Responses API.
+- Added provider factory for `disabled` and `openai`.
+- Added model policy foundation with `defaultStoryModel`.
+- Added timeout, bounded retry, and provider-neutral AI error mapping.
+- Added token usage normalization and injectable cost estimation in integer micros.
+- Added structured output schema support at the gateway/provider boundary.
+- Added internal HTTP smoke endpoint and optional `pnpm ai:smoke` CLI.
+- Kept deterministic gameplay turns unchanged.
+
+Next step:
+
+- AI Narrative + Structured Turn Proposal.
+
+## Phase 4.5: AI Narrative + Structured Turn Proposal
+
+Status: pending.
+
+Goals:
+
+- Use the AI gateway to propose narrative text.
+- Request structured turn proposals.
+- Validate AI-proposed state patches with domain rules.
+- Keep server-side deterministic persistence authority.
+- Continue tracking usage/cost.
 
 ## Phase 5: Story Creation Tools
 
