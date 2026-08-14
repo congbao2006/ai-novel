@@ -1,0 +1,793 @@
+import { and, desc, eq, gt, gte, sql } from "drizzle-orm";
+import type { DbExecutor } from "./context.js";
+import {
+  ConflictError,
+  DataAccessError,
+  NotFoundError,
+  StateVersionConflictError,
+  ValidationError
+} from "./errors.js";
+import {
+  assertInventoryDelta,
+  assertPositiveLimit,
+  entityRefPredicate,
+  firstOrNull,
+  firstOrThrow,
+  normalizeEntityId,
+  relationshipEntityPredicate
+} from "./helpers.js";
+import type {
+  AddInventoryItemInput,
+  AppendMessageInput,
+  AppendWorldEventInput,
+  ChangeInventoryQuantityInput,
+  CreateInitialStateInput,
+  CreateNpcInput,
+  CreateQuestInput,
+  CreateSessionInput,
+  CreateUserInput,
+  EntityRef,
+  GameMessageRecord,
+  GameSessionRecord,
+  GameStateRecord,
+  InventoryItemRecord,
+  MessagePageInput,
+  NpcRecord,
+  QuestRecord,
+  RelationshipRecord,
+  StoryRecord,
+  UpdateNpcRuntimeStateInput,
+  UpdateQuestInput,
+  UpdateSessionMetadataInput,
+  UpdateStateInput,
+  UpsertRelationshipInput,
+  UserRecord,
+  WorldEventRecord
+} from "./types.js";
+import {
+  gameMessages,
+  gameSessions,
+  gameStates,
+  inventoryItems,
+  npcs,
+  quests,
+  relationships,
+  stories,
+  users,
+  worldEvents
+} from "../schema/index.js";
+import type {
+  GameMessageRepository,
+  GameSessionRepository,
+  GameStateRepository,
+  InventoryRepository,
+  NPCRepository,
+  QuestRepository,
+  RelationshipRepository,
+  StoryRepository,
+  UserRepository,
+  WorldEventRepository
+} from "./contracts.js";
+
+abstract class BaseRepository {
+  constructor(protected readonly db: DbExecutor) {}
+
+  protected async run<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof DataAccessError) {
+        throw error;
+      }
+
+      throw new DataAccessError("Database operation failed.", error);
+    }
+  }
+}
+
+export class DrizzleUserRepository
+  extends BaseRepository
+  implements UserRepository
+{
+  getById(id: string): Promise<UserRecord | null> {
+    return this.run(async () =>
+      firstOrNull(await this.db.select().from(users).where(eq(users.id, id)).limit(1))
+    );
+  }
+
+  getByEmail(email: string): Promise<UserRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db.select().from(users).where(eq(users.email, email)).limit(1)
+      )
+    );
+  }
+
+  create(input: CreateUserInput): Promise<UserRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(users).values(input).returning(),
+        new ConflictError("User could not be created.")
+      )
+    );
+  }
+}
+
+export class DrizzleStoryRepository
+  extends BaseRepository
+  implements StoryRepository
+{
+  getById(id: string): Promise<StoryRecord | null> {
+    return this.run(async () =>
+      firstOrNull(await this.db.select().from(stories).where(eq(stories.id, id)).limit(1))
+    );
+  }
+
+  getBySlug(slug: string): Promise<StoryRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db.select().from(stories).where(eq(stories.slug, slug)).limit(1)
+      )
+    );
+  }
+
+  listPublished(limit = 50): Promise<StoryRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(stories)
+        .where(eq(stories.status, "published"))
+        .limit(limit)
+    );
+  }
+
+  listByGenre(genre: string, limit = 50): Promise<StoryRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(stories)
+        .where(and(eq(stories.genre, genre), eq(stories.status, "published")))
+        .limit(limit)
+    );
+  }
+
+  listCreatedByUser(userId: string): Promise<StoryRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(stories)
+        .where(eq(stories.createdByUserId, userId))
+    );
+  }
+}
+
+export class DrizzleGameSessionRepository
+  extends BaseRepository
+  implements GameSessionRepository
+{
+  create(input: CreateSessionInput): Promise<GameSessionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(gameSessions).values(input).returning(),
+        new ConflictError("Game session could not be created.")
+      )
+    );
+  }
+
+  getById(id: string): Promise<GameSessionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(gameSessions)
+          .where(eq(gameSessions.id, id))
+          .limit(1)
+      )
+    );
+  }
+
+  listForUser(userId: string): Promise<GameSessionRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(gameSessions)
+        .where(eq(gameSessions.userId, userId))
+        .orderBy(desc(gameSessions.lastPlayedAt))
+    );
+  }
+
+  updateMetadata(
+    sessionId: string,
+    input: UpdateSessionMetadataInput
+  ): Promise<GameSessionRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof gameSessions.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if ("title" in input) {
+        updates.title = input.title;
+      }
+
+      if (input.status) {
+        updates.status = input.status;
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(gameSessions)
+          .set(updates)
+          .where(eq(gameSessions.id, sessionId))
+          .returning(),
+        new NotFoundError("Game session")
+      );
+    });
+  }
+
+  touchLastPlayedAt(sessionId: string, at = new Date()): Promise<GameSessionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db
+          .update(gameSessions)
+          .set({ lastPlayedAt: at, updatedAt: at })
+          .where(eq(gameSessions.id, sessionId))
+          .returning(),
+        new NotFoundError("Game session")
+      )
+    );
+  }
+
+  incrementTurnCount(sessionId: string): Promise<GameSessionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db
+          .update(gameSessions)
+          .set({
+            turnCount: sql`${gameSessions.turnCount} + 1`,
+            updatedAt: new Date()
+          })
+          .where(eq(gameSessions.id, sessionId))
+          .returning(),
+        new NotFoundError("Game session")
+      )
+    );
+  }
+}
+
+export class DrizzleGameMessageRepository
+  extends BaseRepository
+  implements GameMessageRepository
+{
+  append(input: AppendMessageInput): Promise<GameMessageRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(gameMessages).values(input).returning(),
+        new ConflictError("Game message could not be appended.")
+      )
+    );
+  }
+
+  getRecentMessages(
+    sessionId: string,
+    limit: number
+  ): Promise<GameMessageRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(gameMessages)
+        .where(eq(gameMessages.sessionId, sessionId))
+        .orderBy(desc(gameMessages.turnNumber), desc(gameMessages.createdAt))
+        .limit(limit)
+    );
+  }
+
+  getMessagesForSession(input: MessagePageInput): Promise<GameMessageRecord[]> {
+    assertPositiveLimit(input.limit);
+    return this.run(async () => {
+      const predicates = [eq(gameMessages.sessionId, input.sessionId)];
+
+      if (input.afterTurnNumber !== undefined) {
+        predicates.push(gt(gameMessages.turnNumber, input.afterTurnNumber));
+      }
+
+      return this.db
+        .select()
+        .from(gameMessages)
+        .where(and(...predicates))
+        .orderBy(gameMessages.turnNumber, gameMessages.createdAt)
+        .limit(input.limit);
+    });
+  }
+
+  getLastTurnNumber(sessionId: string): Promise<number | null> {
+    return this.run(async () => {
+      const row = firstOrNull(
+        await this.db
+          .select({ turnNumber: gameMessages.turnNumber })
+          .from(gameMessages)
+          .where(eq(gameMessages.sessionId, sessionId))
+          .orderBy(desc(gameMessages.turnNumber))
+          .limit(1)
+      );
+
+      return row?.turnNumber ?? null;
+    });
+  }
+}
+
+export class DrizzleGameStateRepository
+  extends BaseRepository
+  implements GameStateRepository
+{
+  createInitialState(input: CreateInitialStateInput): Promise<GameStateRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(gameStates).values(input).returning(),
+        new ConflictError("Initial game state could not be created.")
+      )
+    );
+  }
+
+  getCurrentState(sessionId: string): Promise<GameStateRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(gameStates)
+          .where(eq(gameStates.sessionId, sessionId))
+          .limit(1)
+      )
+    );
+  }
+
+  updateStateWithVersion(input: UpdateStateInput): Promise<GameStateRecord> {
+    return this.run(async () => {
+      const updates = {
+        version: sql`${gameStates.version} + 1`,
+        updatedAt: new Date()
+      };
+
+      if (input.location !== undefined) {
+        Object.assign(updates, { location: input.location });
+      }
+
+      if (input.worldTime !== undefined) {
+        Object.assign(updates, { worldTime: input.worldTime });
+      }
+
+      if (input.playerStats !== undefined) {
+        Object.assign(updates, { playerStats: input.playerStats });
+      }
+
+      if (input.flags !== undefined) {
+        Object.assign(updates, { flags: input.flags });
+      }
+
+      if (input.stateData !== undefined) {
+        Object.assign(updates, { stateData: input.stateData });
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(gameStates)
+          .set(updates)
+          .where(
+            and(
+              eq(gameStates.sessionId, input.sessionId),
+              eq(gameStates.version, input.expectedVersion)
+            )
+          )
+          .returning(),
+        new StateVersionConflictError(input.sessionId, input.expectedVersion)
+      );
+    });
+  }
+}
+
+export class DrizzleNPCRepository
+  extends BaseRepository
+  implements NPCRepository
+{
+  create(input: CreateNpcInput): Promise<NpcRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(npcs).values(input).returning(),
+        new ConflictError("NPC could not be created.")
+      )
+    );
+  }
+
+  listBySession(sessionId: string): Promise<NpcRecord[]> {
+    return this.run(async () =>
+      this.db.select().from(npcs).where(eq(npcs.sessionId, sessionId))
+    );
+  }
+
+  getByIdForSession(sessionId: string, npcId: string): Promise<NpcRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(npcs)
+          .where(and(eq(npcs.sessionId, sessionId), eq(npcs.id, npcId)))
+          .limit(1)
+      )
+    );
+  }
+
+  updateRuntimeState(input: UpdateNpcRuntimeStateInput): Promise<NpcRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof npcs.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.personality !== undefined) {
+        updates.personality = input.personality;
+      }
+
+      if (input.goals !== undefined) {
+        updates.goals = input.goals;
+      }
+
+      if (input.secrets !== undefined) {
+        updates.secrets = input.secrets;
+      }
+
+      if (input.currentState !== undefined) {
+        updates.currentState = input.currentState;
+      }
+
+      if (input.alive !== undefined) {
+        updates.alive = input.alive;
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(npcs)
+          .set(updates)
+          .where(and(eq(npcs.sessionId, input.sessionId), eq(npcs.id, input.npcId)))
+          .returning(),
+        new NotFoundError("NPC")
+      );
+    });
+  }
+}
+
+export class DrizzleRelationshipRepository
+  extends BaseRepository
+  implements RelationshipRepository
+{
+  getRelationshipEdge(
+    sessionId: string,
+    source: EntityRef,
+    target: EntityRef
+  ): Promise<RelationshipRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(relationships)
+          .where(
+            and(
+              eq(relationships.sessionId, sessionId),
+              entityRefPredicate(relationships.sourceType, relationships.sourceId, source),
+              entityRefPredicate(relationships.targetType, relationships.targetId, target)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  listRelationshipsForEntity(
+    sessionId: string,
+    entity: EntityRef
+  ): Promise<RelationshipRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(relationships)
+        .where(
+          and(
+            eq(relationships.sessionId, sessionId),
+            relationshipEntityPredicate(
+              relationships.sourceType,
+              relationships.sourceId,
+              relationships.targetType,
+              relationships.targetId,
+              entity
+            )
+          )
+        )
+    );
+  }
+
+  upsertRelationship(input: UpsertRelationshipInput): Promise<RelationshipRecord> {
+    return this.run(async () => {
+      const sourceId = normalizeEntityId(input.source);
+      const targetId = normalizeEntityId(input.target);
+      const existing = await this.getRelationshipEdge(
+        input.sessionId,
+        input.source,
+        input.target
+      );
+
+      const values = {
+        sessionId: input.sessionId,
+        sourceType: input.source.type,
+        sourceId,
+        targetType: input.target.type,
+        targetId,
+        affinity: input.affinity ?? 0,
+        trust: input.trust ?? 0,
+        fear: input.fear ?? 0,
+        metadata: input.metadata ?? {},
+        updatedAt: new Date()
+      };
+
+      if (existing) {
+        return firstOrThrow(
+          await this.db
+            .update(relationships)
+            .set(values)
+            .where(eq(relationships.id, existing.id))
+            .returning(),
+          new ConflictError("Relationship could not be updated.")
+        );
+      }
+
+      return firstOrThrow(
+        await this.db.insert(relationships).values(values).returning(),
+        new ConflictError("Relationship could not be created.")
+      );
+    });
+  }
+}
+
+export class DrizzleInventoryRepository
+  extends BaseRepository
+  implements InventoryRepository
+{
+  listInventoryByOwner(
+    sessionId: string,
+    owner: EntityRef
+  ): Promise<InventoryItemRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(inventoryItems)
+        .where(
+          and(
+            eq(inventoryItems.sessionId, sessionId),
+            entityRefPredicate(inventoryItems.ownerType, inventoryItems.ownerId, owner)
+          )
+        )
+    );
+  }
+
+  addOrUpdateQuantity(input: AddInventoryItemInput): Promise<InventoryItemRecord> {
+    return this.run(async () => {
+      if (!Number.isInteger(input.quantity) || input.quantity < 1) {
+        throw new ValidationError("Inventory quantity must be a positive integer.");
+      }
+
+      const owner: EntityRef =
+        input.ownerId === undefined
+          ? { type: input.ownerType }
+          : { type: input.ownerType, id: input.ownerId };
+      const ownerId = normalizeEntityId(owner);
+      const existing = firstOrNull(
+        await this.db
+          .select()
+          .from(inventoryItems)
+          .where(
+            and(
+              eq(inventoryItems.sessionId, input.sessionId),
+              entityRefPredicate(inventoryItems.ownerType, inventoryItems.ownerId, owner),
+              eq(inventoryItems.itemKey, input.itemKey)
+            )
+          )
+          .limit(1)
+      );
+
+      if (existing) {
+        return firstOrThrow(
+          await this.db
+            .update(inventoryItems)
+            .set({
+              quantity: existing.quantity + input.quantity,
+              name: input.name,
+              description: input.description,
+              metadata: input.metadata ?? existing.metadata,
+              updatedAt: new Date()
+            })
+            .where(eq(inventoryItems.id, existing.id))
+            .returning(),
+          new ConflictError("Inventory item could not be updated.")
+        );
+      }
+
+      return firstOrThrow(
+        await this.db
+          .insert(inventoryItems)
+          .values({ ...input, ownerId })
+          .returning(),
+        new ConflictError("Inventory item could not be added.")
+      );
+    });
+  }
+
+  changeQuantity(
+    input: ChangeInventoryQuantityInput
+  ): Promise<InventoryItemRecord | null> {
+    return this.run(async () => {
+      assertInventoryDelta(input.delta);
+      const existing = firstOrNull(
+        await this.db
+          .select()
+          .from(inventoryItems)
+          .where(
+            and(
+              eq(inventoryItems.sessionId, input.sessionId),
+              entityRefPredicate(
+                inventoryItems.ownerType,
+                inventoryItems.ownerId,
+                input.owner
+              ),
+              eq(inventoryItems.itemKey, input.itemKey)
+            )
+          )
+          .limit(1)
+      );
+
+      if (!existing) {
+        throw new NotFoundError("Inventory item");
+      }
+
+      const nextQuantity = existing.quantity + input.delta;
+
+      if (nextQuantity < 0) {
+        throw new ConflictError("Inventory quantity cannot become negative.");
+      }
+
+      if (nextQuantity === 0) {
+        await this.db
+          .delete(inventoryItems)
+          .where(eq(inventoryItems.id, existing.id));
+        return null;
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(inventoryItems)
+          .set({ quantity: nextQuantity, updatedAt: new Date() })
+          .where(eq(inventoryItems.id, existing.id))
+          .returning(),
+        new ConflictError("Inventory item could not be updated.")
+      );
+    });
+  }
+}
+
+export class DrizzleQuestRepository
+  extends BaseRepository
+  implements QuestRepository
+{
+  listSessionQuests(sessionId: string): Promise<QuestRecord[]> {
+    return this.run(async () =>
+      this.db.select().from(quests).where(eq(quests.sessionId, sessionId))
+    );
+  }
+
+  getByQuestKey(sessionId: string, questKey: string): Promise<QuestRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(quests)
+          .where(and(eq(quests.sessionId, sessionId), eq(quests.questKey, questKey)))
+          .limit(1)
+      )
+    );
+  }
+
+  create(input: CreateQuestInput): Promise<QuestRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(quests).values(input).returning(),
+        new ConflictError("Quest could not be created.")
+      )
+    );
+  }
+
+  updateStatusOrProgress(input: UpdateQuestInput): Promise<QuestRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof quests.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.status !== undefined) {
+        updates.status = input.status;
+      }
+
+      if (input.progress !== undefined) {
+        updates.progress = input.progress;
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(quests)
+          .set(updates)
+          .where(and(eq(quests.sessionId, input.sessionId), eq(quests.questKey, input.questKey)))
+          .returning(),
+        new NotFoundError("Quest")
+      );
+    });
+  }
+}
+
+export class DrizzleWorldEventRepository
+  extends BaseRepository
+  implements WorldEventRepository
+{
+  append(input: AppendWorldEventInput): Promise<WorldEventRecord> {
+    return this.run(async () => {
+      if (
+        !Number.isInteger(input.importance) ||
+        input.importance < 1 ||
+        input.importance > 5
+      ) {
+        throw new ValidationError("World event importance must be between 1 and 5.");
+      }
+
+      return firstOrThrow(
+        await this.db.insert(worldEvents).values(input).returning(),
+        new ConflictError("World event could not be appended.")
+      );
+    });
+  }
+
+  getRecentEvents(sessionId: string, limit: number): Promise<WorldEventRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(worldEvents)
+        .where(eq(worldEvents.sessionId, sessionId))
+        .orderBy(desc(worldEvents.turnNumber), desc(worldEvents.createdAt))
+        .limit(limit)
+    );
+  }
+
+  getImportantEvents(
+    sessionId: string,
+    minimumImportance: number,
+    limit = 50
+  ): Promise<WorldEventRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () => {
+      if (
+        !Number.isInteger(minimumImportance) ||
+        minimumImportance < 1 ||
+        minimumImportance > 5
+      ) {
+        throw new ValidationError("Minimum importance must be between 1 and 5.");
+      }
+
+      return this.db
+        .select()
+        .from(worldEvents)
+        .where(
+          and(
+            eq(worldEvents.sessionId, sessionId),
+            gte(worldEvents.importance, minimumImportance)
+          )
+        )
+        .orderBy(desc(worldEvents.importance), desc(worldEvents.createdAt))
+        .limit(limit);
+    });
+  }
+}

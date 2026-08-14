@@ -67,6 +67,31 @@ Next step:
 
 - Phase 2 should add authentication/user identity foundations or a repository/data-access layer before gameplay implementation.
 
+## Phase 1.6: Repository/Data-Access Layer
+
+Status: completed.
+
+Goals:
+
+- Add repository interfaces and Drizzle-backed implementations.
+- Keep application code away from direct Drizzle query syntax.
+- Add shared transaction context for future gameplay turns.
+- Add optimistic concurrency for `game_states.version`.
+- Add structured data-access errors.
+- Prepare API dependency wiring without adding business endpoints.
+
+Completed:
+
+- Added repositories for users, stories, sessions, messages, game state, NPCs, relationships, inventory, quests, and world events.
+- Added `withTransaction` and `RepositoryContext` so future service operations can share one transaction.
+- Added `StateVersionConflictError`, `ConflictError`, and `NotFoundError`.
+- Added API dependency wiring through `buildApp({ dependencies })`.
+- Added contract tests for repository exports, optimistic state conflicts, relationship entity validation, inventory validation, and transaction context behavior.
+
+Next step:
+
+- Phase 2 should add authentication/user identity foundations.
+
 ## Phase 2: Authentication And Catalog
 
 Goals:

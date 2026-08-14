@@ -1,6 +1,7 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { getPublicServerConfig } from "@ai-novel/config";
+import { createAppDependencies, type AppDependencies } from "./dependencies.js";
 import { registerAiRoutes } from "./modules/ai/routes.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { registerGameplayRoutes } from "./modules/gameplay/routes.js";
@@ -9,12 +10,27 @@ import { registerSessionsRoutes } from "./modules/sessions/routes.js";
 import { registerStoriesRoutes } from "./modules/stories/routes.js";
 import { registerUsersRoutes } from "./modules/users/routes.js";
 
-export async function buildApp(): Promise<FastifyInstance> {
+declare module "fastify" {
+  interface FastifyInstance {
+    dependencies: AppDependencies;
+  }
+}
+
+export type BuildAppOptions = {
+  readonly dependencies?: AppDependencies;
+};
+
+export async function buildApp(
+  options: BuildAppOptions = {}
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true
   });
 
   const config = getPublicServerConfig();
+  const dependencies = createAppDependencies(options.dependencies);
+
+  app.decorate("dependencies", dependencies);
 
   await app.register(cors, {
     origin: config.webAppUrl

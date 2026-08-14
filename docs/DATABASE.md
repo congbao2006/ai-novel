@@ -13,7 +13,6 @@ Not implemented yet:
 - Authentication/password tables.
 - Payment, coin, or wallet tables.
 - AI usage ledger tables.
-- Repository/data-access services.
 - Gameplay engine writes.
 
 ## Entity Overview
@@ -350,3 +349,76 @@ It includes:
 - Two character templates per story.
 
 The seed contains original short content only and no third-party copyrighted story/IP material.
+
+## Repository Strategy
+
+Application code should use repository interfaces instead of Drizzle query builders directly. The current repository layer lives in `packages/db/src/repositories`.
+
+Repository groups:
+
+- `UserRepository`
+- `StoryRepository`
+- `GameSessionRepository`
+- `GameMessageRepository`
+- `GameStateRepository`
+- `NPCRepository`
+- `RelationshipRepository`
+- `InventoryRepository`
+- `QuestRepository`
+- `WorldEventRepository`
+
+The repositories are organized around aggregates and use cases rather than one generic CRUD abstraction. For example, `GameSessionRepository` exposes session-specific operations such as `listForUser`, `touchLastPlayedAt`, and `incrementTurnCount`; `GameStateRepository` exposes `updateStateWithVersion` for optimistic concurrency.
+
+The factory `createRepositories(db)` builds a repository set from a database executor. API/application code should depend on these interfaces and persisted record/input DTOs, not on Drizzle internals.
+
+## Transaction Strategy
+
+`withTransaction(db, work)` creates a `RepositoryContext` with repositories bound to the same transaction client. This keeps transaction ownership at the application/service layer.
+
+A future gameplay turn should use one transaction boundary for operations such as:
+
+- append player message
+- update game state
+- update NPC state
+- upsert relationships
+- change inventory
+- append world events
+- append assistant message
+- increment session turn count
+
+Repositories do not open their own transaction for each method. This prevents a multi-step turn from partially committing when later steps fail.
+
+## Optimistic Concurrency
+
+`game_states.version` is used by `GameStateRepository.updateStateWithVersion`.
+
+The update pattern is:
+
+```text
+UPDATE game_states
+SET version = version + 1, ...
+WHERE session_id = ?
+AND version = ?
+RETURNING *
+```
+
+If no row is returned, the repository throws `StateVersionConflictError`. This prevents silent overwrites when two requests try to update the same session state from different versions.
+
+## Query Patterns
+
+Current repository query patterns include:
+
+- user lookup by ID or email
+- story lookup by ID or slug
+- published story listing
+- story listing by genre or creator
+- session create/get/list/touch/status update/turn increment
+- message append/recent/page/last turn lookup
+- current state create/get/versioned update
+- NPC list/get/update runtime state
+- relationship edge lookup/list/upsert
+- inventory list/add/decrement/remove
+- quest list/get/create/update status or progress
+- world event append/recent/important listing
+
+Integration tests are opt-in through `TEST_DATABASE_URL`; local unit and contract tests do not require PostgreSQL.

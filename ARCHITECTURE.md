@@ -69,6 +69,20 @@ The AI engine package defines provider-neutral contracts for prompt assembly, mo
 
 The database package owns schema, migrations, repositories, and transaction helpers. It should expose explicit persistence operations rather than allowing arbitrary writes from feature code.
 
+Application code should not depend directly on Drizzle query syntax. API/application services should use repository interfaces from `packages/db`, while SQL builders and PostgreSQL-specific details stay inside repository implementations.
+
+Expected dependency flow:
+
+```text
+apps/api
+  -> application/service layer
+  -> repository interfaces
+  -> packages/db repositories
+  -> Drizzle/PostgreSQL
+```
+
+Repository contexts support shared transaction boundaries so a future gameplay turn can persist messages, state, NPC updates, relationships, inventory, events, and turn counters in one transaction.
+
 ## Game State Rule
 
 The LLM never directly updates the database.
@@ -81,7 +95,7 @@ Expected future flow:
 4. AI engine prepares a provider-neutral generation request.
 5. Provider adapter returns candidate narrative and proposed state changes.
 6. Domain layer validates and converts proposed changes into allowed events.
-7. API persists events and derived state in a transaction.
+7. API persists events and derived state through repositories in a transaction.
 8. API returns updated narrative/state view to the frontend.
 
 ## Provider Abstraction
