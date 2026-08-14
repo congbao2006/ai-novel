@@ -1,0 +1,15 @@
+{
+  "name": "ai-novel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Interactive Novel + RPG platform foundation.",
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "check": "pnpm check:structure",
+    "check:structure": "node scripts/check-structure.mjs"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  }
+}
