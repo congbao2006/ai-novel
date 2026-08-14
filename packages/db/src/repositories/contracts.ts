@@ -2,7 +2,10 @@ import type {
   AddInventoryItemInput,
   AppendMessageInput,
   AppendWorldEventInput,
+  AuthSessionRecord,
+  AuthUserRecord,
   ChangeInventoryQuantityInput,
+  CreateAuthSessionInput,
   CreateInitialStateInput,
   CreateNpcInput,
   CreateQuestInput,
@@ -30,7 +33,16 @@ import type {
 export type UserRepository = {
   getById(id: string): Promise<UserRecord | null>;
   getByEmail(email: string): Promise<UserRecord | null>;
+  getByEmailForAuth(email: string): Promise<AuthUserRecord | null>;
   create(input: CreateUserInput): Promise<UserRecord>;
+};
+
+export type AuthSessionRepository = {
+  create(input: CreateAuthSessionInput): Promise<AuthSessionRecord>;
+  getValidSessionByTokenHash(tokenHash: string, now?: Date): Promise<AuthSessionRecord | null>;
+  revokeByTokenHash(tokenHash: string, now?: Date): Promise<void>;
+  revokeAllForUser(userId: string, now?: Date): Promise<void>;
+  touchLastUsedAt(sessionId: string, now?: Date): Promise<void>;
 };
 
 export type StoryRepository = {

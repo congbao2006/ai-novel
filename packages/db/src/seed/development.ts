@@ -11,7 +11,9 @@ import {
 export const developmentSeedUser = {
   id: "00000000-0000-4000-8000-000000000001",
   email: "demo@ai-novel.local",
-  displayName: "Demo Player"
+  displayName: "Demo Player",
+  passwordHash:
+    "$argon2id$v=19$m=65536,p=4,t=3$sKlEDlpRvg4o/yKt2yLW/Q$Ia5e+f2bROz7V6xkudODUa0VDa7mJ7+Xj5JHNe8FCU0"
 } satisfies NewUser;
 
 export const developmentSeedStories = [

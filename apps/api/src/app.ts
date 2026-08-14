@@ -1,4 +1,6 @@
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { getPublicServerConfig } from "@ai-novel/config";
 import { createAppDependencies, type AppDependencies } from "./dependencies.js";
@@ -32,8 +34,15 @@ export async function buildApp(
 
   app.decorate("dependencies", dependencies);
 
+  await app.register(cookie);
+  await app.register(rateLimit, {
+    max: 120,
+    timeWindow: "1 minute"
+  });
+
   await app.register(cors, {
-    origin: config.webAppUrl
+    origin: config.webAppUrl,
+    credentials: true
   });
 
   await app.register(registerHealthRoutes);

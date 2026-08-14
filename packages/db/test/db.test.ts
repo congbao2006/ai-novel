@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  authSessions,
   developmentSeedData,
   entityTypeEnum,
   gameMessages,
@@ -30,6 +31,7 @@ describe("db package", () => {
 
   it("exports all required business tables", () => {
     expect(users).toBeDefined();
+    expect(authSessions).toBeDefined();
     expect(stories).toBeDefined();
     expect(storyCharacters).toBeDefined();
     expect(gameSessions).toBeDefined();

@@ -6,6 +6,7 @@ import type {
   StoryStatus
 } from "@ai-novel/domain";
 import type {
+  AuthSession,
   GameMessage,
   GameSession,
   GameState,
@@ -14,6 +15,7 @@ import type {
   NewGameSession,
   NewGameState,
   NewInventoryItem,
+  NewAuthSession,
   NewNpc,
   NewQuest,
   NewRelationship,
@@ -33,8 +35,18 @@ export type { EntityType, MessageRole, QuestStatus, SessionStatus, StoryStatus }
 
 export type JsonObject = Record<string, unknown>;
 
-export type UserRecord = User;
-export type CreateUserInput = Pick<NewUser, "email" | "displayName">;
+export type UserRecord = Omit<User, "passwordHash">;
+export type AuthUserRecord = User;
+export type CreateUserInput = Pick<
+  NewUser,
+  "email" | "displayName" | "passwordHash"
+>;
+
+export type AuthSessionRecord = AuthSession;
+export type CreateAuthSessionInput = Pick<
+  NewAuthSession,
+  "userId" | "tokenHash" | "expiresAt"
+>;
 
 export type StoryRecord = Story;
 export type StoryCharacterRecord = StoryCharacter;

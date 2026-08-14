@@ -1,3 +1,5 @@
+import { AuthStatus } from "../components/auth-status";
+
 export default function Home() {
   return (
     <main className="min-h-screen px-6 py-10">
@@ -12,6 +14,7 @@ export default function Home() {
           Frontend is running. Gameplay, payments, coin system, NPC engine, and
           live AI integration are intentionally not implemented yet.
         </p>
+        <AuthStatus />
       </section>
     </main>
   );

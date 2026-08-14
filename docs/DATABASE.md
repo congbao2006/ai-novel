@@ -6,11 +6,10 @@ PostgreSQL is the primary database. The project uses Drizzle ORM for TypeScript 
 
 ## Current Status
 
-The foundational business schema is implemented for the AI Interactive Novel platform. It supports users, story templates, runtime sessions, messages, current state, NPCs, relationships, inventory, quests, and world events.
+The foundational business schema is implemented for the AI Interactive Novel platform. It supports users, auth sessions, story templates, runtime sessions, messages, current state, NPCs, relationships, inventory, quests, and world events.
 
 Not implemented yet:
 
-- Authentication/password tables.
 - Payment, coin, or wallet tables.
 - AI usage ledger tables.
 - Gameplay engine writes.
@@ -19,17 +18,35 @@ Not implemented yet:
 
 ### `users`
 
-Represents an application user without auth/password implementation.
+Represents an application user with MVP email/password identity fields.
 
 Important columns:
 
 - `id`
 - `email`
 - `display_name`
+- `password_hash`
+- `email_verified_at`
 - `created_at`
 - `updated_at`
 
-`email` is unique.
+`email` is unique. `password_hash` is required for email/password auth and must never be returned in API responses.
+
+### `auth_sessions`
+
+Represents a server-side login session.
+
+Important columns:
+
+- `id`
+- `user_id`
+- `token_hash`
+- `created_at`
+- `expires_at`
+- `last_used_at`
+- `revoked_at`
+
+The raw session token lives only in the browser cookie. The database stores `token_hash`, which is unique. Sessions are valid only when `expires_at` is in the future and `revoked_at` is null.
 
 ### `stories`
 
@@ -218,6 +235,7 @@ Important columns:
 ## Table Relationships
 
 - `stories.created_by_user_id -> users.id`, nullable.
+- `auth_sessions.user_id -> users.id`.
 - `story_characters.story_id -> stories.id`.
 - `game_sessions.user_id -> users.id`.
 - `game_sessions.story_id -> stories.id`.
@@ -278,6 +296,9 @@ The full game is not stored as one JSON blob. Structured tables keep persistent 
 
 Current indexes:
 
+- `auth_sessions_token_hash_unique`
+- `auth_sessions_user_id_idx`
+- `auth_sessions_expires_at_idx`
 - `stories_status_idx`
 - `story_characters_story_id_idx`
 - `game_sessions_user_id_idx`
@@ -303,6 +324,7 @@ These support common access patterns: loading a user's sessions, filtering story
 ## Deletion And Cascade Strategy
 
 - Deleting a user cascades their `game_sessions`. This removes session-owned runtime rows through session cascades.
+- Deleting a user cascades their `auth_sessions`.
 - Deleting a story is restricted when sessions reference it, preserving playthrough history.
 - Deleting a story cascades its `story_characters` only when no session restriction blocks the story deletion.
 - `stories.created_by_user_id` is set to null when the creator user is deleted.
@@ -335,6 +357,7 @@ Migration files are checked into `packages/db/drizzle`.
 Current migration:
 
 - `0000_thin_loki.sql`
+- `0001_high_starhawk.sql`
 
 Migration generation does not require a local PostgreSQL server. Applying migrations will require a target database and should not be done against production manually.
 
@@ -357,6 +380,7 @@ Application code should use repository interfaces instead of Drizzle query build
 Repository groups:
 
 - `UserRepository`
+- `AuthSessionRepository`
 - `StoryRepository`
 - `GameSessionRepository`
 - `GameMessageRepository`
@@ -409,6 +433,7 @@ If no row is returned, the repository throws `StateVersionConflictError`. This p
 Current repository query patterns include:
 
 - user lookup by ID or email
+- auth session create/validate/revoke/touch
 - story lookup by ID or slug
 - published story listing
 - story listing by genre or creator

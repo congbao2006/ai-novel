@@ -35,6 +35,7 @@ describe("repository layer", () => {
     const repositories = createRepositories({} as DbExecutor);
 
     expect(Object.keys(repositories).sort()).toEqual([
+      "authSessions",
       "gameMessages",
       "gameSessions",
       "gameStates",

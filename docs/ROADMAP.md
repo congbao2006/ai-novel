@@ -92,11 +92,36 @@ Next step:
 
 - Phase 2 should add authentication/user identity foundations.
 
-## Phase 2: Authentication And Catalog
+## Phase 2.1: Authentication And User Identity
+
+Status: completed.
 
 Goals:
 
 - User registration and login.
+- Server-side session creation and revocation.
+- httpOnly cookie authentication.
+- Current-user API.
+- Minimal web login/register pages.
+
+Completed:
+
+- Added email/password registration and login with Argon2id password hashing.
+- Added `auth_sessions` storing hashed session tokens only.
+- Added `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, and `GET /auth/me`.
+- Added Fastify request identity helpers for protected routes.
+- Added minimal `/login` and `/register` web pages.
+
+Next step:
+
+- Build story browsing and session creation foundations.
+
+## Phase 2.2: Story Browsing And Catalog
+
+Status: pending.
+
+Goals:
+
 - Story catalog browsing.
 - Story detail pages.
 - Authorization foundations.

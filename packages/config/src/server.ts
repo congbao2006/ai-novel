@@ -9,6 +9,10 @@ const serverConfigSchema = z.object({
   database: z.object({
     url: z.string().min(1).optional()
   }),
+  auth: z.object({
+    cookieName: z.string().min(1).default("ai_novel_session"),
+    sessionTtlSeconds: z.coerce.number().int().positive().default(60 * 60 * 24 * 14)
+  }),
   ai: z.object({
     provider: z.string().default("disabled"),
     providerApiKey: z.string().optional()
@@ -29,6 +33,10 @@ export function getServerConfig(
     },
     database: {
       url: env.DATABASE_URL
+    },
+    auth: {
+      cookieName: env.AUTH_COOKIE_NAME,
+      sessionTtlSeconds: env.AUTH_SESSION_TTL_SECONDS
     },
     ai: {
       provider: env.AI_PROVIDER,

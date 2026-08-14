@@ -26,6 +26,7 @@ In scope:
 - Production-oriented repository structure.
 - Product, architecture, database, memory, AI engine, and roadmap documentation.
 - Technical decisions that protect future gameplay implementation.
+- MVP account registration, login, logout, and current-user identity foundation.
 
 Out of scope:
 

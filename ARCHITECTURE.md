@@ -130,6 +130,28 @@ AI cost control must be part of request orchestration:
 - Authorization checks are required for every session, save, character, and purchase-related resource.
 - Admin operations must be isolated from player APIs.
 
+## Authentication
+
+The MVP uses email/password authentication with server-side sessions and httpOnly cookies. Server-side sessions were chosen over self-contained JWTs because they are easy to revoke, support logout server-side, and leave a clear path to logout-all-devices, session rotation, and OAuth account linking later.
+
+Auth flow:
+
+```text
+Browser
+  -> POST /auth/login or /auth/register
+  -> AuthService
+  -> UserRepository
+  -> Argon2id password verify/hash
+  -> AuthSessionRepository creates token hash
+  -> API sets httpOnly cookie with raw random token
+  -> browser sends cookie on later requests
+  -> auth middleware hashes cookie token
+  -> AuthSessionRepository validates non-expired, non-revoked session
+  -> request.currentUser is available to protected routes
+```
+
+The database stores only session token hashes, never raw session tokens. Password hashes are never returned in API responses.
+
 ## Future Services
 
 Future additions may include:

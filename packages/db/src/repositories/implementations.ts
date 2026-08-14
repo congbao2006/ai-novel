@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNull, sql } from "drizzle-orm";
 import type { DbExecutor } from "./context.js";
 import {
   ConflictError,
@@ -20,7 +20,10 @@ import type {
   AddInventoryItemInput,
   AppendMessageInput,
   AppendWorldEventInput,
+  AuthSessionRecord,
+  AuthUserRecord,
   ChangeInventoryQuantityInput,
+  CreateAuthSessionInput,
   CreateInitialStateInput,
   CreateNpcInput,
   CreateQuestInput,
@@ -45,6 +48,7 @@ import type {
   WorldEventRecord
 } from "./types.js";
 import {
+  authSessions,
   gameMessages,
   gameSessions,
   gameStates,
@@ -57,6 +61,7 @@ import {
   worldEvents
 } from "../schema/index.js";
 import type {
+  AuthSessionRepository,
   GameMessageRepository,
   GameSessionRepository,
   GameStateRepository,
@@ -68,6 +73,15 @@ import type {
   UserRepository,
   WorldEventRepository
 } from "./contracts.js";
+
+const publicUserColumns = {
+  id: users.id,
+  email: users.email,
+  displayName: users.displayName,
+  emailVerifiedAt: users.emailVerifiedAt,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt
+};
 
 abstract class BaseRepository {
   constructor(protected readonly db: DbExecutor) {}
@@ -91,11 +105,29 @@ export class DrizzleUserRepository
 {
   getById(id: string): Promise<UserRecord | null> {
     return this.run(async () =>
-      firstOrNull(await this.db.select().from(users).where(eq(users.id, id)).limit(1))
+      firstOrNull(
+        await this.db
+          .select(publicUserColumns)
+          .from(users)
+          .where(eq(users.id, id))
+          .limit(1)
+      )
     );
   }
 
   getByEmail(email: string): Promise<UserRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select(publicUserColumns)
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1)
+      )
+    );
+  }
+
+  getByEmailForAuth(email: string): Promise<AuthUserRecord | null> {
     return this.run(async () =>
       firstOrNull(
         await this.db.select().from(users).where(eq(users.email, email)).limit(1)
@@ -106,10 +138,74 @@ export class DrizzleUserRepository
   create(input: CreateUserInput): Promise<UserRecord> {
     return this.run(async () =>
       firstOrThrow(
-        await this.db.insert(users).values(input).returning(),
+        await this.db.insert(users).values(input).returning(publicUserColumns),
         new ConflictError("User could not be created.")
       )
     );
+  }
+}
+
+export class DrizzleAuthSessionRepository
+  extends BaseRepository
+  implements AuthSessionRepository
+{
+  create(input: CreateAuthSessionInput): Promise<AuthSessionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(authSessions).values(input).returning(),
+        new ConflictError("Auth session could not be created.")
+      )
+    );
+  }
+
+  getValidSessionByTokenHash(
+    tokenHash: string,
+    now = new Date()
+  ): Promise<AuthSessionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(authSessions)
+          .where(
+            and(
+              eq(authSessions.tokenHash, tokenHash),
+              isNull(authSessions.revokedAt),
+              gt(authSessions.expiresAt, now)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  async revokeByTokenHash(tokenHash: string, now = new Date()): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .update(authSessions)
+        .set({ revokedAt: now, lastUsedAt: now })
+        .where(eq(authSessions.tokenHash, tokenHash));
+    });
+  }
+
+  async revokeAllForUser(userId: string, now = new Date()): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .update(authSessions)
+        .set({ revokedAt: now, lastUsedAt: now })
+        .where(
+          and(eq(authSessions.userId, userId), isNull(authSessions.revokedAt))
+        );
+    });
+  }
+
+  async touchLastUsedAt(sessionId: string, now = new Date()): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .update(authSessions)
+        .set({ lastUsedAt: now })
+        .where(eq(authSessions.id, sessionId));
+    });
   }
 }
 
