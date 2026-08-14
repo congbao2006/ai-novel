@@ -14,9 +14,11 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:seed:dev": "tsx src/seed/run-development.ts"
   },
   "dependencies": {
+    "@ai-novel/domain": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "pg": "^8.16.3"
   },

@@ -96,6 +96,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@ai-novel/domain':
+        specifier: workspace:*
+        version: link:../domain
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.2(@types/pg@8.21.0)(pg@8.23.0)

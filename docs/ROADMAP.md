@@ -42,7 +42,30 @@ Completed:
 
 Next step:
 
-- Phase 2 should add authentication and story catalog foundations only after this skeleton is reviewed.
+- Database schema foundations were added after this skeleton.
+
+## Phase 1.5: Database Schema Foundations
+
+Status: completed.
+
+Goals:
+
+- Implement foundational PostgreSQL schema with Drizzle.
+- Add initial migration.
+- Add development seed data.
+- Add domain enum/type exports for shared database values.
+- Keep runtime state separate from story templates.
+
+Completed:
+
+- Added tables for users, stories, story characters, game sessions, game messages, game states, NPCs, relationships, inventory items, quests, and world events.
+- Added PostgreSQL enums for story status, session status, message role, quest status, and entity type.
+- Added indexes and constraints for session loading, transcript ordering, runtime state uniqueness, quest uniqueness, relationship edge uniqueness, and numeric ranges.
+- Added development seed data with one demo user and three original stories.
+
+Next step:
+
+- Phase 2 should add authentication/user identity foundations or a repository/data-access layer before gameplay implementation.
 
 ## Phase 2: Authentication And Catalog
 
