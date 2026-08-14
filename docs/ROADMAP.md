@@ -2,7 +2,7 @@
 
 ## Phase 0: Foundation
 
-Status: current.
+Status: completed.
 
 Goals:
 
@@ -21,6 +21,8 @@ Not included:
 
 ## Phase 1: Application Skeleton
 
+Status: completed.
+
 Goals:
 
 - Initialize frontend app.
@@ -29,6 +31,18 @@ Goals:
 - Add linting, formatting, and test runner.
 - Add environment validation pattern.
 - Add local development documentation.
+
+Completed:
+
+- `apps/web` has a minimal Next.js App Router skeleton with TypeScript, Tailwind CSS, and ESLint.
+- `apps/api` has a Fastify TypeScript skeleton with `GET /health`.
+- Workspace packages exist for domain, database, AI engine, and shared config.
+- The AI engine package defines provider-neutral contracts without live provider integration.
+- The database package is prepared for PostgreSQL with Drizzle infrastructure but no gameplay schema.
+
+Next step:
+
+- Phase 2 should add authentication and story catalog foundations only after this skeleton is reviewed.
 
 ## Phase 2: Authentication And Catalog
 

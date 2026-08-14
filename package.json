@@ -5,11 +5,27 @@
   "description": "AI Interactive Novel + RPG platform foundation.",
   "packageManager": "pnpm@11.19.0",
   "scripts": {
-    "check": "pnpm check:structure",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @ai-novel/api --filter @ai-novel/web dev",
+    "build:packages": "pnpm -r --filter './packages/*' build",
+    "build": "pnpm -r --if-present build",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "check": "pnpm check:structure && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "check:structure": "node scripts/check-structure.mjs"
   },
   "engines": {
     "node": ">=22",
     "pnpm": ">=10"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^4.0.8"
   }
 }

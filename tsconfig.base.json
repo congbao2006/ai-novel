@@ -8,6 +8,18 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ai-novel/domain": ["packages/domain/src/index.ts"],
+      "@ai-novel/ai-engine": ["packages/ai-engine/src/index.ts"],
+      "@ai-novel/config": ["packages/config/src/index.ts"],
+      "@ai-novel/db": ["packages/db/src/index.ts"]
+    }
   }
 }
