@@ -161,7 +161,7 @@ Next step:
 
 ## Phase 3: Deterministic Gameplay Turn Engine
 
-Status: pending.
+Status: completed.
 
 Goals:
 
@@ -171,7 +171,25 @@ Goals:
 - Deterministic validators.
 - Tests for state transitions.
 
-## Phase 4: AI Engine Integration
+Completed:
+
+- Added protected `POST /sessions/:id/turns`.
+- Added pure deterministic turn engine in `packages/domain`.
+- Added simple Vietnamese/English command parsing for look, rest, move, and status.
+- Unknown actions are persisted and receive a safe deterministic fallback.
+- Player and assistant messages are persisted with the same `turnNumber`.
+- Movement turns update location and append a `movement` world event.
+- Turn persistence is atomic through the repository transaction boundary.
+- `game_states.version` conflicts map to HTTP 409 with no automatic retry.
+- Updated `/play/[sessionId]` with recent messages and a minimal action form.
+
+Next step:
+
+- AI Gateway Provider Integration.
+
+## Phase 4: AI Gateway Provider Integration
+
+Status: pending.
 
 Goals:
 

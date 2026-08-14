@@ -56,9 +56,28 @@ export type GameMessage = {
   readonly createdAt: string;
 };
 
+export type WorldEvent = {
+  readonly id: string;
+  readonly eventType: string;
+  readonly title: string;
+  readonly description: string;
+  readonly importance: number;
+  readonly payload: Record<string, unknown>;
+  readonly turnNumber: number;
+  readonly createdAt: string;
+};
+
 export type SessionDetail = SessionListItem & {
   readonly currentState: GameState | null;
   readonly recentMessages: GameMessage[];
+};
+
+export type GameplayTurnResponse = {
+  readonly turnNumber: number;
+  readonly playerMessage: GameMessage;
+  readonly resultMessage: GameMessage;
+  readonly state: GameState;
+  readonly events: WorldEvent[];
 };
 
 export async function apiRequest<T>(

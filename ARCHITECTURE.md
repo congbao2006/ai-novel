@@ -62,6 +62,7 @@ Current application services:
 - `AuthService` owns registration, login, logout, password hashing, and session cookie identity.
 - `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
 - `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
+- `GameplayService` owns authenticated deterministic turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps.
 
 ### Domain Package
 
@@ -105,6 +106,30 @@ Browser
 
 The initial state builder is deterministic and does not call an LLM. It copies public character template stats and fills safe defaults until authored public initial world fields are introduced.
 
+The current deterministic turn flow uses the same boundary:
+
+```text
+Browser
+  -> POST /sessions/:id/turns
+  -> requireUser
+  -> GameplayService
+  -> withTransaction
+      -> load session and enforce ownership
+      -> load current GameState
+      -> determine next turn number
+      -> append player message
+      -> run pure deterministic domain engine
+      -> validate state patch
+      -> update GameState with expected version
+      -> append world events
+      -> append assistant result message
+      -> increment turn count
+      -> touch lastPlayedAt
+  -> turn response DTO
+```
+
+Player and assistant messages for the same action share the same `turnNumber`. This keeps one user action plus one deterministic result grouped as a single turn.
+
 ## Game State Rule
 
 The LLM never directly updates the database.
@@ -114,11 +139,12 @@ Expected future flow:
 1. Player sends an action to the API.
 2. API loads the current session state.
 3. Domain layer builds a controlled state snapshot.
-4. AI engine prepares a provider-neutral generation request.
-5. Provider adapter returns candidate narrative and proposed state changes.
-6. Domain layer validates and converts proposed changes into allowed events.
-7. API persists events and derived state through repositories in a transaction.
-8. API returns updated narrative/state view to the frontend.
+4. Current deterministic engine parses simple commands and returns a validated patch plus optional events.
+5. Future AI engine may prepare a provider-neutral generation request after budget checks.
+6. Provider adapter returns candidate narrative and proposed state changes.
+7. Domain layer validates and converts proposed changes into allowed events.
+8. API persists events and derived state through repositories in a transaction.
+9. API returns updated narrative/state view to the frontend.
 
 ## Provider Abstraction
 
@@ -153,6 +179,8 @@ AI cost control must be part of request orchestration:
 - Admin operations must be isolated from player APIs.
 - Story catalog/detail DTOs must not expose `world_prompt`, `opening_prompt`, password hashes, auth sessions, or other internal orchestration data.
 - Session reads are scoped to `request.currentUser`; user IDs from request bodies are ignored.
+- Gameplay turn requests accept only player action text. Clients cannot send state patches, user IDs, session owners, or event payloads.
+- `game_states.version` provides optimistic concurrency. A stale turn receives HTTP 409 rather than being silently retried.
 
 ## Authentication
 

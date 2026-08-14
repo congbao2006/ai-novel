@@ -3,7 +3,8 @@ import type {
   GameSessionRecord,
   GameStateRecord,
   StoryCharacterRecord,
-  StoryRecord
+  StoryRecord,
+  WorldEventRecord
 } from "@ai-novel/db";
 import { toStoryCharacterDto, toStoryListItemDto } from "../stories/dto.js";
 
@@ -39,6 +40,17 @@ export type GameMessageDto = {
   readonly createdAt: string;
 };
 
+export type WorldEventDto = {
+  readonly id: string;
+  readonly eventType: string;
+  readonly title: string;
+  readonly description: string;
+  readonly importance: number;
+  readonly payload: Record<string, unknown>;
+  readonly turnNumber: number;
+  readonly createdAt: string;
+};
+
 export type SessionDetailDto = SessionListItemDto & {
   readonly currentState: GameStateDto | null;
   readonly recentMessages: GameMessageDto[];
@@ -50,6 +62,14 @@ export type SessionListResponseDto = {
 
 export type CreateSessionResponseDto = {
   readonly session: SessionDetailDto;
+};
+
+export type GameplayTurnResponseDto = {
+  readonly turnNumber: number;
+  readonly playerMessage: GameMessageDto;
+  readonly resultMessage: GameMessageDto;
+  readonly state: GameStateDto;
+  readonly events: WorldEventDto[];
 };
 
 export function toSessionListItemDto(input: {
@@ -90,6 +110,19 @@ export function toGameMessageDto(message: GameMessageRecord): GameMessageDto {
     content: message.content,
     turnNumber: message.turnNumber,
     createdAt: message.createdAt.toISOString()
+  };
+}
+
+export function toWorldEventDto(event: WorldEventRecord): WorldEventDto {
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    title: event.title,
+    description: event.description,
+    importance: event.importance,
+    payload: copyJsonObject(event.payload),
+    turnNumber: event.turnNumber,
+    createdAt: event.createdAt.toISOString()
   };
 }
 

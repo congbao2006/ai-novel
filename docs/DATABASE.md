@@ -12,7 +12,7 @@ Not implemented yet:
 
 - Payment, coin, or wallet tables.
 - AI usage ledger tables.
-- Gameplay engine writes.
+- AI-generated gameplay writes.
 - Story editor/versioning tables.
 
 ## Entity Overview
@@ -118,6 +118,8 @@ Important columns:
 - `created_at`
 
 `role` uses `message_role`: `system`, `player`, `assistant`.
+
+For deterministic gameplay turns, both the player action message and assistant result message use the same `turn_number`. The turn number represents one user action plus one server result, not an individual row index.
 
 ### `game_states`
 
@@ -314,7 +316,39 @@ SessionService
 
 No repository opens its own transaction for this use case. The application service owns the boundary so future gameplay initialization can add NPC runtime rows, relationships, inventory, quests, and world events to the same unit of work.
 
-No deterministic assistant/opening message is created yet. Until the gameplay engine exists, the transcript remains empty and the play page renders a shell.
+No assistant/opening message is created during session creation. Transcript rows begin only when the player submits a turn.
+
+## Deterministic Turn Transaction
+
+Gameplay turns are persisted atomically:
+
+```text
+GameplayService
+  -> withTransaction
+      -> load session and enforce ownership
+      -> load current game_states row
+      -> get last message turn number
+      -> append player game_messages row
+      -> run deterministic domain engine
+      -> update game_states where version = expectedVersion
+      -> append world_events rows when the transition is significant
+      -> append assistant game_messages row
+      -> increment game_sessions.turn_count
+      -> touch game_sessions.last_played_at
+  -> response DTO
+```
+
+If the state update fails because `game_states.version` changed, the repository raises `StateVersionConflictError` and the API returns HTTP 409. The turn is not retried automatically because retrying could apply the same player action twice. PostgreSQL transaction rollback ensures partial messages/events do not remain after a failed turn.
+
+Current deterministic commands:
+
+- `look`, `quan sát`, `quan sat`, `nhìn`, `nhin`: returns a location/story description and records `lastCommand`.
+- `rest`, `nghỉ`, `nghi`: increments `state_data.restCount` and records `lastCommand`.
+- `move <location>`, `go <location>`, `đi <location>`, `di <location>`: updates `game_states.location` and appends a `movement` world event.
+- `status`, `trạng thái`, `trang thai`: returns a state summary and records `lastCommand`.
+- Unknown actions: player input is stored and an assistant fallback is stored; no location change or world event is created.
+
+Session detail reads load at most 50 recent messages for the play page. Full transcript pagination remains the responsibility of future transcript/history endpoints.
 
 ## JSONB Strategy
 

@@ -3,26 +3,82 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { authRequest, type SessionDetail } from "../../../lib/api";
+import {
+  authRequest,
+  type GameMessage,
+  type GameplayTurnResponse,
+  type SessionDetail
+} from "../../../lib/api";
 
 export default function PlayShellPage() {
   const params = useParams<{ sessionId: string }>();
   const [session, setSession] = useState<SessionDetail | null>(null);
+  const [messages, setMessages] = useState<GameMessage[]>([]);
+  const [action, setAction] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!params.sessionId) {
       return;
     }
 
-    authRequest<SessionDetail>(`/sessions/${params.sessionId}`)
-      .then((result) => setSession(result))
-      .catch((caught) =>
-        setError(caught instanceof Error ? caught.message : "Request failed.")
-      )
-      .finally(() => setLoaded(true));
+    loadSession();
   }, [params.sessionId]);
+
+  async function loadSession() {
+    setLoaded(false);
+    setError(null);
+
+    try {
+      const result = await authRequest<SessionDetail>(
+        `/sessions/${params.sessionId}`
+      );
+      setSession(result);
+      setMessages(result.recentMessages);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Request failed.");
+    } finally {
+      setLoaded(true);
+    }
+  }
+
+  async function submitAction(formData: FormData) {
+    const nextAction = String(formData.get("action") ?? "");
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      const result = await authRequest<GameplayTurnResponse>(
+        `/sessions/${params.sessionId}/turns`,
+        {
+          method: "POST",
+          body: JSON.stringify({ action: nextAction })
+        }
+      );
+
+      setMessages((current) => [
+        ...current,
+        result.playerMessage,
+        result.resultMessage
+      ]);
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              currentState: result.state,
+              turnCount: Math.max(current.turnCount + 1, result.turnNumber)
+            }
+          : current
+      );
+      setAction("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Request failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <main className="min-h-screen px-6 py-10">
@@ -75,10 +131,49 @@ export default function PlayShellPage() {
 
             <div className="mt-6 muted-panel">
               <p className="text-sm leading-6 text-[var(--muted)]">
-                Gameplay AI chưa được bật. Session và GameState đã được tạo để
-                chuẩn bị cho engine deterministic ở bước tiếp theo.
+                Engine deterministic đang bật. AI/LLM chưa được tích hợp.
               </p>
             </div>
+
+            <div className="mt-6 grid gap-3">
+              {messages.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">
+                  Chưa có hành động nào trong session này.
+                </p>
+              ) : null}
+              {messages.map((message) => (
+                <article key={message.id} className="muted-panel">
+                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
+                    {message.role} · turn {message.turnNumber}
+                  </p>
+                  <p className="mt-2 text-sm leading-6">{message.content}</p>
+                </article>
+              ))}
+            </div>
+
+            <form action={submitAction} className="mt-6 grid gap-3">
+              <label className="grid gap-2 text-sm text-[var(--muted)]">
+                Action
+                <textarea
+                  className="action-input"
+                  maxLength={2000}
+                  name="action"
+                  onChange={(event) => setAction(event.target.value)}
+                  placeholder="quan sát, nghỉ, đi Chợ Đông, trạng thái..."
+                  required
+                  rows={4}
+                  value={action}
+                />
+              </label>
+              {error ? <p className="auth-error">{error}</p> : null}
+              <button
+                className="auth-link justify-self-start"
+                disabled={submitting || action.trim().length === 0}
+                type="submit"
+              >
+                {submitting ? "Đang xử lý..." : "Gửi action"}
+              </button>
+            </form>
           </div>
         ) : null}
       </section>

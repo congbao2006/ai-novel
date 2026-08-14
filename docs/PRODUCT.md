@@ -29,11 +29,12 @@ In scope:
 - MVP account registration, login, logout, and current-user identity foundation.
 - Story browsing for published stories.
 - Story detail pages with public character templates.
-- Authenticated session creation and resume shell without gameplay turns.
+- Authenticated session creation and resume.
+- Deterministic gameplay turns for simple typed commands.
 
 Out of scope:
 
-- Gameplay implementation.
+- AI-assisted gameplay implementation.
 - Payment or coin system implementation.
 - Live AI provider integration.
 - Admin dashboard implementation.
@@ -58,11 +59,13 @@ A player-controlled identity inside a story. A character can be selected from te
 
 A single ongoing playthrough of a story by a user and character. It owns current state, transcript, events, memory, inventory, relationships, quests, and save points.
 
-The current MVP can create a session from a published story and selected character template, initialize deterministic server-owned state, list the signed-in user's sessions, and reopen a read-only play shell. Chat/gameplay input is intentionally not enabled yet.
+The current MVP can create a session from a published story and selected character template, initialize deterministic server-owned state, list the signed-in user's sessions, reopen a play page, and submit simple deterministic text actions.
 
 ### Turn
 
 One player action plus the system response generated from current state, story rules, and AI assistance.
+
+Current turn support is deterministic only. Supported commands include observe, rest, move, and status in simple Vietnamese/English forms. Unknown actions are recorded and receive a safe deterministic fallback without dangerous state changes.
 
 ### Save
 

@@ -29,6 +29,13 @@ export class ResourceNotFoundError extends ApplicationError {
   }
 }
 
+export class ConflictApplicationError extends ApplicationError {
+  constructor(message = "Conflict.") {
+    super(message, "conflict", 409);
+    this.name = "ConflictApplicationError";
+  }
+}
+
 export class AccessDeniedError extends ApplicationError {
   constructor(message = "Access denied.") {
     super(message, "access_denied", 403);

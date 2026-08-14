@@ -6,6 +6,7 @@ import {
 import { buildApp } from "./app.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
+import { GameplayService } from "./modules/sessions/gameplay-service.js";
 import { SessionService } from "./modules/sessions/service.js";
 import { StoryService } from "./modules/stories/service.js";
 
@@ -25,11 +26,15 @@ const storyService = repositories ? new StoryService(repositories) : undefined;
 const sessionService = repositories
   ? new SessionService(repositories, database)
   : undefined;
+const gameplayService = repositories
+  ? new GameplayService(repositories, database)
+  : undefined;
 const dependencies = {
   ...(repositories ? { repositories } : {}),
   ...(authService ? { authService } : {}),
   ...(storyService ? { storyService } : {}),
-  ...(sessionService ? { sessionService } : {})
+  ...(sessionService ? { sessionService } : {}),
+  ...(gameplayService ? { gameplayService } : {})
 };
 const app = await buildApp({
   dependencies

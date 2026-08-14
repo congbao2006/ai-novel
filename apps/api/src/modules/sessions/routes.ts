@@ -12,6 +12,10 @@ const sessionParamsSchema = z.object({
   id: z.uuid()
 });
 
+const submitTurnSchema = z.object({
+  action: z.string().max(2000)
+});
+
 export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { preHandler: requireUser }, async (request) => {
     const sessionService = app.dependencies.sessionService;
@@ -37,6 +41,19 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
     );
 
     return reply.code(201).send(result);
+  });
+
+  app.post("/:id/turns", { preHandler: requireUser }, async (request) => {
+    const gameplayService = app.dependencies.gameplayService;
+
+    if (!gameplayService) {
+      throw new ServiceUnavailableError("Gameplay service is unavailable.");
+    }
+
+    const params = sessionParamsSchema.parse(request.params);
+    const input = submitTurnSchema.parse(request.body);
+
+    return gameplayService.submitTurn(getRequiredUser(request), params.id, input);
   });
 
   app.get("/:id", { preHandler: requireUser }, async (request) => {

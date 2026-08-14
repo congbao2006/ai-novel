@@ -154,7 +154,7 @@ export class SessionService {
     const { story, character } = await this.loadSessionReferences(session);
     const [currentState, recentMessages] = await Promise.all([
       this.repositories.gameStates.getCurrentState(session.id),
-      this.repositories.gameMessages.getRecentMessages(session.id, 20)
+      this.repositories.gameMessages.getRecentMessages(session.id, 50)
     ]);
 
     return {
@@ -163,8 +163,31 @@ export class SessionService {
         ? toGameStateDto(currentState as GameStateRecord)
         : null,
       recentMessages: [...(recentMessages as GameMessageRecord[])]
-        .reverse()
+        .sort(compareMessagesForTranscript)
         .map(toGameMessageDto)
     };
   }
+}
+
+function compareMessagesForTranscript(
+  left: GameMessageRecord,
+  right: GameMessageRecord
+): number {
+  if (left.turnNumber !== right.turnNumber) {
+    return left.turnNumber - right.turnNumber;
+  }
+
+  return messageRoleOrder(left.role) - messageRoleOrder(right.role);
+}
+
+function messageRoleOrder(role: GameMessageRecord["role"]): number {
+  if (role === "player") {
+    return 0;
+  }
+
+  if (role === "assistant") {
+    return 1;
+  }
+
+  return 2;
 }

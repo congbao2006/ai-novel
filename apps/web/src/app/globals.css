@@ -140,3 +140,14 @@ a {
 .choice-list input {
   margin-right: 0.5rem;
 }
+
+.action-input {
+  background: #171c1a;
+  border: 1px solid #33413a;
+  color: var(--foreground);
+  font: inherit;
+  line-height: 1.5;
+  padding: 0.85rem 0.9rem;
+  resize: vertical;
+  width: 100%;
+}
