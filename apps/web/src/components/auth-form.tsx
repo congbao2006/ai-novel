@@ -6,9 +6,10 @@ import { authRequest } from "../lib/api";
 
 type AuthFormProps = {
   readonly mode: "login" | "register";
+  readonly nextPath?: string | undefined;
 };
 
-export function AuthForm({ mode }: AuthFormProps) {
+export function AuthForm({ mode, nextPath }: AuthFormProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,7 +35,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         method: "POST",
         body: JSON.stringify(payload)
       });
-      router.push("/");
+      router.push(nextPath && nextPath.startsWith("/") ? nextPath : "/");
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Request failed.");

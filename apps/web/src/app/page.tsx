@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AuthStatus } from "../components/auth-status";
 
 export default function Home() {
@@ -14,6 +15,14 @@ export default function Home() {
           Frontend is running. Gameplay, payments, coin system, NPC engine, and
           live AI integration are intentionally not implemented yet.
         </p>
+        <div className="mt-8 flex flex-wrap gap-3 text-sm">
+          <Link className="auth-link" href="/stories">
+            Browse stories
+          </Link>
+          <Link className="auth-link" href="/sessions">
+            My sessions
+          </Link>
+        </div>
         <AuthStatus />
       </section>
     </main>

@@ -6,10 +6,13 @@ import {
 import { buildApp } from "./app.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
+import { SessionService } from "./modules/sessions/service.js";
+import { StoryService } from "./modules/stories/service.js";
 
 const config = getServerConfig();
+const database = config.database.url ? getDatabaseClient(config.database.url) : undefined;
 const repositories = config.database.url
-  ? createRepositories(getDatabaseClient(config.database.url))
+  ? createRepositories(database!)
   : undefined;
 const authService = repositories
   ? new AuthService({
@@ -18,9 +21,15 @@ const authService = repositories
       sessionTtlSeconds: config.auth.sessionTtlSeconds
     })
   : undefined;
+const storyService = repositories ? new StoryService(repositories) : undefined;
+const sessionService = repositories
+  ? new SessionService(repositories, database)
+  : undefined;
 const dependencies = {
   ...(repositories ? { repositories } : {}),
-  ...(authService ? { authService } : {})
+  ...(authService ? { authService } : {}),
+  ...(storyService ? { storyService } : {}),
+  ...(sessionService ? { sessionService } : {})
 };
 const app = await buildApp({
   dependencies

@@ -57,6 +57,12 @@ The frontend is responsible for rendering UI, collecting player input, and calli
 
 The API service owns authentication, authorization, session orchestration, save/resume flows, state transitions, and AI request budgeting. It is the only layer allowed to mutate persistent game state.
 
+Current application services:
+
+- `AuthService` owns registration, login, logout, password hashing, and session cookie identity.
+- `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
+- `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
+
 ### Domain Package
 
 The domain package contains deterministic rules and validated state transitions. It should be testable without a database, network, or LLM provider.
@@ -82,6 +88,22 @@ apps/api
 ```
 
 Repository contexts support shared transaction boundaries so a future gameplay turn can persist messages, state, NPC updates, relationships, inventory, events, and turn counters in one transaction.
+
+The current session creation flow already uses that transaction boundary:
+
+```text
+Browser
+  -> POST /sessions
+  -> requireUser
+  -> SessionService
+  -> StoryRepository validates published story and character membership
+  -> withTransaction
+      -> GameSessionRepository.create
+      -> GameStateRepository.createInitialState
+  -> session detail DTO
+```
+
+The initial state builder is deterministic and does not call an LLM. It copies public character template stats and fills safe defaults until authored public initial world fields are introduced.
 
 ## Game State Rule
 
@@ -129,6 +151,8 @@ AI cost control must be part of request orchestration:
 - API validates all user input.
 - Authorization checks are required for every session, save, character, and purchase-related resource.
 - Admin operations must be isolated from player APIs.
+- Story catalog/detail DTOs must not expose `world_prompt`, `opening_prompt`, password hashes, auth sessions, or other internal orchestration data.
+- Session reads are scoped to `request.currentUser`; user IDs from request bodies are ignored.
 
 ## Authentication
 

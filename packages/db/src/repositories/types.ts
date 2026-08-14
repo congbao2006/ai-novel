@@ -13,7 +13,6 @@ import type {
   InventoryItem,
   NewGameMessage,
   NewGameSession,
-  NewGameState,
   NewInventoryItem,
   NewAuthSession,
   NewNpc,
@@ -51,6 +50,11 @@ export type CreateAuthSessionInput = Pick<
 export type StoryRecord = Story;
 export type StoryCharacterRecord = StoryCharacter;
 export type CreateStoryInput = Omit<NewStory, "id" | "createdAt" | "updatedAt">;
+export type StoryListPageInput = {
+  readonly genre?: string | undefined;
+  readonly limit: number;
+  readonly offset: number;
+};
 
 export type GameSessionRecord = GameSession;
 export type CreateSessionInput = Pick<
@@ -74,10 +78,14 @@ export type MessagePageInput = {
 };
 
 export type GameStateRecord = GameState;
-export type CreateInitialStateInput = Pick<
-  NewGameState,
-  "sessionId" | "location" | "worldTime" | "playerStats" | "flags" | "stateData"
->;
+export type CreateInitialStateInput = {
+  readonly sessionId: string;
+  readonly location: string;
+  readonly worldTime: string | null;
+  readonly playerStats: JsonObject;
+  readonly flags: JsonObject;
+  readonly stateData: JsonObject;
+};
 export type UpdateStateInput = {
   readonly sessionId: string;
   readonly expectedVersion: number;

@@ -118,7 +118,7 @@ Next step:
 
 ## Phase 2.2: Story Browsing And Catalog
 
-Status: pending.
+Status: completed.
 
 Goals:
 
@@ -126,7 +126,16 @@ Goals:
 - Story detail pages.
 - Authorization foundations.
 
-## Phase 3: Character And Session Foundations
+Completed:
+
+- Added `GET /stories` for published story browsing with optional genre and page/limit query parameters.
+- Added `GET /stories/:slug` with public story metadata and character templates.
+- Added explicit DTOs that do not expose internal story prompts.
+- Added minimal `/stories` and `/stories/[slug]` web routes.
+
+## Phase 2.3: Game Session Creation Foundation
+
+Status: completed.
 
 Goals:
 
@@ -136,7 +145,23 @@ Goals:
 - Save and resume mechanics without AI generation.
 - Server-owned session state model.
 
-## Phase 4: Gameplay Engine
+Completed:
+
+- Added protected `POST /sessions`.
+- Added protected `GET /sessions` and `GET /sessions/:id`.
+- Session creation validates published story and selected character membership.
+- Session creation creates `game_sessions` and initial `game_states` atomically through the repository transaction boundary.
+- Initial game state is deterministic and copies selected character `initial_stats`.
+- Added minimal `/sessions` and `/play/[sessionId]` web routes.
+- No assistant opening message is created before gameplay/AI exists.
+
+Next step:
+
+- Deterministic Gameplay Turn Engine.
+
+## Phase 3: Deterministic Gameplay Turn Engine
+
+Status: pending.
 
 Goals:
 
@@ -146,7 +171,7 @@ Goals:
 - Deterministic validators.
 - Tests for state transitions.
 
-## Phase 5: AI Engine Integration
+## Phase 4: AI Engine Integration
 
 Goals:
 
@@ -158,7 +183,7 @@ Goals:
 - Structured output validation.
 - No direct database writes from AI output.
 
-## Phase 6: Story Creation Tools
+## Phase 5: Story Creation Tools
 
 Goals:
 
@@ -167,7 +192,7 @@ Goals:
 - Draft/publish workflow.
 - Validation for story data.
 
-## Phase 7: Coins And Payments
+## Phase 6: Coins And Payments
 
 Goals:
 
@@ -177,7 +202,7 @@ Goals:
 - Purchase reconciliation.
 - Refund/admin adjustment flow.
 
-## Phase 8: Admin Dashboard
+## Phase 7: Admin Dashboard
 
 Goals:
 
@@ -187,7 +212,7 @@ Goals:
 - Payment support tools.
 - Abuse/moderation workflows.
 
-## Phase 9: Production Hardening
+## Phase 8: Production Hardening
 
 Goals:
 

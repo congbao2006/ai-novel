@@ -21,6 +21,8 @@ import type {
   QuestRecord,
   RelationshipRecord,
   StoryRecord,
+  StoryCharacterRecord,
+  StoryListPageInput,
   UpdateNpcRuntimeStateInput,
   UpdateQuestInput,
   UpdateSessionMetadataInput,
@@ -48,9 +50,15 @@ export type AuthSessionRepository = {
 export type StoryRepository = {
   getById(id: string): Promise<StoryRecord | null>;
   getBySlug(slug: string): Promise<StoryRecord | null>;
+  listPublishedPage(input: StoryListPageInput): Promise<StoryRecord[]>;
   listPublished(limit?: number): Promise<StoryRecord[]>;
   listByGenre(genre: string, limit?: number): Promise<StoryRecord[]>;
   listCreatedByUser(userId: string): Promise<StoryRecord[]>;
+  listCharactersForStory(storyId: string): Promise<StoryCharacterRecord[]>;
+  getCharacterForStory(
+    storyId: string,
+    characterId: string
+  ): Promise<StoryCharacterRecord | null>;
 };
 
 export type GameSessionRepository = {

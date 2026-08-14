@@ -13,6 +13,7 @@ Not implemented yet:
 - Payment, coin, or wallet tables.
 - AI usage ledger tables.
 - Gameplay engine writes.
+- Story editor/versioning tables.
 
 ## Entity Overview
 
@@ -136,6 +137,16 @@ Important columns:
 - `updated_at`
 
 `session_id` is unique so each session has one current state row. `version` is reserved for optimistic state versioning.
+
+When a session is created from a published story, the API creates the `game_sessions` row and first `game_states` row in one transaction. The initial state is deterministic and uses safe defaults:
+
+- `location`: `Điểm khởi đầu`
+- `world_time`: `NULL`
+- `player_stats`: deep copy of the selected story character's `initial_stats`
+- `flags`: selected story/character markers and `aiEnabled: false`
+- `state_data`: initialization metadata and `gameplayEnabled: false`
+
+The current schema does not yet include authored public initial location/world-time fields on story templates. That is an intentional technical debt for the story-authoring phase, not a reason to expose internal prompts.
 
 ### `npcs`
 
@@ -270,6 +281,40 @@ Runtime data belongs to a specific playthrough:
 - `world_events`
 
 This separation prevents story templates from being mutated by playthrough state. A runtime NPC can reference a template through `npcs.template_character_id`, but its current goals, secrets, alive status, and state are session-owned.
+
+Story browsing APIs expose only published story metadata and character template fields intended for players. `world_prompt` and `opening_prompt` remain internal orchestration fields and are not returned by catalog/detail DTOs.
+
+## Repository Query Patterns
+
+Application services use repository interfaces from `packages/db`; they do not use Drizzle query syntax directly.
+
+Current story/session browsing operations:
+
+- `StoryRepository.listPublishedPage({ genre, limit, offset })` powers `GET /stories`.
+- `StoryRepository.getBySlug(slug)` plus `listCharactersForStory(storyId)` powers `GET /stories/:slug`.
+- `StoryRepository.getCharacterForStory(storyId, characterId)` validates that a selected character belongs to the selected story.
+- `GameSessionRepository.create(...)` and `GameStateRepository.createInitialState(...)` are composed by the API service inside a shared transaction.
+- `GameSessionRepository.listForUser(userId)` and owner checks on `getById(id)` ensure users can only list/open their own sessions.
+
+The foundation currently uses page/limit pagination for story catalog browsing. Cursor pagination can replace or supplement it when catalog size, ranking, or search requirements justify it.
+
+## Session Creation Transaction
+
+Session creation is atomic:
+
+```text
+SessionService
+  -> validate story is published
+  -> validate selected character belongs to story
+  -> withTransaction
+      -> create game_sessions row
+      -> create initial game_states row
+  -> load session detail DTO
+```
+
+No repository opens its own transaction for this use case. The application service owns the boundary so future gameplay initialization can add NPC runtime rows, relationships, inventory, quests, and world events to the same unit of work.
+
+No deterministic assistant/opening message is created yet. Until the gameplay engine exists, the transcript remains empty and the play page renders a shell.
 
 ## JSONB Strategy
 

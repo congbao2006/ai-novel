@@ -27,6 +27,9 @@ In scope:
 - Product, architecture, database, memory, AI engine, and roadmap documentation.
 - Technical decisions that protect future gameplay implementation.
 - MVP account registration, login, logout, and current-user identity foundation.
+- Story browsing for published stories.
+- Story detail pages with public character templates.
+- Authenticated session creation and resume shell without gameplay turns.
 
 Out of scope:
 
@@ -35,6 +38,7 @@ Out of scope:
 - Live AI provider integration.
 - Admin dashboard implementation.
 - Story creation implementation.
+- NPC behavior, memory retrieval, and runtime quest generation.
 
 ## Core Product Concepts
 
@@ -53,6 +57,8 @@ A player-controlled identity inside a story. A character can be selected from te
 ### Session
 
 A single ongoing playthrough of a story by a user and character. It owns current state, transcript, events, memory, inventory, relationships, quests, and save points.
+
+The current MVP can create a session from a published story and selected character template, initialize deterministic server-owned state, list the signed-in user's sessions, and reopen a read-only play shell. Chat/gameplay input is intentionally not enabled yet.
 
 ### Turn
 

@@ -39,6 +39,8 @@ import type {
   QuestRecord,
   RelationshipRecord,
   StoryRecord,
+  StoryCharacterRecord,
+  StoryListPageInput,
   UpdateNpcRuntimeStateInput,
   UpdateQuestInput,
   UpdateSessionMetadataInput,
@@ -57,6 +59,7 @@ import {
   quests,
   relationships,
   stories,
+  storyCharacters,
   users,
   worldEvents
 } from "../schema/index.js";
@@ -227,6 +230,30 @@ export class DrizzleStoryRepository
     );
   }
 
+  listPublishedPage(input: StoryListPageInput): Promise<StoryRecord[]> {
+    assertPositiveLimit(input.limit);
+
+    if (input.offset < 0) {
+      throw new ValidationError("Offset must be non-negative.");
+    }
+
+    const predicates = [eq(stories.status, "published")];
+
+    if (input.genre) {
+      predicates.push(eq(stories.genre, input.genre));
+    }
+
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(stories)
+        .where(and(...predicates))
+        .orderBy(stories.createdAt, stories.id)
+        .limit(input.limit)
+        .offset(input.offset)
+    );
+  }
+
   listPublished(limit = 50): Promise<StoryRecord[]> {
     assertPositiveLimit(limit);
     return this.run(async () =>
@@ -255,6 +282,36 @@ export class DrizzleStoryRepository
         .select()
         .from(stories)
         .where(eq(stories.createdByUserId, userId))
+    );
+  }
+
+  listCharactersForStory(storyId: string): Promise<StoryCharacterRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyCharacters)
+        .where(eq(storyCharacters.storyId, storyId))
+        .orderBy(storyCharacters.createdAt, storyCharacters.id)
+    );
+  }
+
+  getCharacterForStory(
+    storyId: string,
+    characterId: string
+  ): Promise<StoryCharacterRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyCharacters)
+          .where(
+            and(
+              eq(storyCharacters.storyId, storyId),
+              eq(storyCharacters.id, characterId)
+            )
+          )
+          .limit(1)
+      )
     );
   }
 }
