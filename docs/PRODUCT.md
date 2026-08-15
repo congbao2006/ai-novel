@@ -33,11 +33,13 @@ In scope:
 - Deterministic gameplay turns for simple typed commands.
 - Provider-neutral AI gateway with OpenAI smoke testing.
 - Optional AI narrative turn proposal mode guarded by server-side validation.
+- Persistent AI usage ledger and server-side cost budget enforcement.
 
 Out of scope:
 
 - Autonomous NPC AI, memory retrieval, and AI-generated quest gameplay.
 - Payment or coin system implementation.
+- User-visible token/cost dashboard.
 - Admin dashboard implementation.
 - Story creation implementation.
 - NPC behavior and runtime quest generation.
@@ -69,6 +71,8 @@ One player action plus the system response generated from current state, story r
 Current turn support defaults to deterministic mode. Supported deterministic commands include observe, rest, move, and status in simple Vietnamese/English forms. Unknown actions are recorded and receive a safe deterministic fallback without dangerous state changes.
 
 When `GAMEPLAY_ENGINE_MODE=ai` is configured, a turn can ask the AI gateway for a narrative and structured proposal. The proposal is not trusted: the server validates allowed state fields and world events before anything is persisted. Deterministic mode remains the development/fallback path.
+
+AI gameplay calls are usage-accounted server-side. The product can enforce configured daily, monthly, and per-session AI cost limits before a provider call is made. This is a platform budget guard, not a payment/Xu system.
 
 ### Save
 

@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  bigint,
   check,
   index,
   integer,
@@ -12,6 +13,8 @@ import {
   uuid
 } from "drizzle-orm/pg-core";
 import {
+  aiUsagePurposeEnum,
+  aiUsageStatusEnum,
   entityTypeEnum,
   messageRoleEnum,
   questStatusEnum,
@@ -345,6 +348,78 @@ export const worldEvents = pgTable(
   ]
 );
 
+export const aiUsageRecords = pgTable(
+  "ai_usage_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "cascade",
+      onUpdate: "cascade"
+    }),
+    sessionId: uuid("session_id").references(() => gameSessions.id, {
+      onDelete: "set null",
+      onUpdate: "cascade"
+    }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    purpose: aiUsagePurposeEnum("purpose").notNull().default("other"),
+    status: aiUsageStatusEnum("status").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    totalTokens: integer("total_tokens"),
+    estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }),
+    latencyMs: integer("latency_ms"),
+    providerRequestId: text("provider_request_id"),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    index("ai_usage_records_user_created_at_idx").on(
+      table.userId,
+      table.createdAt
+    ),
+    index("ai_usage_records_session_created_at_idx").on(
+      table.sessionId,
+      table.createdAt
+    ),
+    index("ai_usage_records_provider_model_created_at_idx").on(
+      table.provider,
+      table.model,
+      table.createdAt
+    ),
+    index("ai_usage_records_purpose_created_at_idx").on(
+      table.purpose,
+      table.createdAt
+    ),
+    index("ai_usage_records_status_created_at_idx").on(
+      table.status,
+      table.createdAt
+    ),
+    check(
+      "ai_usage_records_input_tokens_non_negative",
+      sql`${table.inputTokens} is null or ${table.inputTokens} >= 0`
+    ),
+    check(
+      "ai_usage_records_output_tokens_non_negative",
+      sql`${table.outputTokens} is null or ${table.outputTokens} >= 0`
+    ),
+    check(
+      "ai_usage_records_total_tokens_non_negative",
+      sql`${table.totalTokens} is null or ${table.totalTokens} >= 0`
+    ),
+    check(
+      "ai_usage_records_estimated_cost_non_negative",
+      sql`${table.estimatedCostMicros} is null or ${table.estimatedCostMicros} >= 0`
+    ),
+    check(
+      "ai_usage_records_latency_non_negative",
+      sql`${table.latencyMs} is null or ${table.latencyMs} >= 0`
+    )
+  ]
+);
+
 export const gameSessionsRelations = relations(gameSessions, ({ one, many }) => ({
   user: one(users, {
     fields: [gameSessions.userId],
@@ -364,7 +439,8 @@ export const gameSessionsRelations = relations(gameSessions, ({ one, many }) => 
   relationships: many(relationships),
   inventoryItems: many(inventoryItems),
   quests: many(quests),
-  worldEvents: many(worldEvents)
+  worldEvents: many(worldEvents),
+  aiUsageRecords: many(aiUsageRecords)
 }));
 
 export const gameMessagesRelations = relations(gameMessages, ({ one }) => ({
@@ -420,6 +496,17 @@ export const worldEventsRelations = relations(worldEvents, ({ one }) => ({
   })
 }));
 
+export const aiUsageRecordsRelations = relations(aiUsageRecords, ({ one }) => ({
+  user: one(users, {
+    fields: [aiUsageRecords.userId],
+    references: [users.id]
+  }),
+  session: one(gameSessions, {
+    fields: [aiUsageRecords.sessionId],
+    references: [gameSessions.id]
+  })
+}));
+
 export type GameSession = typeof gameSessions.$inferSelect;
 export type NewGameSession = typeof gameSessions.$inferInsert;
 export type GameMessage = typeof gameMessages.$inferSelect;
@@ -436,3 +523,5 @@ export type Quest = typeof quests.$inferSelect;
 export type NewQuest = typeof quests.$inferInsert;
 export type WorldEvent = typeof worldEvents.$inferSelect;
 export type NewWorldEvent = typeof worldEvents.$inferInsert;
+export type AIUsageRecord = typeof aiUsageRecords.$inferSelect;
+export type NewAIUsageRecord = typeof aiUsageRecords.$inferInsert;

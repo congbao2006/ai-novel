@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   domainModuleStatus,
+  aiUsagePurposes,
+  aiUsageStatuses,
   entityTypes,
   messageRoles,
   questStatuses,
@@ -55,6 +57,15 @@ describe("domain package", () => {
       "failed"
     ]);
     expect(entityTypes).toEqual(["player", "npc"]);
+    expect(aiUsagePurposes).toEqual([
+      "gameplay_turn",
+      "smoke",
+      "summary",
+      "npc",
+      "memory",
+      "other"
+    ]);
+    expect(aiUsageStatuses).toEqual(["success", "failed"]);
   });
 
   it("produces the same output for the same input", () => {

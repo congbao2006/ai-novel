@@ -1,5 +1,7 @@
 import type {
   AddInventoryItemInput,
+  AIUsageQueryInput,
+  AIUsageRecordRecord,
   AppendMessageInput,
   AppendWorldEventInput,
   AuthSessionRecord,
@@ -19,6 +21,7 @@ import type {
   MessagePageInput,
   NpcRecord,
   QuestRecord,
+  RecordAIUsageInput,
   RelationshipRecord,
   StoryRecord,
   StoryCharacterRecord,
@@ -137,4 +140,21 @@ export type WorldEventRepository = {
     minimumImportance: number,
     limit?: number
   ): Promise<WorldEventRecord[]>;
+};
+
+export type AIUsageRepository = {
+  recordSuccess(
+    input: Omit<RecordAIUsageInput, "status" | "errorCode">
+  ): Promise<AIUsageRecordRecord>;
+  recordFailure(
+    input: Omit<RecordAIUsageInput, "status">
+  ): Promise<AIUsageRecordRecord>;
+  getUsageForUser(
+    input: AIUsageQueryInput & { readonly userId: string }
+  ): Promise<AIUsageRecordRecord[]>;
+  getUsageForSession(
+    input: AIUsageQueryInput & { readonly sessionId: string }
+  ): Promise<AIUsageRecordRecord[]>;
+  getUserCostSince(userId: string, since: Date): Promise<number | null>;
+  getSessionCostSince(sessionId: string, since: Date): Promise<number | null>;
 };

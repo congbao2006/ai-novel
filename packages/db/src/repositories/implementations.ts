@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNull, lte, sql } from "drizzle-orm";
 import type { DbExecutor } from "./context.js";
 import {
   ConflictError,
@@ -18,6 +18,8 @@ import {
 } from "./helpers.js";
 import type {
   AddInventoryItemInput,
+  AIUsageQueryInput,
+  AIUsageRecordRecord,
   AppendMessageInput,
   AppendWorldEventInput,
   AuthSessionRecord,
@@ -37,6 +39,7 @@ import type {
   MessagePageInput,
   NpcRecord,
   QuestRecord,
+  RecordAIUsageInput,
   RelationshipRecord,
   StoryRecord,
   StoryCharacterRecord,
@@ -50,6 +53,7 @@ import type {
   WorldEventRecord
 } from "./types.js";
 import {
+  aiUsageRecords,
   authSessions,
   gameMessages,
   gameSessions,
@@ -64,6 +68,7 @@ import {
   worldEvents
 } from "../schema/index.js";
 import type {
+  AIUsageRepository,
   AuthSessionRepository,
   GameMessageRepository,
   GameSessionRepository,
@@ -942,5 +947,141 @@ export class DrizzleWorldEventRepository
         .orderBy(desc(worldEvents.importance), desc(worldEvents.createdAt))
         .limit(limit);
     });
+  }
+}
+
+export class DrizzleAIUsageRepository
+  extends BaseRepository
+  implements AIUsageRepository
+{
+  recordSuccess(
+    input: Omit<RecordAIUsageInput, "status" | "errorCode">
+  ): Promise<AIUsageRecordRecord> {
+    return this.record({
+      ...input,
+      status: "success",
+      errorCode: null
+    });
+  }
+
+  recordFailure(
+    input: Omit<RecordAIUsageInput, "status">
+  ): Promise<AIUsageRecordRecord> {
+    return this.record({
+      ...input,
+      status: "failed"
+    });
+  }
+
+  getUsageForUser(
+    input: AIUsageQueryInput & { readonly userId: string }
+  ): Promise<AIUsageRecordRecord[]> {
+    return this.listUsage({
+      ...input,
+      userId: input.userId
+    });
+  }
+
+  getUsageForSession(
+    input: AIUsageQueryInput & { readonly sessionId: string }
+  ): Promise<AIUsageRecordRecord[]> {
+    return this.listUsage({
+      ...input,
+      sessionId: input.sessionId
+    });
+  }
+
+  getUserCostSince(userId: string, since: Date): Promise<number | null> {
+    return this.sumCost({
+      userId,
+      since
+    });
+  }
+
+  getSessionCostSince(sessionId: string, since: Date): Promise<number | null> {
+    return this.sumCost({
+      sessionId,
+      since
+    });
+  }
+
+  private record(input: RecordAIUsageInput): Promise<AIUsageRecordRecord> {
+    return this.run(async () => {
+      validateAIUsageInput(input);
+
+      return firstOrThrow(
+        await this.db.insert(aiUsageRecords).values(input).returning(),
+        new ConflictError("AI usage record could not be created.")
+      );
+    });
+  }
+
+  private listUsage(input: AIUsageQueryInput): Promise<AIUsageRecordRecord[]> {
+    const limit = input.limit ?? 100;
+    assertPositiveLimit(limit);
+
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(aiUsageRecords)
+        .where(and(...aiUsagePredicates(input)))
+        .orderBy(desc(aiUsageRecords.createdAt), desc(aiUsageRecords.id))
+        .limit(limit)
+    );
+  }
+
+  private async sumCost(input: AIUsageQueryInput): Promise<number | null> {
+    const result = await this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select({
+            total: sql<number>`coalesce(sum(${aiUsageRecords.estimatedCostMicros}), 0)::bigint`
+          })
+          .from(aiUsageRecords)
+          .where(and(...aiUsagePredicates(input)))
+      )
+    );
+
+    return result?.total ?? null;
+  }
+}
+
+function aiUsagePredicates(input: AIUsageQueryInput) {
+  const predicates = [];
+
+  if (input.userId) {
+    predicates.push(eq(aiUsageRecords.userId, input.userId));
+  }
+
+  if (input.sessionId) {
+    predicates.push(eq(aiUsageRecords.sessionId, input.sessionId));
+  }
+
+  if (input.since) {
+    predicates.push(gte(aiUsageRecords.createdAt, input.since));
+  }
+
+  if (input.until) {
+    predicates.push(lte(aiUsageRecords.createdAt, input.until));
+  }
+
+  return predicates;
+}
+
+function validateAIUsageInput(input: RecordAIUsageInput): void {
+  if (!input.provider.trim() || !input.model.trim()) {
+    throw new ValidationError("AI usage provider and model are required.");
+  }
+
+  for (const [field, value] of Object.entries({
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    totalTokens: input.totalTokens,
+    estimatedCostMicros: input.estimatedCostMicros,
+    latencyMs: input.latencyMs
+  })) {
+    if (value !== null && value !== undefined && value < 0) {
+      throw new ValidationError(`AI usage ${field} must be non-negative.`);
+    }
   }
 }

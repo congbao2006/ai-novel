@@ -1,5 +1,6 @@
 import type { DbExecutor } from "./context.js";
 import type {
+  AIUsageRepository,
   AuthSessionRepository,
   GameMessageRepository,
   GameSessionRepository,
@@ -13,6 +14,7 @@ import type {
   WorldEventRepository
 } from "./contracts.js";
 import {
+  DrizzleAIUsageRepository,
   DrizzleGameMessageRepository,
   DrizzleGameSessionRepository,
   DrizzleGameStateRepository,
@@ -28,6 +30,7 @@ import {
 
 export type Repositories = {
   readonly users: UserRepository;
+  readonly aiUsage: AIUsageRepository;
   readonly authSessions: AuthSessionRepository;
   readonly stories: StoryRepository;
   readonly gameSessions: GameSessionRepository;
@@ -43,6 +46,7 @@ export type Repositories = {
 export function createRepositories(db: DbExecutor): Repositories {
   return {
     users: new DrizzleUserRepository(db),
+    aiUsage: new DrizzleAIUsageRepository(db),
     authSessions: new DrizzleAuthSessionRepository(db),
     stories: new DrizzleStoryRepository(db),
     gameSessions: new DrizzleGameSessionRepository(db),

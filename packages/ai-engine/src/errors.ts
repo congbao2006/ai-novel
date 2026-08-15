@@ -54,6 +54,13 @@ export class AIConfigurationError extends AIError {
   }
 }
 
+export class AIBudgetExceededError extends AIError {
+  constructor(message = "AI usage budget has been exceeded.", cause?: unknown) {
+    super(message, "ai_budget_exceeded", false, cause);
+    this.name = "AIBudgetExceededError";
+  }
+}
+
 export class AIProviderUnavailableError extends AIConfigurationError {
   constructor(providerId: LLMProviderId) {
     super(`AI provider is unavailable: ${providerId}`);

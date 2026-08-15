@@ -31,6 +31,7 @@ import {
   ServiceUnavailableError
 } from "../../errors.js";
 import type { CurrentUser } from "../auth/dto.js";
+import type { BudgetService } from "../ai/budget-service.js";
 import {
   toGameMessageDto,
   toGameStateDto,
@@ -49,12 +50,14 @@ export type GameplayEngineMode = "deterministic" | "ai";
 export type GameplayServiceOptions = {
   readonly engineMode?: GameplayEngineMode;
   readonly aiGateway?: AIGateway;
+  readonly budgetService?: BudgetService;
 };
 
 export class GameplayService {
   private readonly runInTransaction: TransactionRunner;
   private readonly engineMode: GameplayEngineMode;
   private readonly aiGateway: AIGateway | undefined;
+  private readonly budgetService: BudgetService | undefined;
 
   constructor(
     private readonly repositories: Repositories,
@@ -64,6 +67,7 @@ export class GameplayService {
   ) {
     this.engineMode = options.engineMode ?? "deterministic";
     this.aiGateway = options.aiGateway;
+    this.budgetService = options.budgetService;
     this.runInTransaction =
       transactionRunner ??
       (database
@@ -163,6 +167,12 @@ export class GameplayService {
     const snapshot = await this.loadAITurnSnapshot(user, sessionId);
     const expectedVersion = snapshot.state.version;
     const stateSnapshot = toStateSnapshot(snapshot.state);
+
+    await this.budgetService?.checkBeforeAI({
+      userId: user.userId,
+      sessionId: snapshot.session.id
+    });
+
     const request = buildAITurnGenerationRequest({
       userId: user.userId,
       sessionId: snapshot.session.id,

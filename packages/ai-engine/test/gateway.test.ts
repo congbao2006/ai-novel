@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   AIAuthenticationError,
+  AIBudgetExceededError,
   AIGateway,
   AIProviderUnavailableError,
   AIRateLimitError,
   AITimeoutError,
   createAIGateway,
   createPolicy,
+  evaluateAIBudget,
   estimateGenerationCostMicros,
+  hasEnabledBudget,
   pricingKey,
+  type AIUsageLedgerRecordInput,
   type GenerationRequest,
   type GenerationResult,
   type LLMProvider,
@@ -171,6 +175,90 @@ describe("AIGateway", () => {
     expect(result.estimatedCostMicros).toBe(140);
   });
 
+  it("records successful and failed generations through the usage ledger", async () => {
+    const records: AIUsageLedgerRecordInput[] = [];
+    const successGateway = new AIGateway({
+      providers: [createFakeProvider(async (request) => createResult(request))],
+      defaultModelPolicy: policy,
+      timeoutMs: 100,
+      maxRetries: 0,
+      pricingRegistry: {
+        [pricingKey("test-provider", "test-model")]: {
+          inputMicrosPerMillionTokens: 1_000_000,
+          outputMicrosPerMillionTokens: 2_000_000
+        }
+      },
+      usageLedger: {
+        async recordUsage(input) {
+          records.push(input);
+        }
+      }
+    });
+
+    await successGateway.generate({
+      feature: "story.default",
+      userId: "user-1",
+      sessionId: "session-1",
+      input: "hello",
+      metadata: {
+        purpose: "gameplay_turn"
+      }
+    });
+
+    expect(records[0]).toMatchObject({
+      userId: "user-1",
+      sessionId: "session-1",
+      provider: "test-provider",
+      model: "test-model",
+      purpose: "gameplay_turn",
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      estimatedCostMicros: 140,
+      latencyMs: 15,
+      providerRequestId: "provider-request-id",
+      errorCode: null,
+      status: "success"
+    });
+
+    const failedGateway = new AIGateway({
+      providers: [
+        createFakeProvider(async () => {
+          throw new AIRateLimitError();
+        })
+      ],
+      defaultModelPolicy: policy,
+      timeoutMs: 100,
+      maxRetries: 0,
+      usageLedger: {
+        async recordUsage(input) {
+          records.push(input);
+        }
+      }
+    });
+
+    await expect(
+      failedGateway.generate({
+        feature: "story.default",
+        userId: "user-1",
+        input: "hello",
+        metadata: { purpose: "gameplay_turn" }
+      })
+    ).rejects.toBeInstanceOf(AIRateLimitError);
+
+    expect(records[1]).toMatchObject({
+      provider: "test-provider",
+      model: "test-model",
+      purpose: "gameplay_turn",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      providerRequestId: null,
+      errorCode: "ai_rate_limit_error",
+      status: "failed"
+    });
+  });
+
   it("keeps structured output schema provider-neutral", async () => {
     let captured: GenerationRequest | undefined;
     const gateway = new AIGateway({
@@ -243,6 +331,67 @@ describe("provider factory and cost estimation", () => {
         }
       })
     ).toBe(140);
+
+    expect(
+      estimateGenerationCostMicros({
+        provider: "test-provider",
+        model: "test-model",
+        inputTokens: 0,
+        outputTokens: 0,
+        pricingRegistry: {
+          [pricingKey("test-provider", "test-model")]: {
+            inputMicrosPerMillionTokens: 1_000_000,
+            outputMicrosPerMillionTokens: 2_000_000
+          }
+        }
+      })
+    ).toBe(0);
+
+    expect(
+      estimateGenerationCostMicros({
+        provider: "test-provider",
+        model: "unknown-model",
+        inputTokens: 100,
+        outputTokens: 20,
+        pricingRegistry: {}
+      })
+    ).toBeUndefined();
+  });
+
+  it("evaluates provider-neutral AI budget policies", () => {
+    expect(hasEnabledBudget({})).toBe(false);
+    expect(
+      evaluateAIBudget(
+        { userDailyBudgetMicros: 1000 },
+        { userDailyCostMicros: 999, userMonthlyCostMicros: 0 }
+      )
+    ).toEqual({ allowed: true });
+    expect(
+      evaluateAIBudget(
+        { userDailyBudgetMicros: 1000 },
+        { userDailyCostMicros: 1000, userMonthlyCostMicros: 0 }
+      )
+    ).toMatchObject({ allowed: false, exceeded: "user_daily" });
+    expect(
+      evaluateAIBudget(
+        { userMonthlyBudgetMicros: 3000 },
+        { userDailyCostMicros: 0, userMonthlyCostMicros: 3000 }
+      )
+    ).toMatchObject({ allowed: false, exceeded: "user_monthly" });
+    expect(
+      evaluateAIBudget(
+        { sessionBudgetMicros: 2000 },
+        {
+          userDailyCostMicros: 0,
+          userMonthlyCostMicros: 0,
+          sessionCostMicros: 2000
+        }
+      )
+    ).toMatchObject({ allowed: false, exceeded: "session" });
+    expect(new AIBudgetExceededError()).toMatchObject({
+      code: "ai_budget_exceeded",
+      retryable: false
+    });
   });
 
   it("preserves the existing LLMProvider contract", async () => {

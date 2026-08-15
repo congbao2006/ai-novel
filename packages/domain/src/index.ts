@@ -23,6 +23,19 @@ export type QuestStatus = (typeof questStatuses)[number];
 export const entityTypes = ["player", "npc"] as const;
 export type EntityType = (typeof entityTypes)[number];
 
+export const aiUsagePurposes = [
+  "gameplay_turn",
+  "smoke",
+  "summary",
+  "npc",
+  "memory",
+  "other"
+] as const;
+export type AIUsagePurpose = (typeof aiUsagePurposes)[number];
+
+export const aiUsageStatuses = ["success", "failed"] as const;
+export type AIUsageStatus = (typeof aiUsageStatuses)[number];
+
 export type PlayerAction = {
   readonly text: string;
 };

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   authSessions,
+  aiUsagePurposeEnum,
+  aiUsageRecords,
+  aiUsageStatusEnum,
   developmentSeedData,
   entityTypeEnum,
   gameMessages,
@@ -32,6 +35,7 @@ describe("db package", () => {
   it("exports all required business tables", () => {
     expect(users).toBeDefined();
     expect(authSessions).toBeDefined();
+    expect(aiUsageRecords).toBeDefined();
     expect(stories).toBeDefined();
     expect(storyCharacters).toBeDefined();
     expect(gameSessions).toBeDefined();
@@ -67,6 +71,15 @@ describe("db package", () => {
       "failed"
     ]);
     expect(entityTypeEnum.enumValues).toEqual(["player", "npc"]);
+    expect(aiUsagePurposeEnum.enumValues).toEqual([
+      "gameplay_turn",
+      "smoke",
+      "summary",
+      "npc",
+      "memory",
+      "other"
+    ]);
+    expect(aiUsageStatusEnum.enumValues).toEqual(["success", "failed"]);
   });
 
   it("defines coherent development seed data", () => {

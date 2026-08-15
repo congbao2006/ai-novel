@@ -187,5 +187,12 @@ function formatPlayError(caught: unknown): string {
     return "Phiên chơi vừa được cập nhật ở nơi khác. Hãy tải lại.";
   }
 
+  if (
+    caught instanceof ApiRequestError &&
+    caught.errorCode === "ai_budget_exceeded"
+  ) {
+    return "Bạn đã đạt giới hạn sử dụng AI hiện tại.";
+  }
+
   return caught instanceof Error ? caught.message : "Request failed.";
 }

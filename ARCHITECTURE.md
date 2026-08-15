@@ -63,6 +63,8 @@ Current application services:
 - `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
 - `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
 - `GameplayService` owns authenticated turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
+- `BudgetService` owns server-side preflight budget checks before paid AI calls.
+- `RepositoryAIUsageLedger` records provider/model/token/cost metadata through the database repository layer.
 
 ### Domain Package
 
@@ -151,8 +153,10 @@ Browser
   -> requireUser
   -> GameplayService
       -> load session/state/story/context snapshot
+      -> BudgetService checks user/session usage aggregates
       -> build GenerationRequest with bounded context
       -> AIGateway returns AITurnProposal
+      -> AIUsageLedger records provider usage outside gameplay transaction
       -> domain validator accepts only safe proposal fields
   -> withTransaction
       -> reload session and current GameState
@@ -167,6 +171,8 @@ Browser
 ```
 
 AI is a proposer, not the authority. It cannot supply database IDs, owners, versions, event timestamps, or arbitrary JSON patches. The server assigns those values and rejects invalid proposals.
+
+AI usage accounting is intentionally independent from the gameplay transaction. A successful provider call is recorded even if the later proposal validation or optimistic concurrency check prevents game-state persistence.
 
 ## Game State Rule
 
@@ -215,7 +221,18 @@ AI cost control must be part of request orchestration:
 - Usage ledger storing input tokens, output tokens, model, provider, latency, and estimated cost.
 - Graceful fallback when budget is exceeded.
 
-The current gateway captures provider usage when available and estimates cost through an injectable pricing registry. The default registry is empty because provider pricing is operational configuration and can change independently of source code.
+The current gateway captures provider usage when available and estimates cost through an injectable pricing registry. Pricing comes from server-side operational config (`AI_MODEL_PRICING_JSON`) because provider pricing can change independently of source code.
+
+Budget enforcement is a server-side preflight check:
+
+```text
+GameplayService
+  -> BudgetService
+  -> AIUsageRepository.getUserCostSince / getSessionCostSince
+  -> allow or throw ai_budget_exceeded
+```
+
+If budgets are enabled for AI gameplay and the configured model has no pricing, startup fails closed. The preflight check is not a distributed reservation system; concurrent requests may overshoot slightly until future payment/Xu work adds atomic quota reservations.
 
 ## Security
 
@@ -232,6 +249,8 @@ The current gateway captures provider usage when available and estimates cost th
 - Internal AI smoke endpoints are disabled in production unless explicitly gated by server config.
 - `GAMEPLAY_ENGINE_MODE=ai` requires a configured AI provider; the default local mode is deterministic.
 - AI proposals are validated with allowlists for state fields, bounded text, finite numbers, and event limits before persistence.
+- Usage records never store API keys, cookies, emails, full prompts, or full AI output.
+- Budget enforcement is server-side; frontend state cannot raise or bypass AI budgets.
 
 ## Authentication
 

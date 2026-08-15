@@ -43,7 +43,7 @@ export function buildAITurnGenerationRequest(
       strict: true
     },
     metadata: {
-      purpose: "gameplay_turn_proposal"
+      purpose: "gameplay_turn"
     },
     instructions: [
       "You are a narrative engine for an interactive fiction RPG.",

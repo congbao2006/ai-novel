@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { AIGateway, GenerationRequest, GenerationResult } from "@ai-novel/ai-engine";
-import { AIRateLimitError, AITimeoutError } from "@ai-novel/ai-engine";
+import type {
+  AIUsageLedgerRecordInput,
+  GenerationRequest,
+  GenerationResult,
+  LLMProvider
+} from "@ai-novel/ai-engine";
+import {
+  AIBudgetExceededError,
+  AIGateway,
+  AIRateLimitError,
+  AITimeoutError,
+  createPolicy
+} from "@ai-novel/ai-engine";
 import type {
   AppendMessageInput,
   AppendWorldEventInput,
@@ -23,6 +34,7 @@ import {
 } from "../src/errors.js";
 import { UnauthenticatedError } from "../src/modules/auth/errors.js";
 import type { AuthService } from "../src/modules/auth/service.js";
+import { BudgetService } from "../src/modules/ai/budget-service.js";
 import { GameplayService } from "../src/modules/sessions/gameplay-service.js";
 import { buildAITurnGenerationRequest } from "../src/modules/sessions/ai-turn-prompt.js";
 
@@ -284,6 +296,48 @@ function createFakeAIGateway(
   } as unknown as AIGateway;
 }
 
+function createLedgerAIGateway(
+  input: {
+    readonly records: AIUsageLedgerRecordInput[];
+    readonly generate: (
+      request: GenerationRequest
+    ) => Promise<GenerationResult> | GenerationResult;
+  }
+): AIGateway {
+  const provider: LLMProvider = {
+    id: "openai",
+    async estimateUsage() {
+      return { inputTokens: 10, maxOutputTokens: 64 };
+    },
+    async generate(request) {
+      return input.generate(request);
+    }
+  };
+
+  return new AIGateway({
+    providers: [provider],
+    defaultModelPolicy: createPolicy({
+      feature: "story.default",
+      provider: "openai",
+      model: "test-model",
+      maxOutputTokens: 64
+    }),
+    timeoutMs: 100,
+    maxRetries: 0,
+    pricingRegistry: {
+      "openai:test-model": {
+        inputMicrosPerMillionTokens: 1_000_000,
+        outputMicrosPerMillionTokens: 2_000_000
+      }
+    },
+    usageLedger: {
+      async recordUsage(record) {
+        input.records.push(record);
+      }
+    }
+  });
+}
+
 describe("GameplayService", () => {
   it("rejects empty and too-long actions", async () => {
     const { repositories, transactionRunner } = createFixture();
@@ -510,6 +564,182 @@ describe("GameplayService", () => {
     expect(invalidFixture.states[0]?.version).toBe(1);
   });
 
+  it("records AI usage even when the successful proposal is later rejected", async () => {
+    const invalidFixture = createFixture();
+    const invalidRecords: AIUsageLedgerRecordInput[] = [];
+    const invalidService = new GameplayService(
+      invalidFixture.repositories,
+      undefined,
+      invalidFixture.transactionRunner,
+      {
+        engineMode: "ai",
+        aiGateway: createLedgerAIGateway({
+          records: invalidRecords,
+          async generate() {
+            return {
+              requestId: "provider-request-invalid",
+              provider: "openai",
+              model: "test-model",
+              text: "",
+              narrativeText: "",
+              structuredOutput: {
+                narrative: "",
+                proposedStatePatch: {},
+                proposedEvents: []
+              },
+              usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+              finishReason: "stop",
+              latencyMs: 5
+            };
+          }
+        })
+      }
+    );
+
+    await expect(
+      invalidService.submitTurn(
+        user,
+        "550e8400-e29b-41d4-a716-446655440002",
+        { action: "quan sát" }
+      )
+    ).rejects.toThrow("narrative is invalid");
+    expect(invalidRecords).toHaveLength(1);
+    expect(invalidRecords[0]).toMatchObject({
+      userId: user.userId,
+      sessionId: "550e8400-e29b-41d4-a716-446655440002",
+      purpose: "gameplay_turn",
+      status: "success",
+      estimatedCostMicros: 50,
+      providerRequestId: "provider-request-invalid"
+    });
+    expect(invalidFixture.messages).toEqual([]);
+    expect(invalidFixture.sessions[0]?.turnCount).toBe(0);
+
+    const staleFixture = createFixture();
+    const staleRecords: AIUsageLedgerRecordInput[] = [];
+    const staleService = new GameplayService(
+      staleFixture.repositories,
+      undefined,
+      staleFixture.transactionRunner,
+      {
+        engineMode: "ai",
+        aiGateway: createLedgerAIGateway({
+          records: staleRecords,
+          async generate() {
+            Object.assign(staleFixture.states[0]!, { version: 2 });
+
+            return {
+              requestId: "provider-request-stale",
+              provider: "openai",
+              model: "test-model",
+              text: "",
+              narrativeText: "Bạn quan sát căn phòng.",
+              structuredOutput: {
+                narrative: "Bạn quan sát căn phòng.",
+                proposedStatePatch: {},
+                proposedEvents: []
+              },
+              usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+              finishReason: "stop",
+              latencyMs: 5
+            };
+          }
+        })
+      }
+    );
+
+    await expect(
+      staleService.submitTurn(
+        user,
+        "550e8400-e29b-41d4-a716-446655440002",
+        { action: "quan sát" }
+      )
+    ).rejects.toBeInstanceOf(ConflictApplicationError);
+    expect(staleRecords).toHaveLength(1);
+    expect(staleRecords[0]).toMatchObject({
+      status: "success",
+      estimatedCostMicros: 50,
+      providerRequestId: "provider-request-stale"
+    });
+    expect(staleFixture.messages).toEqual([]);
+    expect(staleFixture.events).toEqual([]);
+    expect(staleFixture.sessions[0]?.turnCount).toBe(0);
+  });
+
+  it("blocks over-budget AI turns before the provider is called", async () => {
+    const { repositories, transactionRunner, messages, sessions } = createFixture();
+    let providerCalls = 0;
+    const budgetService = new BudgetService(
+      {
+        async getUserCostSince() {
+          return 1000;
+        },
+        async getSessionCostSince() {
+          return 0;
+        }
+      } as never,
+      { userDailyBudgetMicros: 1000 }
+    );
+    const service = new GameplayService(
+      repositories,
+      undefined,
+      transactionRunner,
+      {
+        engineMode: "ai",
+        budgetService,
+        aiGateway: createFakeAIGateway(async () => {
+          providerCalls += 1;
+          throw new Error("provider should not be called");
+        })
+      }
+    );
+
+    await expect(
+      service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+        action: "quan sát"
+      })
+    ).rejects.toBeInstanceOf(AIBudgetExceededError);
+    expect(providerCalls).toBe(0);
+    expect(messages).toEqual([]);
+    expect(sessions[0]?.turnCount).toBe(0);
+  });
+
+  it("allows AI turns when budgets are disabled", async () => {
+    const { repositories, transactionRunner, messages } = createFixture();
+    const budgetService = new BudgetService({} as never, {});
+    const service = new GameplayService(
+      repositories,
+      undefined,
+      transactionRunner,
+      {
+        engineMode: "ai",
+        budgetService,
+        aiGateway: createFakeAIGateway(async () => ({
+          requestId: "budget-disabled",
+          provider: "openai",
+          model: "test-model",
+          text: "",
+          narrativeText: "Bạn quan sát căn phòng.",
+          structuredOutput: {
+            narrative: "Bạn quan sát căn phòng.",
+            proposedStatePatch: {},
+            proposedEvents: []
+          },
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          finishReason: "stop",
+          latencyMs: 1
+        }))
+      }
+    );
+
+    await expect(
+      service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+        action: "quan sát"
+      })
+    ).resolves.toMatchObject({ turnNumber: 1 });
+    expect(messages).toHaveLength(2);
+  });
+
   it("returns conflict without partial writes when state changes after AI response", async () => {
     const { repositories, transactionRunner, sessions, states, messages, events } =
       createFixture();
@@ -702,6 +932,49 @@ describe("gameplay turn API route", () => {
 
     expect(response.statusCode).toBe(429);
     expect(response.json()).toMatchObject({ error: "ai_rate_limit_error" });
+
+    await app.close();
+  });
+
+  it("maps AI budget errors to HTTP 429", async () => {
+    const { repositories, transactionRunner } = createFixture();
+    const app = await buildApp({
+      dependencies: {
+        authService: createFakeAuthService(),
+        gameplayService: new GameplayService(
+          repositories,
+          undefined,
+          transactionRunner,
+          {
+            engineMode: "ai",
+            budgetService: new BudgetService(
+              {
+                async getUserCostSince() {
+                  return 1000;
+                },
+                async getSessionCostSince() {
+                  return 0;
+                }
+              } as never,
+              { userDailyBudgetMicros: 1000 }
+            ),
+            aiGateway: createFakeAIGateway(async () => {
+              throw new Error("provider should not be called");
+            })
+          }
+        )
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/sessions/550e8400-e29b-41d4-a716-446655440002/turns",
+      cookies: { ai_novel_session: "valid-token" },
+      payload: { action: "quan sát" }
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.json()).toMatchObject({ error: "ai_budget_exceeded" });
 
     await app.close();
   });

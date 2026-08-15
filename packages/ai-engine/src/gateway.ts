@@ -8,6 +8,7 @@ import {
 } from "./errors.js";
 import type {
   AIGatewayGenerateOptions,
+  AIUsagePurpose,
   AIUsageLedger,
   GenerationRequest,
   GenerationResult,
@@ -109,10 +110,14 @@ export class AIGateway {
         ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         provider: enrichedResult.provider,
         model: enrichedResult.model,
+        purpose: usagePurposeFromRequest(request),
         inputTokens: enrichedResult.usage.inputTokens,
         outputTokens: enrichedResult.usage.outputTokens,
+        totalTokens: enrichedResult.usage.totalTokens,
         ...(estimatedCostMicros !== undefined ? { estimatedCostMicros } : {}),
         latencyMs: enrichedResult.latencyMs,
+        providerRequestId: enrichedResult.requestId,
+        errorCode: null,
         status: "success",
         createdAt: new Date()
       });
@@ -137,16 +142,37 @@ export class AIGateway {
         ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         provider: provider.id,
         model,
+        purpose: usagePurposeFromRequest(request),
         inputTokens: null,
         outputTokens: null,
+        totalTokens: null,
         latencyMs,
-        status: "failure",
+        providerRequestId: null,
+        errorCode: aiError.code,
+        status: "failed",
         createdAt: new Date()
       });
 
       throw aiError;
     }
   }
+}
+
+function usagePurposeFromRequest(request: GenerationRequest): AIUsagePurpose {
+  const purpose = request.metadata?.purpose;
+
+  if (
+    purpose === "gameplay_turn" ||
+    purpose === "smoke" ||
+    purpose === "summary" ||
+    purpose === "npc" ||
+    purpose === "memory" ||
+    purpose === "other"
+  ) {
+    return purpose;
+  }
+
+  return "other";
 }
 
 async function retryWithBackoff<T>(

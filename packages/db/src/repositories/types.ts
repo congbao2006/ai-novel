@@ -1,4 +1,6 @@
 import type {
+  AIUsagePurpose,
+  AIUsageStatus,
   EntityType,
   MessageRole,
   QuestStatus,
@@ -7,6 +9,7 @@ import type {
 } from "@ai-novel/domain";
 import type {
   AuthSession,
+  AIUsageRecord as SchemaAIUsageRecord,
   GameMessage,
   GameSession,
   GameState,
@@ -15,6 +18,7 @@ import type {
   NewGameSession,
   NewInventoryItem,
   NewAuthSession,
+  NewAIUsageRecord,
   NewNpc,
   NewQuest,
   NewRelationship,
@@ -31,6 +35,7 @@ import type {
 } from "../schema/index.js";
 
 export type { EntityType, MessageRole, QuestStatus, SessionStatus, StoryStatus };
+export type { AIUsagePurpose, AIUsageStatus };
 
 export type JsonObject = Record<string, unknown>;
 
@@ -173,4 +178,30 @@ export type AppendWorldEventInput = Pick<
   "sessionId" | "eventType" | "title" | "description" | "payload" | "turnNumber"
 > & {
   readonly importance: number;
+};
+
+export type AIUsageRecordRecord = SchemaAIUsageRecord;
+export type RecordAIUsageInput = Pick<
+  NewAIUsageRecord,
+  | "userId"
+  | "sessionId"
+  | "provider"
+  | "model"
+  | "purpose"
+  | "status"
+  | "inputTokens"
+  | "outputTokens"
+  | "totalTokens"
+  | "estimatedCostMicros"
+  | "latencyMs"
+  | "providerRequestId"
+  | "errorCode"
+  | "createdAt"
+>;
+export type AIUsageQueryInput = {
+  readonly userId?: string;
+  readonly sessionId?: string;
+  readonly since?: Date;
+  readonly until?: Date;
+  readonly limit?: number;
 };

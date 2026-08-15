@@ -3,7 +3,7 @@ import { AIGateway, type AIGatewayOptions } from "./gateway.js";
 import { OpenAIProvider } from "./openai-provider.js";
 import { createDefaultModelPolicies } from "./policy.js";
 import type { ModelPricingRegistry } from "./cost.js";
-import type { LLMProvider, LLMProviderId } from "./types.js";
+import type { AIUsageLedger, LLMProvider, LLMProviderId } from "./types.js";
 
 export type LLMProviderFactoryConfig = {
   readonly provider: LLMProviderId;
@@ -13,6 +13,7 @@ export type LLMProviderFactoryConfig = {
   readonly maxRetries: number;
   readonly maxOutputTokens: number;
   readonly pricingRegistry?: ModelPricingRegistry;
+  readonly usageLedger?: AIUsageLedger;
   readonly logger?: AIGatewayOptions["logger"];
 };
 
@@ -70,6 +71,7 @@ export function createAIGateway(config: LLMProviderFactoryConfig): AIGateway | n
     timeoutMs: config.timeoutMs,
     maxRetries: config.maxRetries,
     ...(config.pricingRegistry ? { pricingRegistry: config.pricingRegistry } : {}),
+    ...(config.usageLedger ? { usageLedger: config.usageLedger } : {}),
     ...(config.logger ? { logger: config.logger } : {})
   });
 }

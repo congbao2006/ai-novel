@@ -30,6 +30,7 @@ export const registerInternalAiRoutes: FastifyPluginAsync = async (app) => {
       input: input.prompt,
       instructions: "Reply concisely and follow the user's exact instruction.",
       metadata: {
+        purpose: "smoke",
         route: "internal.ai.smoke"
       }
     });

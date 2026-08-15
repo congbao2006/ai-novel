@@ -74,11 +74,13 @@ export function sendApplicationError(error: unknown, reply: {
         ? 401
         : error.code === "ai_rate_limit_error"
           ? 429
-          : error.code === "ai_timeout_error"
-            ? 504
-            : error.code === "ai_configuration_error"
-              ? 503
-              : 502;
+          : error.code === "ai_budget_exceeded"
+            ? 429
+            : error.code === "ai_timeout_error"
+              ? 504
+              : error.code === "ai_configuration_error"
+                ? 503
+                : 502;
 
     return reply.code(statusCode).send({
       error: error.code,

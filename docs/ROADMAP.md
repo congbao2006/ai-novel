@@ -245,6 +245,34 @@ Next step:
 
 - Persistent AI Usage Ledger + Cost/Budget Enforcement.
 
+## Phase 4.6: Persistent AI Usage Ledger + Cost/Budget Enforcement
+
+Status: completed.
+
+Goals:
+
+- Persist AI generation usage records.
+- Track provider, model, purpose, token usage, estimated cost, latency, request ID, and status.
+- Link records to user/session when available.
+- Enforce server-side user/session AI cost budgets before provider calls.
+- Keep budget enforcement independent of frontend state.
+
+Completed:
+
+- Added `ai_usage_records` table with `ai_usage_purpose` and `ai_usage_status` enums.
+- Added indexes for user/session/provider/model/purpose/status cost and usage queries.
+- Added `AIUsageRepository` with success/failure recording and database-side aggregate cost queries.
+- Added `RepositoryAIUsageLedger` adapter for `AIGateway`.
+- Added `BudgetService` preflight checks for daily user, monthly user, and session budgets.
+- Added server-side pricing registry config through `AI_MODEL_PRICING_JSON`.
+- Added fail-closed config behavior when AI gameplay budgets are enabled without model pricing.
+- Added web handling for `ai_budget_exceeded`.
+- Documented the soft preflight budget race and future hard reservation need.
+
+Next step:
+
+- Memory Foundation.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

@@ -1,5 +1,13 @@
 export type LLMProviderId = "disabled" | "openai" | (string & {});
 
+export type AIUsagePurpose =
+  | "gameplay_turn"
+  | "smoke"
+  | "summary"
+  | "npc"
+  | "memory"
+  | "other";
+
 export type AIMessageRole = "system" | "developer" | "user" | "assistant";
 
 export type AIMessage = {
@@ -121,11 +129,15 @@ export type AIUsageLedgerRecordInput = {
   readonly sessionId?: string;
   readonly provider: LLMProviderId;
   readonly model: string;
+  readonly purpose: AIUsagePurpose;
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
+  readonly totalTokens: number | null;
   readonly estimatedCostMicros?: number;
-  readonly latencyMs: number;
-  readonly status: "success" | "failure";
+  readonly latencyMs: number | null;
+  readonly providerRequestId?: string | null;
+  readonly errorCode?: string | null;
+  readonly status: "success" | "failed";
   readonly createdAt: Date;
 };
 

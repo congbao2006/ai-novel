@@ -11,7 +11,6 @@ The foundational business schema is implemented for the AI Interactive Novel pla
 Not implemented yet:
 
 - Payment, coin, or wallet tables.
-- AI usage ledger tables.
 - Story editor/versioning tables.
 
 ## Entity Overview
@@ -244,6 +243,34 @@ Important columns:
 
 `importance` is an integer from `1..5`, not an enum, because the product will need sorting, threshold filters, and balancing without changing enum values.
 
+### `ai_usage_records`
+
+Stores provider-neutral AI usage accounting records.
+
+Important columns:
+
+- `id`
+- `user_id`, nullable
+- `session_id`, nullable
+- `provider`
+- `model`
+- `purpose`
+- `status`
+- `input_tokens`
+- `output_tokens`
+- `total_tokens`
+- `estimated_cost_micros`
+- `latency_ms`
+- `provider_request_id`
+- `error_code`
+- `created_at`
+
+`purpose` uses `ai_usage_purpose`: `gameplay_turn`, `smoke`, `summary`, `npc`, `memory`, `other`.
+
+`status` uses `ai_usage_status`: `success`, `failed`.
+
+The table does not store API keys, auth cookies, emails, full prompts, or full AI output.
+
 ## Table Relationships
 
 - `stories.created_by_user_id -> users.id`, nullable.
@@ -260,6 +287,8 @@ Important columns:
 - `inventory_items.session_id -> game_sessions.id`.
 - `quests.session_id -> game_sessions.id`.
 - `world_events.session_id -> game_sessions.id`.
+- `ai_usage_records.user_id -> users.id`, nullable.
+- `ai_usage_records.session_id -> game_sessions.id`, nullable.
 
 Polymorphic runtime references such as relationship endpoints and inventory owners are represented by `entity_type` plus nullable UUID columns. They are constrained for player/NPC shape, but exact NPC existence is expected to be enforced by domain/application services until a dedicated entity registry is introduced.
 
@@ -280,6 +309,7 @@ Runtime data belongs to a specific playthrough:
 - `inventory_items`
 - `quests`
 - `world_events`
+- `ai_usage_records`
 
 This separation prevents story templates from being mutated by playthrough state. A runtime NPC can reference a template through `npcs.template_character_id`, but its current goals, secrets, alive status, and state are session-owned.
 
@@ -377,22 +407,45 @@ AI proposals cannot directly set IDs, owners, session IDs, timestamps, versions,
 
 ## AI Usage Ledger
 
-There is no `ai_usage_ledger` table yet. The AI gateway exposes an application-level ledger interface so future calls can persist provider/model usage without changing provider adapters.
+`ai_usage_records` is written by the API-side `RepositoryAIUsageLedger`, not by provider adapters.
 
-Future ledger rows should capture:
+Ledger rows capture:
 
 - `user_id`
 - `session_id`, nullable
+- purpose
 - provider
 - model
 - input tokens
 - output tokens
+- total tokens
 - estimated cost micros
 - latency milliseconds
 - status
+- provider request ID
+- safe error code
 - created time
 
-This table should be added in a dedicated migration when persistent usage accounting or budget enforcement is in scope. Current AI gameplay proposal calls receive usage metadata from `AIGateway`, but usage is not yet written to PostgreSQL.
+AI usage persistence is intentionally outside the gameplay transaction. If the provider call succeeds but proposal validation or optimistic concurrency later rejects the gameplay turn, the usage row stays committed because the call already incurred cost.
+
+Cost fields are nullable. If provider usage is unavailable or model pricing is not configured, the system records the tokens it has and leaves `estimated_cost_micros = NULL`.
+
+## AI Budget Queries
+
+`AIUsageRepository` exposes aggregate cost queries:
+
+- `getUserCostSince(userId, since)`
+- `getSessionCostSince(sessionId, since)`
+
+These use database-side `sum(estimated_cost_micros)` rather than loading rows into application memory.
+
+Budget checks currently use:
+
+- current UTC day for daily user budget
+- current UTC month for monthly user budget
+- lifetime session usage for session budget
+
+This is preflight enforcement, not an atomic reservation. Concurrent requests can overshoot slightly before their usage rows are written. A future payment/Xu system should add quota reservations or ledger debits for hard enforcement.
 
 ## JSONB Strategy
 
@@ -441,8 +494,13 @@ Current indexes:
 - `quests_session_status_idx`
 - `world_events_session_turn_idx`
 - `world_events_session_importance_idx`
+- `ai_usage_records_user_created_at_idx`
+- `ai_usage_records_session_created_at_idx`
+- `ai_usage_records_provider_model_created_at_idx`
+- `ai_usage_records_purpose_created_at_idx`
+- `ai_usage_records_status_created_at_idx`
 
-These support common access patterns: loading a user's sessions, filtering story/session status, loading transcript by turn, loading current state, loading runtime entities by session, and querying important world events.
+These support common access patterns: loading a user's sessions, filtering story/session status, loading transcript by turn, loading current state, loading runtime entities by session, querying important world events, and aggregating AI cost by user/session/provider/purpose/status windows.
 
 ## Deletion And Cascade Strategy
 
@@ -454,6 +512,8 @@ These support common access patterns: loading a user's sessions, filtering story
 - `game_sessions.selected_character_id` is set to null if a character template is removed.
 - `npcs.template_character_id` is set to null if a template is removed.
 - Session-owned runtime rows cascade on session deletion: messages, current state, NPCs, relationships, inventory items, quests, and world events.
+- `ai_usage_records.session_id` is set to null when a session is deleted so cost/accounting history can remain without retaining the deleted session link.
+- `ai_usage_records.user_id` cascades when a user is deleted, aligning with user data deletion.
 
 ## LLM Safety Boundary
 
@@ -481,6 +541,7 @@ Current migration:
 
 - `0000_thin_loki.sql`
 - `0001_high_starhawk.sql`
+- `0002_funny_rhodey.sql`
 
 Migration generation does not require a local PostgreSQL server. Applying migrations will require a target database and should not be done against production manually.
 
@@ -513,6 +574,7 @@ Repository groups:
 - `InventoryRepository`
 - `QuestRepository`
 - `WorldEventRepository`
+- `AIUsageRepository`
 
 The repositories are organized around aggregates and use cases rather than one generic CRUD abstraction. For example, `GameSessionRepository` exposes session-specific operations such as `listForUser`, `touchLastPlayedAt`, and `incrementTurnCount`; `GameStateRepository` exposes `updateStateWithVersion` for optimistic concurrency.
 
@@ -568,5 +630,8 @@ Current repository query patterns include:
 - inventory list/add/decrement/remove
 - quest list/get/create/update status or progress
 - world event append/recent/important listing
+- AI usage record success/failure insert
+- AI usage listing by user/session
+- AI usage aggregate cost by user/session since a timestamp
 
 Integration tests are opt-in through `TEST_DATABASE_URL`; local unit and contract tests do not require PostgreSQL.

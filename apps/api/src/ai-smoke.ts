@@ -28,6 +28,7 @@ const result = await gateway.generate({
   instructions: "Follow the user instruction exactly.",
   maxOutputTokens: 16,
   metadata: {
+    purpose: "smoke",
     route: "cli.ai.smoke"
   }
 });

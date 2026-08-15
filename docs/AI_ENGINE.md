@@ -40,6 +40,7 @@ API/internal caller
   -> provider translates request to external API format
   -> provider normalizes response
   -> AIGateway estimates cost from usage and pricing registry
+  -> AIGateway records usage through AIUsageLedger
   -> caller receives provider-neutral GenerationResult
 ```
 
@@ -58,15 +59,19 @@ AI gameplay mode keeps the server authoritative:
 ```text
 Player action
   -> GameplayService loads bounded session snapshot
+  -> BudgetService checks recorded user/session usage
   -> StoryTurnPromptBuilder builds provider-neutral GenerationRequest
   -> AIGateway calls the configured provider
+  -> AIGateway records success/failure usage outside gameplay transaction
   -> provider returns AITurnProposal as structured output
   -> domain validator normalizes allowed proposal fields
   -> GameplayService re-checks game_states.version
   -> one transaction persists messages, state patch, events, turn count, lastPlayedAt
 ```
 
-The OpenAI call happens before the PostgreSQL transaction starts. This avoids holding a database transaction open while waiting on the network. If another turn changes `game_states.version` while the AI call is running, the service returns HTTP 409 and discards the stale proposal.
+The OpenAI call happens before the gameplay PostgreSQL transaction starts. This avoids holding a gameplay transaction open while waiting on the network. If another turn changes `game_states.version` while the AI call is running, the service returns HTTP 409 and discards the stale proposal.
+
+Usage persistence is independent from gameplay persistence. If an AI request succeeds but the later gameplay state write fails due to a stale version or invalid proposal, the usage record remains because the provider call already consumed budget.
 
 ## OpenAI Provider
 
@@ -214,24 +219,60 @@ estimateGenerationCostMicros({
 })
 ```
 
-Costs are represented in integer micros to avoid floating point money. The default pricing registry is intentionally empty. Pricing changes over time and must be treated as operational configuration, not permanent source code truth. Tests use fixture pricing.
+Costs are represented in integer micros to avoid floating point money. Pricing is provided through the server-side `AI_MODEL_PRICING_JSON` operational config. Pricing changes over time and must be treated as operational configuration, not permanent source code truth. Tests use fixture pricing.
 
-## Usage Ledger Preparation
+If pricing is missing, token usage is still recorded and `estimatedCostMicros` remains `null`. If any cost budget is enabled for AI gameplay, startup fails unless pricing exists for the configured provider/model. This fails closed instead of allowing unlimited paid calls with unknown cost.
 
-There is no AI usage ledger table yet. The gateway exposes an `AIUsageLedger` interface so future persistence can record:
+## Usage Ledger
+
+The gateway records usage through an `AIUsageLedger` interface backed by `AIUsageRepository` in the API process. Providers do not write database records.
+
+Ledger rows record:
 
 - `userId`
 - `sessionId`
+- purpose
 - provider
 - model
 - input tokens
 - output tokens
+- total tokens
 - estimated cost micros
 - latency
 - status
+- provider request ID
+- safe error code
 - creation time
 
-Adding the database ledger remains future work and should be introduced with a dedicated migration when usage billing/accounting is in scope. GameplayService receives usage metadata through the `GenerationResult`; wiring it to persistent cost/budget enforcement is the next dedicated phase.
+The ledger deliberately does not store API keys, cookies, emails, full prompts, or full AI outputs.
+
+Failure records are written for attempted provider calls that timeout, rate-limit, fail, or return invalid provider-level responses. If no trustworthy usage is available for a failure, token fields remain `null`.
+
+## Budget Enforcement
+
+`BudgetService` enforces server-side cost budgets before the external AI call:
+
+```text
+Gameplay request
+  -> BudgetService
+  -> AIUsageRepository aggregate cost queries
+  -> allow or throw ai_budget_exceeded
+  -> AIGateway
+  -> provider
+  -> AIUsageLedger persist
+  -> proposal validation
+  -> gameplay transaction
+```
+
+Supported limits:
+
+- `AI_USER_DAILY_BUDGET_MICROS`
+- `AI_USER_MONTHLY_BUDGET_MICROS`
+- `AI_SESSION_BUDGET_MICROS`
+
+Unset values disable that limit. Daily and monthly budgets are evaluated against UTC day/month windows. Session budget is lifetime-to-date for the session.
+
+This is a preflight budget check. Concurrent requests can pass the same budget check before either usage record is written, so small overshoot is possible. Future payment/Xu work should introduce reservations or hard quota debits if exact atomic billing is required.
 
 ## Secrets Strategy
 
@@ -245,6 +286,10 @@ Server-only environment variables:
 - `AI_MAX_OUTPUT_TOKENS`
 - `AI_INTERNAL_SMOKE_ENABLED`
 - `GAMEPLAY_ENGINE_MODE`
+- `AI_MODEL_PRICING_JSON`
+- `AI_USER_DAILY_BUDGET_MICROS`
+- `AI_USER_MONTHLY_BUDGET_MICROS`
+- `AI_SESSION_BUDGET_MICROS`
 
 `OPENAI_API_KEY` is never exposed through frontend config, JSON responses, logs, or `NEXT_PUBLIC_*`.
 
@@ -275,4 +320,4 @@ Do not log:
 - Semantic memory or vector search.
 - AI quest generation.
 - Streaming gameplay.
-- AI usage ledger persistence and budget enforcement.
+- Payment/Xu-backed hard quota reservation.

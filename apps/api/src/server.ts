@@ -5,6 +5,8 @@ import {
   getDatabaseClient
 } from "@ai-novel/db";
 import { buildApp } from "./app.js";
+import { BudgetService } from "./modules/ai/budget-service.js";
+import { RepositoryAIUsageLedger } from "./modules/ai/usage-ledger.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
 import { GameplayService } from "./modules/sessions/gameplay-service.js";
@@ -27,18 +29,37 @@ const storyService = repositories ? new StoryService(repositories) : undefined;
 const sessionService = repositories
   ? new SessionService(repositories, database)
   : undefined;
+const aiUsageLedger = repositories
+  ? new RepositoryAIUsageLedger(repositories.aiUsage)
+  : undefined;
+const budgetService = repositories
+  ? new BudgetService(repositories.aiUsage, {
+      ...(config.budget.userDailyBudgetMicros !== undefined
+        ? { userDailyBudgetMicros: config.budget.userDailyBudgetMicros }
+        : {}),
+      ...(config.budget.userMonthlyBudgetMicros !== undefined
+        ? { userMonthlyBudgetMicros: config.budget.userMonthlyBudgetMicros }
+        : {}),
+      ...(config.budget.sessionBudgetMicros !== undefined
+        ? { sessionBudgetMicros: config.budget.sessionBudgetMicros }
+        : {})
+    })
+  : undefined;
 const aiGateway = createAIGateway({
   provider: config.ai.provider,
   ...(config.ai.openaiApiKey ? { openaiApiKey: config.ai.openaiApiKey } : {}),
   ...(config.ai.openaiModel ? { openaiModel: config.ai.openaiModel } : {}),
   timeoutMs: config.ai.requestTimeoutMs,
   maxRetries: config.ai.maxRetries,
-  maxOutputTokens: config.ai.maxOutputTokens
+  maxOutputTokens: config.ai.maxOutputTokens,
+  pricingRegistry: config.ai.modelPricingRegistry,
+  ...(aiUsageLedger ? { usageLedger: aiUsageLedger } : {})
 });
 const gameplayService = repositories
   ? new GameplayService(repositories, database, undefined, {
       engineMode: config.gameplay.engineMode,
-      ...(aiGateway ? { aiGateway } : {})
+      ...(aiGateway ? { aiGateway } : {}),
+      ...(budgetService ? { budgetService } : {})
     })
   : undefined;
 const dependencies = {

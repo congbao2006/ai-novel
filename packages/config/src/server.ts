@@ -20,7 +20,19 @@ const serverConfigSchema = z.object({
     requestTimeoutMs: z.coerce.number().int().positive().default(30_000),
     maxRetries: z.coerce.number().int().min(0).max(5).default(2),
     maxOutputTokens: z.coerce.number().int().positive().default(256),
-    internalSmokeEnabled: z.boolean().default(false)
+    internalSmokeEnabled: z.boolean().default(false),
+    modelPricingRegistry: z.record(
+      z.string(),
+      z.object({
+        inputMicrosPerMillionTokens: z.number().int().nonnegative(),
+        outputMicrosPerMillionTokens: z.number().int().nonnegative()
+      })
+    ).default({})
+  }),
+  budget: z.object({
+    userDailyBudgetMicros: z.coerce.number().int().positive().optional(),
+    userMonthlyBudgetMicros: z.coerce.number().int().positive().optional(),
+    sessionBudgetMicros: z.coerce.number().int().positive().optional()
   }),
   gameplay: z.object({
     engineMode: z.enum(["deterministic", "ai"]).default("deterministic")
@@ -52,6 +64,24 @@ const serverConfigSchema = z.object({
         "GAMEPLAY_ENGINE_MODE=ai requires AI_PROVIDER to be configured."
     });
   }
+
+  if (
+    config.gameplay.engineMode === "ai" &&
+    hasEnabledBudget(config.budget) &&
+    config.ai.provider !== "disabled" &&
+    config.ai.openaiModel
+  ) {
+    const pricingKey = `${config.ai.provider}:${config.ai.openaiModel}`;
+
+    if (!config.ai.modelPricingRegistry[pricingKey]) {
+      context.addIssue({
+        code: "custom",
+        path: ["ai", "modelPricingRegistry"],
+        message:
+          `Budget enforcement requires pricing for ${pricingKey}.`
+      });
+    }
+  }
 });
 
 export type ServerConfig = z.infer<typeof serverConfigSchema> &
@@ -80,7 +110,13 @@ export function getServerConfig(
       requestTimeoutMs: env.AI_REQUEST_TIMEOUT_MS,
       maxRetries: env.AI_MAX_RETRIES,
       maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
-      internalSmokeEnabled: parseBooleanEnv(env.AI_INTERNAL_SMOKE_ENABLED)
+      internalSmokeEnabled: parseBooleanEnv(env.AI_INTERNAL_SMOKE_ENABLED),
+      modelPricingRegistry: parsePricingRegistryEnv(env.AI_MODEL_PRICING_JSON)
+    },
+    budget: {
+      userDailyBudgetMicros: env.AI_USER_DAILY_BUDGET_MICROS,
+      userMonthlyBudgetMicros: env.AI_USER_MONTHLY_BUDGET_MICROS,
+      sessionBudgetMicros: env.AI_SESSION_BUDGET_MICROS
     },
     gameplay: {
       engineMode: env.GAMEPLAY_ENGINE_MODE
@@ -91,6 +127,26 @@ export function getServerConfig(
     ...publicConfig,
     ...serverConfig
   };
+}
+
+function hasEnabledBudget(config: {
+  readonly userDailyBudgetMicros?: number | undefined;
+  readonly userMonthlyBudgetMicros?: number | undefined;
+  readonly sessionBudgetMicros?: number | undefined;
+}): boolean {
+  return (
+    config.userDailyBudgetMicros !== undefined ||
+    config.userMonthlyBudgetMicros !== undefined ||
+    config.sessionBudgetMicros !== undefined
+  );
+}
+
+function parsePricingRegistryEnv(value: string | undefined): unknown {
+  if (value === undefined || value.trim() === "") {
+    return {};
+  }
+
+  return JSON.parse(value) as unknown;
 }
 
 function parseBooleanEnv(value: string | undefined): boolean | undefined {

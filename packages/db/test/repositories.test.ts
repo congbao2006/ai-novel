@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ConflictError,
+  DrizzleAIUsageRepository,
   DrizzleGameStateRepository,
   DrizzleInventoryRepository,
   StateVersionConflictError,
@@ -35,6 +36,7 @@ describe("repository layer", () => {
     const repositories = createRepositories({} as DbExecutor);
 
     expect(Object.keys(repositories).sort()).toEqual([
+      "aiUsage",
       "authSessions",
       "gameMessages",
       "gameSessions",
@@ -114,5 +116,95 @@ describe("repository layer", () => {
   it("exposes structured conflict errors", () => {
     expect(new ConflictError("conflict")).toBeInstanceOf(Error);
     expect(new StateVersionConflictError("session-1", 1).expectedVersion).toBe(1);
+  });
+
+  it("records AI usage success and failure through the repository contract", async () => {
+    const inserted: unknown[] = [];
+    const repository = new DrizzleAIUsageRepository({
+      insert() {
+        return {
+          values(input: unknown) {
+            inserted.push(input);
+            return {
+              returning: async () => [
+                {
+                  id: "usage-1",
+                  ...(input as object)
+                }
+              ]
+            };
+          }
+        };
+      }
+    } as unknown as DbExecutor);
+
+    await expect(
+      repository.recordSuccess({
+        userId: "user-1",
+        sessionId: "session-1",
+        provider: "openai",
+        model: "test-model",
+        purpose: "gameplay_turn",
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+        estimatedCostMicros: 40,
+        latencyMs: 50,
+        providerRequestId: "request-1",
+        createdAt: new Date("2026-01-01T00:00:00Z")
+      })
+    ).resolves.toMatchObject({ status: "success", errorCode: null });
+
+    await expect(
+      repository.recordFailure({
+        userId: "user-1",
+        sessionId: "session-1",
+        provider: "openai",
+        model: "test-model",
+        purpose: "gameplay_turn",
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        estimatedCostMicros: null,
+        latencyMs: 50,
+        providerRequestId: null,
+        errorCode: "ai_timeout_error",
+        createdAt: new Date("2026-01-01T00:00:00Z")
+      })
+    ).resolves.toMatchObject({
+      status: "failed",
+      errorCode: "ai_timeout_error"
+    });
+
+    expect(inserted).toHaveLength(2);
+    expect(JSON.stringify(inserted)).not.toContain("OPENAI_API_KEY");
+    expect(JSON.stringify(inserted)).not.toContain("user@example.com");
+  });
+
+  it("aggregates AI usage cost in the database query layer", async () => {
+    const repository = new DrizzleAIUsageRepository({
+      select() {
+        return {
+          from() {
+            return {
+              where: async () => [{ total: 1234 }]
+            };
+          }
+        };
+      }
+    } as unknown as DbExecutor);
+
+    await expect(
+      repository.getUserCostSince(
+        "user-1",
+        new Date("2026-01-01T00:00:00Z")
+      )
+    ).resolves.toBe(1234);
+    await expect(
+      repository.getSessionCostSince(
+        "session-1",
+        new Date("2026-01-01T00:00:00Z")
+      )
+    ).resolves.toBe(1234);
   });
 });
