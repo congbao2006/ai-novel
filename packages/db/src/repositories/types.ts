@@ -2,6 +2,7 @@ import type {
   AIUsagePurpose,
   AIUsageStatus,
   EntityType,
+  MemoryType,
   MessageRole,
   QuestStatus,
   SessionStatus,
@@ -28,13 +29,15 @@ import type {
   Npc,
   Quest,
   Relationship,
+  SessionMemory,
+  SessionSummary,
   Story,
   StoryCharacter,
   User,
   WorldEvent
 } from "../schema/index.js";
 
-export type { EntityType, MessageRole, QuestStatus, SessionStatus, StoryStatus };
+export type { EntityType, MemoryType, MessageRole, QuestStatus, SessionStatus, StoryStatus };
 export type { AIUsagePurpose, AIUsageStatus };
 
 export type JsonObject = Record<string, unknown>;
@@ -204,4 +207,40 @@ export type AIUsageQueryInput = {
   readonly since?: Date;
   readonly until?: Date;
   readonly limit?: number;
+};
+
+export type SessionSummaryRecord = SessionSummary;
+export type UpsertSessionSummaryInput = {
+  readonly sessionId: string;
+  readonly summaryText: string;
+  readonly summarizedThroughTurn: number;
+};
+export type UpdateSessionSummaryWithVersionInput = {
+  readonly sessionId: string;
+  readonly summaryText: string;
+  readonly summarizedThroughTurn: number;
+  readonly expectedVersion: number;
+};
+
+export type SessionMemoryRecord = SessionMemory;
+export type CreateMemoryInput = {
+  readonly sessionId: string;
+  readonly memoryType: MemoryType;
+  readonly subjectType: string | null;
+  readonly subjectId: string | null;
+  readonly key: string | null;
+  readonly content: string;
+  readonly importance: number;
+  readonly firstObservedTurn: number | null;
+  readonly lastConfirmedTurn: number | null;
+  readonly metadata: JsonObject;
+};
+export type UpdateMemoryInput = {
+  readonly sessionId: string;
+  readonly memoryId: string;
+  readonly content?: string;
+  readonly importance?: number;
+  readonly lastConfirmedTurn?: number | null;
+  readonly active?: boolean;
+  readonly metadata?: JsonObject;
 };

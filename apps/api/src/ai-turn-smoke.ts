@@ -67,9 +67,20 @@ const result = await gateway.generate(
       createdAt: now,
       updatedAt: now
     },
-    state,
-    recentMessages: [],
-    recentImportantEvents: [],
+    context: {
+      state,
+      recentMessages: [],
+      summary: null,
+      memories: [],
+      worldEvents: [],
+      budget: {
+        maxRecentMessages: 20,
+        maxMemories: 20,
+        maxWorldEvents: 10,
+        maxSummaryChars: 6000,
+        maxMemoryChars: 1000
+      }
+    },
     action: "Tôi nhìn quanh căn phòng."
   })
 );

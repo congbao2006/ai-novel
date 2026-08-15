@@ -10,11 +10,14 @@ import {
   gameSessions,
   gameStates,
   inventoryItems,
+  memoryTypeEnum,
   messageRoleEnum,
   npcs,
   questStatusEnum,
   quests,
   relationships,
+  sessionMemories,
+  sessionSummaries,
   schemaModuleStatus,
   sessionStatusEnum,
   stories,
@@ -46,6 +49,8 @@ describe("db package", () => {
     expect(inventoryItems).toBeDefined();
     expect(quests).toBeDefined();
     expect(worldEvents).toBeDefined();
+    expect(sessionSummaries).toBeDefined();
+    expect(sessionMemories).toBeDefined();
   });
 
   it("defines PostgreSQL enums from shared domain constants", () => {
@@ -71,6 +76,16 @@ describe("db package", () => {
       "failed"
     ]);
     expect(entityTypeEnum.enumValues).toEqual(["player", "npc"]);
+    expect(memoryTypeEnum.enumValues).toEqual([
+      "fact",
+      "relationship",
+      "event",
+      "player",
+      "world",
+      "npc",
+      "quest",
+      "other"
+    ]);
     expect(aiUsagePurposeEnum.enumValues).toEqual([
       "gameplay_turn",
       "smoke",

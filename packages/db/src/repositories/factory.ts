@@ -6,9 +6,11 @@ import type {
   GameSessionRepository,
   GameStateRepository,
   InventoryRepository,
+  MemoryRepository,
   NPCRepository,
   QuestRepository,
   RelationshipRepository,
+  SessionSummaryRepository,
   StoryRepository,
   UserRepository,
   WorldEventRepository
@@ -20,9 +22,11 @@ import {
   DrizzleGameStateRepository,
   DrizzleAuthSessionRepository,
   DrizzleInventoryRepository,
+  DrizzleMemoryRepository,
   DrizzleNPCRepository,
   DrizzleQuestRepository,
   DrizzleRelationshipRepository,
+  DrizzleSessionSummaryRepository,
   DrizzleStoryRepository,
   DrizzleUserRepository,
   DrizzleWorldEventRepository
@@ -39,6 +43,8 @@ export type Repositories = {
   readonly npcs: NPCRepository;
   readonly relationships: RelationshipRepository;
   readonly inventory: InventoryRepository;
+  readonly sessionSummaries: SessionSummaryRepository;
+  readonly memories: MemoryRepository;
   readonly quests: QuestRepository;
   readonly worldEvents: WorldEventRepository;
 };
@@ -55,6 +61,8 @@ export function createRepositories(db: DbExecutor): Repositories {
     npcs: new DrizzleNPCRepository(db),
     relationships: new DrizzleRelationshipRepository(db),
     inventory: new DrizzleInventoryRepository(db),
+    sessionSummaries: new DrizzleSessionSummaryRepository(db),
+    memories: new DrizzleMemoryRepository(db),
     quests: new DrizzleQuestRepository(db),
     worldEvents: new DrizzleWorldEventRepository(db)
   };

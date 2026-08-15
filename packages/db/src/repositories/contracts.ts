@@ -13,6 +13,7 @@ import type {
   CreateQuestInput,
   CreateSessionInput,
   CreateUserInput,
+  CreateMemoryInput,
   EntityRef,
   GameMessageRecord,
   GameSessionRecord,
@@ -23,6 +24,8 @@ import type {
   QuestRecord,
   RecordAIUsageInput,
   RelationshipRecord,
+  SessionMemoryRecord,
+  SessionSummaryRecord,
   StoryRecord,
   StoryCharacterRecord,
   StoryListPageInput,
@@ -30,6 +33,9 @@ import type {
   UpdateQuestInput,
   UpdateSessionMetadataInput,
   UpdateStateInput,
+  UpdateMemoryInput,
+  UpdateSessionSummaryWithVersionInput,
+  UpsertSessionSummaryInput,
   UpsertRelationshipInput,
   UserRecord,
   WorldEventRecord
@@ -157,4 +163,26 @@ export type AIUsageRepository = {
   ): Promise<AIUsageRecordRecord[]>;
   getUserCostSince(userId: string, since: Date): Promise<number | null>;
   getSessionCostSince(sessionId: string, since: Date): Promise<number | null>;
+};
+
+export type SessionSummaryRepository = {
+  getForSession(sessionId: string): Promise<SessionSummaryRecord | null>;
+  upsertSummary(input: UpsertSessionSummaryInput): Promise<SessionSummaryRecord>;
+  updateWithVersion(
+    input: UpdateSessionSummaryWithVersionInput
+  ): Promise<SessionSummaryRecord>;
+};
+
+export type MemoryRepository = {
+  createMemory(input: CreateMemoryInput): Promise<SessionMemoryRecord>;
+  listActiveForSession(sessionId: string, limit: number): Promise<SessionMemoryRecord[]>;
+  listImportantForSession(sessionId: string, limit: number): Promise<SessionMemoryRecord[]>;
+  findByKey(sessionId: string, key: string): Promise<SessionMemoryRecord | null>;
+  deactivateMemory(sessionId: string, memoryId: string): Promise<SessionMemoryRecord>;
+  updateMemory(input: UpdateMemoryInput): Promise<SessionMemoryRecord>;
+  confirmMemory(
+    sessionId: string,
+    memoryId: string,
+    turnNumber: number
+  ): Promise<SessionMemoryRecord>;
 };

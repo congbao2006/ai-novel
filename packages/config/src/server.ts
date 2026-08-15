@@ -34,6 +34,14 @@ const serverConfigSchema = z.object({
     userMonthlyBudgetMicros: z.coerce.number().int().positive().optional(),
     sessionBudgetMicros: z.coerce.number().int().positive().optional()
   }),
+  memory: z.object({
+    contextMaxRecentMessages: z.coerce.number().int().positive().default(20),
+    contextMaxMemories: z.coerce.number().int().positive().default(20),
+    contextMaxWorldEvents: z.coerce.number().int().positive().default(10),
+    contextMaxSummaryChars: z.coerce.number().int().positive().default(6000),
+    contextMaxMemoryChars: z.coerce.number().int().positive().default(1000),
+    summaryIntervalTurns: z.coerce.number().int().positive().default(10)
+  }),
   gameplay: z.object({
     engineMode: z.enum(["deterministic", "ai"]).default("deterministic")
   })
@@ -117,6 +125,14 @@ export function getServerConfig(
       userDailyBudgetMicros: env.AI_USER_DAILY_BUDGET_MICROS,
       userMonthlyBudgetMicros: env.AI_USER_MONTHLY_BUDGET_MICROS,
       sessionBudgetMicros: env.AI_SESSION_BUDGET_MICROS
+    },
+    memory: {
+      contextMaxRecentMessages: env.AI_CONTEXT_MAX_RECENT_MESSAGES,
+      contextMaxMemories: env.AI_CONTEXT_MAX_MEMORIES,
+      contextMaxWorldEvents: env.AI_CONTEXT_MAX_WORLD_EVENTS,
+      contextMaxSummaryChars: env.AI_CONTEXT_MAX_SUMMARY_CHARS,
+      contextMaxMemoryChars: env.AI_CONTEXT_MAX_MEMORY_CHARS,
+      summaryIntervalTurns: env.AI_SUMMARY_INTERVAL_TURNS
     },
     gameplay: {
       engineMode: env.GAMEPLAY_ENGINE_MODE

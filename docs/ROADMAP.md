@@ -273,6 +273,34 @@ Next step:
 
 - Memory Foundation.
 
+## Phase 4.7: Memory Foundation
+
+Status: completed.
+
+Goals:
+
+- Build bounded AI gameplay context from multiple memory layers.
+- Persist rolling session summaries.
+- Persist structured important memories.
+- Keep GameState authoritative over memory.
+- Add summary refresh and memory extraction without vector search.
+
+Completed:
+
+- Added `session_summaries` with `summarizedThroughTurn` and optimistic `version`.
+- Added `session_memories` with memory type, importance, active flag, stable key, and observed/confirmed turn fields.
+- Added `SessionSummaryRepository` and `MemoryRepository`.
+- Added provider-neutral domain contracts for `ContextBundle`, `SessionSummary`, `PersistentMemory`, `MemoryCandidate`, and structured summary output.
+- Added `MemoryContextBuilder` to assemble current state, bounded recent messages, rolling summary, important memories, and important world events.
+- Added server-side context budget config for recent messages, memories, events, summary chars, and memory chars.
+- Added `SummaryService` for threshold-based rolling summary refresh and important memory extraction through `AIGateway` purpose `summary`.
+- Added deterministic memory dedup by stable key or exact normalized content.
+- Summary refresh is best-effort after gameplay commit and does not roll back a completed turn.
+
+Next step:
+
+- Semantic Memory Retrieval. This should add embeddings/vector search and relevance scoring before NPC runtime intelligence depends on long-term memory.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

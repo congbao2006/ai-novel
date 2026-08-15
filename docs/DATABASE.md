@@ -8,6 +8,8 @@ PostgreSQL is the primary database. The project uses Drizzle ORM for TypeScript 
 
 The foundational business schema is implemented for the AI Interactive Novel platform. It supports users, auth sessions, story templates, runtime sessions, messages, current state, NPCs, relationships, inventory, quests, and world events.
 
+Memory foundation tables now support rolling summaries and persistent important memories for AI gameplay context.
+
 Not implemented yet:
 
 - Payment, coin, or wallet tables.
@@ -271,6 +273,49 @@ Important columns:
 
 The table does not store API keys, auth cookies, emails, full prompts, or full AI output.
 
+### `session_summaries`
+
+Stores one rolling compact narrative summary per game session.
+
+Important columns:
+
+- `id`
+- `session_id`
+- `summary_text`
+- `summarized_through_turn`
+- `version`
+- `created_at`
+- `updated_at`
+
+`session_id` is unique. `version` supports optimistic summary updates so an older summary refresh cannot silently overwrite a newer one.
+
+### `session_memories`
+
+Stores structured long-term memory facts for a game session.
+
+Important columns:
+
+- `id`
+- `session_id`
+- `memory_type`
+- `subject_type`, nullable
+- `subject_id`, nullable
+- `key`, nullable
+- `content`
+- `importance`
+- `first_observed_turn`, nullable
+- `last_confirmed_turn`, nullable
+- `active`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+`memory_type` uses `memory_type`: `fact`, `relationship`, `event`, `player`, `world`, `npc`, `quest`, `other`.
+
+`importance` is constrained to `1..5`. Stable-key dedup uses the unique `(session_id, key)` index when `key` is present. Memories without keys use conservative application-level normalized exact-content dedup for now.
+
+Memory records help build AI context. They are not authoritative state and do not override `game_states`.
+
 ## Table Relationships
 
 - `stories.created_by_user_id -> users.id`, nullable.
@@ -289,6 +334,8 @@ The table does not store API keys, auth cookies, emails, full prompts, or full A
 - `world_events.session_id -> game_sessions.id`.
 - `ai_usage_records.user_id -> users.id`, nullable.
 - `ai_usage_records.session_id -> game_sessions.id`, nullable.
+- `session_summaries.session_id -> game_sessions.id`, unique.
+- `session_memories.session_id -> game_sessions.id`.
 
 Polymorphic runtime references such as relationship endpoints and inventory owners are represented by `entity_type` plus nullable UUID columns. They are constrained for player/NPC shape, but exact NPC existence is expected to be enforced by domain/application services until a dedicated entity registry is introduced.
 
@@ -310,6 +357,8 @@ Runtime data belongs to a specific playthrough:
 - `quests`
 - `world_events`
 - `ai_usage_records`
+- `session_summaries`
+- `session_memories`
 
 This separation prevents story templates from being mutated by playthrough state. A runtime NPC can reference a template through `npcs.template_character_id`, but its current goals, secrets, alive status, and state are session-owned.
 
@@ -326,6 +375,11 @@ Current story/session browsing operations:
 - `StoryRepository.getCharacterForStory(storyId, characterId)` validates that a selected character belongs to the selected story.
 - `GameSessionRepository.create(...)` and `GameStateRepository.createInitialState(...)` are composed by the API service inside a shared transaction.
 - `GameSessionRepository.listForUser(userId)` and owner checks on `getById(id)` ensure users can only list/open their own sessions.
+- `SessionSummaryRepository.getForSession(sessionId)` loads the compact rolling summary.
+- `SessionSummaryRepository.upsertSummary(...)` and `updateWithVersion(...)` persist summary refreshes with optimistic concurrency.
+- `MemoryRepository.listImportantForSession(sessionId, limit)` selects bounded memory by importance and recency for AI context.
+- `MemoryRepository.findByKey(sessionId, key)` supports deterministic memory dedup without embeddings.
+- `MemoryRepository.createMemory(...)`, `updateMemory(...)`, `deactivateMemory(...)`, and `confirmMemory(...)` manage validated persistent memory facts.
 
 The foundation currently uses page/limit pagination for story catalog browsing. Cursor pagination can replace or supplement it when catalog size, ranking, or search requirements justify it.
 
@@ -379,6 +433,29 @@ Current deterministic commands:
 
 Session detail reads load at most 50 recent messages for the play page. Full transcript pagination remains the responsibility of future transcript/history endpoints.
 
+## Memory Context Queries
+
+AI gameplay context is assembled without loading full history:
+
+```text
+MemoryContextBuilder
+  -> GameStateRepository.getCurrentState
+  -> GameMessageRepository.getRecentMessages(limit)
+  -> SessionSummaryRepository.getForSession
+  -> MemoryRepository.listImportantForSession(limit)
+  -> WorldEventRepository.getImportantEvents(minImportance, limit)
+```
+
+The current caps come from server config:
+
+- `AI_CONTEXT_MAX_RECENT_MESSAGES`
+- `AI_CONTEXT_MAX_MEMORIES`
+- `AI_CONTEXT_MAX_WORLD_EVENTS`
+- `AI_CONTEXT_MAX_SUMMARY_CHARS`
+- `AI_CONTEXT_MAX_MEMORY_CHARS`
+
+The current selection is deterministic: state first, summary, recent messages, important memories by importance/confirmation recency, and important world events. Semantic/vector retrieval is intentionally not implemented yet.
+
 ## AI Turn Proposal Transaction
 
 When `GAMEPLAY_ENGINE_MODE=ai`, the AI call is deliberately separated from the database transaction:
@@ -387,7 +464,7 @@ When `GAMEPLAY_ENGINE_MODE=ai`, the AI call is deliberately separated from the d
 GameplayService
   -> load owned active session snapshot
   -> load current game_states row and version
-  -> load bounded recent messages and important events
+  -> load bounded memory context
   -> call AIGateway for AITurnProposal
   -> validate proposal with domain allowlists
   -> withTransaction
@@ -404,6 +481,23 @@ GameplayService
 This avoids holding PostgreSQL locks or transaction resources while waiting for the external AI provider. If the state version changes after the AI response but before persistence, the proposal is discarded and the API returns HTTP 409. No player message, assistant message, event, turn count, or state change is partially committed.
 
 AI proposals cannot directly set IDs, owners, session IDs, timestamps, versions, turn counts, or arbitrary event payloads. The server validates state patches and assigns persistence metadata.
+
+## Summary Refresh
+
+After an AI gameplay turn commits, `SummaryService` may refresh memory when the number of unsummarized turns reaches `AI_SUMMARY_INTERVAL_TURNS`.
+
+```text
+SummaryService
+  -> load previous session_summaries row
+  -> load bounded messages/events after summarizedThroughTurn
+  -> BudgetService check for purpose=summary
+  -> AIGateway structured summary call
+  -> validate SummaryOutput
+  -> update session_summaries with expected version
+  -> upsert session_memories from validated importantFacts
+```
+
+Summary refresh is outside the gameplay transaction. If summary AI, validation, or persistence fails, the already-committed gameplay turn remains committed and the previous summary/memory state remains usable.
 
 ## AI Usage Ledger
 
@@ -499,8 +593,16 @@ Current indexes:
 - `ai_usage_records_provider_model_created_at_idx`
 - `ai_usage_records_purpose_created_at_idx`
 - `ai_usage_records_status_created_at_idx`
+- `session_summaries_session_id_unique`
+- `session_memories_session_active_idx`
+- `session_memories_session_importance_idx`
+- `session_memories_session_memory_type_idx`
+- `session_memories_session_last_confirmed_idx`
+- `session_memories_session_key_unique`
 
 These support common access patterns: loading a user's sessions, filtering story/session status, loading transcript by turn, loading current state, loading runtime entities by session, querying important world events, and aggregating AI cost by user/session/provider/purpose/status windows.
+
+The memory indexes support loading active memories, important memories, memories by type, recent confirmations, and stable-key dedup per session.
 
 ## Deletion And Cascade Strategy
 
@@ -511,7 +613,7 @@ These support common access patterns: loading a user's sessions, filtering story
 - `stories.created_by_user_id` is set to null when the creator user is deleted.
 - `game_sessions.selected_character_id` is set to null if a character template is removed.
 - `npcs.template_character_id` is set to null if a template is removed.
-- Session-owned runtime rows cascade on session deletion: messages, current state, NPCs, relationships, inventory items, quests, and world events.
+- Session-owned runtime rows cascade on session deletion: messages, current state, NPCs, relationships, inventory items, quests, world events, summaries, and memories.
 - `ai_usage_records.session_id` is set to null when a session is deleted so cost/accounting history can remain without retaining the deleted session link.
 - `ai_usage_records.user_id` cascades when a user is deleted, aligning with user data deletion.
 

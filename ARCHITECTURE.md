@@ -65,6 +65,8 @@ Current application services:
 - `GameplayService` owns authenticated turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
 - `BudgetService` owns server-side preflight budget checks before paid AI calls.
 - `RepositoryAIUsageLedger` records provider/model/token/cost metadata through the database repository layer.
+- `MemoryContextBuilder` owns bounded AI gameplay context assembly from authoritative state, recent transcript rows, rolling summaries, important memories, and important world events.
+- `SummaryService` owns rolling summary refresh and important memory extraction when configured turn thresholds are reached.
 
 ### Domain Package
 
@@ -152,7 +154,8 @@ Browser
   -> POST /sessions/:id/turns
   -> requireUser
   -> GameplayService
-      -> load session/state/story/context snapshot
+      -> load session/state/story snapshot
+      -> MemoryContextBuilder loads bounded context layers
       -> BudgetService checks user/session usage aggregates
       -> build GenerationRequest with bounded context
       -> AIGateway returns AITurnProposal
@@ -174,6 +177,23 @@ AI is a proposer, not the authority. It cannot supply database IDs, owners, vers
 
 AI usage accounting is intentionally independent from the gameplay transaction. A successful provider call is recorded even if the later proposal validation or optimistic concurrency check prevents game-state persistence.
 
+Memory maintenance is intentionally separate from gameplay persistence. After an AI gameplay turn is committed, `SummaryService` may refresh the rolling summary and upsert important memories if the configured interval is reached. A summary failure leaves the committed gameplay turn intact and keeps the previous summary/memory set.
+
+AI gameplay context is assembled from ordered layers:
+
+```text
+Authoritative GameState
+  + bounded recent messages
+  + rolling session summary
+  + persistent important memories
+  + important world events
+  -> MemoryContextBuilder
+  -> StoryTurnPromptBuilder
+  -> AIGateway
+```
+
+`game_states` remains the source of truth. Summaries and memories help the AI reason about long-running context, but they do not override current state or mutate state directly.
+
 ## Game State Rule
 
 The LLM never directly updates the database.
@@ -189,6 +209,7 @@ Expected future flow:
 7. Domain layer validates and converts proposed changes into allowed patches/events.
 8. API persists events and derived state through repositories in a transaction.
 9. API returns updated narrative/state view to the frontend.
+10. Optional summary refresh may run after turn persistence; its failures do not roll back gameplay.
 
 ## Provider Abstraction
 
@@ -234,6 +255,8 @@ GameplayService
 
 If budgets are enabled for AI gameplay and the configured model has no pricing, startup fails closed. The preflight check is not a distributed reservation system; concurrent requests may overshoot slightly until future payment/Xu work adds atomic quota reservations.
 
+Summary refresh calls use the same gateway and ledger with purpose `summary`, so they are budgeted and usage-accounted separately from gameplay turns.
+
 ## Security
 
 - Secrets live only in server-side environment variables or secret managers.
@@ -251,6 +274,7 @@ If budgets are enabled for AI gameplay and the configured model has no pricing, 
 - AI proposals are validated with allowlists for state fields, bounded text, finite numbers, and event limits before persistence.
 - Usage records never store API keys, cookies, emails, full prompts, or full AI output.
 - Budget enforcement is server-side; frontend state cannot raise or bypass AI budgets.
+- Memory and summary records never become authority over `game_states`; prompt builders explicitly tell the AI to prefer current state over stale memory.
 
 ## Authentication
 

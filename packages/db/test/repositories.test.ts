@@ -4,6 +4,8 @@ import {
   DrizzleAIUsageRepository,
   DrizzleGameStateRepository,
   DrizzleInventoryRepository,
+  DrizzleMemoryRepository,
+  DrizzleSessionSummaryRepository,
   StateVersionConflictError,
   ValidationError,
   assertEntityRefShape,
@@ -42,13 +44,47 @@ describe("repository layer", () => {
       "gameSessions",
       "gameStates",
       "inventory",
+      "memories",
       "npcs",
       "quests",
       "relationships",
+      "sessionSummaries",
       "stories",
       "users",
       "worldEvents"
     ]);
+  });
+
+  it("rejects invalid memory importance before querying", async () => {
+    const repository = new DrizzleMemoryRepository({} as DbExecutor);
+
+    await expect(
+      repository.createMemory({
+        sessionId: "session-1",
+        memoryType: "fact",
+        subjectType: null,
+        subjectId: null,
+        key: null,
+        content: "Important but invalid importance.",
+        importance: 9,
+        firstObservedTurn: 1,
+        lastConfirmedTurn: 1,
+        metadata: {}
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("throws ConflictError when summary optimistic update affects no rows", async () => {
+    const repository = new DrizzleSessionSummaryRepository(createEmptyUpdateDb());
+
+    await expect(
+      repository.updateWithVersion({
+        sessionId: "session-1",
+        summaryText: "A valid summary.",
+        summarizedThroughTurn: 10,
+        expectedVersion: 1
+      })
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 
   it("throws StateVersionConflictError when optimistic update affects no rows", async () => {

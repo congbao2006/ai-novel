@@ -4,13 +4,16 @@ import {
   aiUsagePurposes,
   aiUsageStatuses,
   entityTypes,
+  memoryTypes,
   messageRoles,
   questStatuses,
   runDeterministicTurn,
   sessionStatuses,
   storyStatuses,
+  validateSummaryOutput,
   validateAITurnProposal,
-  AITurnProposalValidationError
+  AITurnProposalValidationError,
+  SummaryOutputValidationError
 } from "../src/index.js";
 
 describe("domain package", () => {
@@ -57,6 +60,16 @@ describe("domain package", () => {
       "failed"
     ]);
     expect(entityTypes).toEqual(["player", "npc"]);
+    expect(memoryTypes).toEqual([
+      "fact",
+      "relationship",
+      "event",
+      "player",
+      "world",
+      "npc",
+      "quest",
+      "other"
+    ]);
     expect(aiUsagePurposes).toEqual([
       "gameplay_turn",
       "smoke",
@@ -221,5 +234,55 @@ describe("domain package", () => {
         context.state
       )
     ).toThrow(AITurnProposalValidationError);
+  });
+
+  it("accepts bounded structured summary output", () => {
+    const output = validateSummaryOutput({
+      summary: "Người chơi đã tới bến thuyền và gặp một đồng minh.",
+      importantFacts: [
+        {
+          key: "ally.waits_at_dock",
+          content: "Một đồng minh đang chờ người chơi ở bến thuyền.",
+          importance: 4,
+          memoryType: "fact"
+        }
+      ]
+    });
+
+    expect(output.importantFacts[0]).toMatchObject({
+      key: "ally.waits_at_dock",
+      memoryType: "fact",
+      importance: 4
+    });
+  });
+
+  it("rejects unsafe summary memory candidates", () => {
+    expect(() =>
+      validateSummaryOutput({
+        summary: "Valid summary",
+        importantFacts: [
+          {
+            key: "bad key with spaces",
+            content: "Invalid key format.",
+            importance: 4,
+            memoryType: "fact"
+          }
+        ]
+      })
+    ).toThrow(SummaryOutputValidationError);
+
+    expect(() =>
+      validateSummaryOutput({
+        summary: "Valid summary",
+        importantFacts: [
+          {
+            key: null,
+            content: "Invalid importance.",
+            importance: 9,
+            memoryType: "fact"
+          }
+        ]
+      })
+    ).toThrow(SummaryOutputValidationError);
   });
 });

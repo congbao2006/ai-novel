@@ -34,10 +34,11 @@ In scope:
 - Provider-neutral AI gateway with OpenAI smoke testing.
 - Optional AI narrative turn proposal mode guarded by server-side validation.
 - Persistent AI usage ledger and server-side cost budget enforcement.
+- Memory foundation for AI gameplay context using current state, bounded recent messages, rolling summaries, important memories, and important world events.
 
 Out of scope:
 
-- Autonomous NPC AI, memory retrieval, and AI-generated quest gameplay.
+- Autonomous NPC AI, semantic/vector memory retrieval, and AI-generated quest gameplay.
 - Payment or coin system implementation.
 - User-visible token/cost dashboard.
 - Admin dashboard implementation.
@@ -73,6 +74,8 @@ Current turn support defaults to deterministic mode. Supported deterministic com
 When `GAMEPLAY_ENGINE_MODE=ai` is configured, a turn can ask the AI gateway for a narrative and structured proposal. The proposal is not trusted: the server validates allowed state fields and world events before anything is persisted. Deterministic mode remains the development/fallback path.
 
 AI gameplay calls are usage-accounted server-side. The product can enforce configured daily, monthly, and per-session AI cost limits before a provider call is made. This is a platform budget guard, not a payment/Xu system.
+
+AI gameplay context now includes persistent memory layers so long sessions do not require sending the entire transcript. Rolling summaries and important memories help the AI understand history, but they are not the source of truth and cannot override `game_states`.
 
 ### Save
 

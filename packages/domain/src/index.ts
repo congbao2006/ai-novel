@@ -36,6 +36,18 @@ export type AIUsagePurpose = (typeof aiUsagePurposes)[number];
 export const aiUsageStatuses = ["success", "failed"] as const;
 export type AIUsageStatus = (typeof aiUsageStatuses)[number];
 
+export const memoryTypes = [
+  "fact",
+  "relationship",
+  "event",
+  "player",
+  "world",
+  "npc",
+  "quest",
+  "other"
+] as const;
+export type MemoryType = (typeof memoryTypes)[number];
+
 export type PlayerAction = {
   readonly text: string;
 };
@@ -127,10 +139,83 @@ export type ValidatedAITurnProposal = {
   readonly events: GeneratedWorldEvent[];
 };
 
+export type SessionSummary = {
+  readonly sessionId: SessionId;
+  readonly summaryText: string;
+  readonly summarizedThroughTurn: number;
+  readonly version: number;
+};
+
+export type PersistentMemory = {
+  readonly id: EntityId;
+  readonly sessionId: SessionId;
+  readonly memoryType: MemoryType;
+  readonly subjectType: string | null;
+  readonly subjectId: string | null;
+  readonly key: string | null;
+  readonly content: string;
+  readonly importance: number;
+  readonly firstObservedTurn: number | null;
+  readonly lastConfirmedTurn: number | null;
+  readonly active: boolean;
+  readonly metadata: Record<string, unknown>;
+};
+
+export type MemoryCandidate = {
+  readonly memoryType: MemoryType;
+  readonly key?: string | null;
+  readonly content: string;
+  readonly importance: number;
+  readonly subjectType?: string | null;
+  readonly subjectId?: string | null;
+  readonly metadata?: Record<string, unknown>;
+};
+
+export type MemoryContextMessage = {
+  readonly role: MessageRole;
+  readonly content: string;
+  readonly turnNumber: number;
+};
+
+export type MemoryContextWorldEvent = {
+  readonly eventType: string;
+  readonly title: string;
+  readonly description: string;
+  readonly importance: number;
+  readonly turnNumber: number;
+};
+
+export type ContextBundle = {
+  readonly state: GameStateSnapshot;
+  readonly recentMessages: readonly MemoryContextMessage[];
+  readonly summary: SessionSummary | null;
+  readonly memories: readonly PersistentMemory[];
+  readonly worldEvents: readonly MemoryContextWorldEvent[];
+  readonly budget: {
+    readonly maxRecentMessages: number;
+    readonly maxMemories: number;
+    readonly maxWorldEvents: number;
+    readonly maxSummaryChars: number;
+    readonly maxMemoryChars: number;
+  };
+};
+
+export type SummaryOutput = {
+  readonly summary: string;
+  readonly importantFacts: readonly MemoryCandidate[];
+};
+
 export class AITurnProposalValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AITurnProposalValidationError";
+  }
+}
+
+export class SummaryOutputValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SummaryOutputValidationError";
   }
 }
 
@@ -143,6 +228,57 @@ export const aiTurnProposalLimits = {
   eventTypeMaxLength: 80,
   eventTitleMaxLength: 120,
   eventDescriptionMaxLength: 1000
+} as const;
+
+export const summaryOutputLimits = {
+  summaryMaxLength: 6000,
+  importantFactsMaxCount: 10,
+  memoryContentMaxLength: 1000,
+  memoryKeyMaxLength: 120
+} as const;
+
+export const summaryOutputJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "importantFacts"],
+  properties: {
+    summary: {
+      type: "string",
+      minLength: 1,
+      maxLength: summaryOutputLimits.summaryMaxLength
+    },
+    importantFacts: {
+      type: "array",
+      maxItems: summaryOutputLimits.importantFactsMaxCount,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "content", "importance", "memoryType"],
+        properties: {
+          key: {
+            anyOf: [
+              { type: "string", maxLength: summaryOutputLimits.memoryKeyMaxLength },
+              { type: "null" }
+            ]
+          },
+          content: {
+            type: "string",
+            minLength: 1,
+            maxLength: summaryOutputLimits.memoryContentMaxLength
+          },
+          importance: {
+            type: "integer",
+            minimum: 1,
+            maximum: 5
+          },
+          memoryType: {
+            type: "string",
+            enum: memoryTypes
+          }
+        }
+      }
+    }
+  }
 } as const;
 
 export const aiTurnProposalJsonSchema = {
@@ -269,6 +405,73 @@ export function validateAITurnProposal(
     resultText: narrative,
     statePatch: patch,
     events
+  };
+}
+
+export function validateSummaryOutput(output: unknown): SummaryOutput {
+  const record = expectRecordWithError(output, "summary output");
+  assertOnlyKeysWithError(record, ["summary", "importantFacts"]);
+
+  const summary = validateTextWithError(
+    record.summary,
+    "summary",
+    summaryOutputLimits.summaryMaxLength
+  );
+
+  if (!Array.isArray(record.importantFacts)) {
+    throw new SummaryOutputValidationError("importantFacts must be an array.");
+  }
+
+  if (record.importantFacts.length > summaryOutputLimits.importantFactsMaxCount) {
+    throw new SummaryOutputValidationError("Too many importantFacts.");
+  }
+
+  return {
+    summary,
+    importantFacts: record.importantFacts.map((candidate, index) =>
+      validateMemoryCandidate(candidate, index)
+    )
+  };
+}
+
+function validateMemoryCandidate(value: unknown, index: number): MemoryCandidate {
+  const record = expectRecordWithError(value, `importantFacts[${index}]`);
+  assertOnlyKeysWithError(record, ["key", "content", "importance", "memoryType"]);
+
+  if (!memoryTypes.includes(record.memoryType as MemoryType)) {
+    throw new SummaryOutputValidationError(
+      `importantFacts[${index}].memoryType is invalid.`
+    );
+  }
+
+  const importance = record.importance;
+
+  if (
+    !Number.isInteger(importance) ||
+    (importance as number) < 1 ||
+    (importance as number) > 5
+  ) {
+    throw new SummaryOutputValidationError(
+      `importantFacts[${index}].importance is invalid.`
+    );
+  }
+
+  const key =
+    record.key === null
+      ? null
+      : record.key === undefined
+        ? null
+        : validateMemoryKey(record.key, `importantFacts[${index}].key`);
+
+  return {
+    key,
+    memoryType: record.memoryType as MemoryType,
+    content: validateTextWithError(
+      record.content,
+      `importantFacts[${index}].content`,
+      summaryOutputLimits.memoryContentMaxLength
+    ),
+    importance: importance as number
   };
 }
 
@@ -662,6 +865,59 @@ function hasControlCharacters(value: string): boolean {
       code === 0x7f
     );
   });
+}
+
+function expectRecordWithError(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new SummaryOutputValidationError(`${path} must be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function assertOnlyKeysWithError(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[]
+): void {
+  const allowed = new Set(allowedKeys);
+
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new SummaryOutputValidationError(`Unexpected summary key: ${key}.`);
+    }
+  }
+}
+
+function validateTextWithError(
+  value: unknown,
+  path: string,
+  maxLength: number
+): string {
+  if (typeof value !== "string") {
+    throw new SummaryOutputValidationError(`${path} must be a string.`);
+  }
+
+  const text = value.trim();
+
+  if (!text || text.length > maxLength || hasControlCharacters(text)) {
+    throw new SummaryOutputValidationError(`${path} is invalid.`);
+  }
+
+  return text;
+}
+
+function validateMemoryKey(value: unknown, path: string): string {
+  const key = validateTextWithError(
+    value,
+    path,
+    summaryOutputLimits.memoryKeyMaxLength
+  );
+
+  if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(key)) {
+    throw new SummaryOutputValidationError(`${path} format is invalid.`);
+  }
+
+  return key;
 }
 
 function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {

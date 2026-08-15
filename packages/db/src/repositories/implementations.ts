@@ -27,6 +27,7 @@ import type {
   ChangeInventoryQuantityInput,
   CreateAuthSessionInput,
   CreateInitialStateInput,
+  CreateMemoryInput,
   CreateNpcInput,
   CreateQuestInput,
   CreateSessionInput,
@@ -41,6 +42,8 @@ import type {
   QuestRecord,
   RecordAIUsageInput,
   RelationshipRecord,
+  SessionMemoryRecord,
+  SessionSummaryRecord,
   StoryRecord,
   StoryCharacterRecord,
   StoryListPageInput,
@@ -48,6 +51,9 @@ import type {
   UpdateQuestInput,
   UpdateSessionMetadataInput,
   UpdateStateInput,
+  UpdateMemoryInput,
+  UpdateSessionSummaryWithVersionInput,
+  UpsertSessionSummaryInput,
   UpsertRelationshipInput,
   UserRecord,
   WorldEventRecord
@@ -62,6 +68,8 @@ import {
   npcs,
   quests,
   relationships,
+  sessionMemories,
+  sessionSummaries,
   stories,
   storyCharacters,
   users,
@@ -74,9 +82,11 @@ import type {
   GameSessionRepository,
   GameStateRepository,
   InventoryRepository,
+  MemoryRepository,
   NPCRepository,
   QuestRepository,
   RelationshipRepository,
+  SessionSummaryRepository,
   StoryRepository,
   UserRepository,
   WorldEventRepository
@@ -1046,6 +1056,215 @@ export class DrizzleAIUsageRepository
   }
 }
 
+export class DrizzleSessionSummaryRepository
+  extends BaseRepository
+  implements SessionSummaryRepository
+{
+  getForSession(sessionId: string): Promise<SessionSummaryRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(sessionSummaries)
+          .where(eq(sessionSummaries.sessionId, sessionId))
+          .limit(1)
+      )
+    );
+  }
+
+  upsertSummary(input: UpsertSessionSummaryInput): Promise<SessionSummaryRecord> {
+    return this.run(async () => {
+      validateSummaryInput(input);
+      const now = new Date();
+
+      return firstOrThrow(
+        await this.db
+          .insert(sessionSummaries)
+          .values({
+            ...input,
+            updatedAt: now
+          })
+          .onConflictDoUpdate({
+            target: sessionSummaries.sessionId,
+            set: {
+              summaryText: input.summaryText,
+              summarizedThroughTurn: input.summarizedThroughTurn,
+              version: sql`${sessionSummaries.version} + 1`,
+              updatedAt: now
+            }
+          })
+          .returning(),
+        new ConflictError("Session summary could not be upserted.")
+      );
+    });
+  }
+
+  updateWithVersion(
+    input: UpdateSessionSummaryWithVersionInput
+  ): Promise<SessionSummaryRecord> {
+    return this.run(async () => {
+      validateSummaryInput(input);
+
+      return firstOrThrow(
+        await this.db
+          .update(sessionSummaries)
+          .set({
+            summaryText: input.summaryText,
+            summarizedThroughTurn: input.summarizedThroughTurn,
+            version: sql`${sessionSummaries.version} + 1`,
+            updatedAt: new Date()
+          })
+          .where(
+            and(
+              eq(sessionSummaries.sessionId, input.sessionId),
+              eq(sessionSummaries.version, input.expectedVersion)
+            )
+          )
+          .returning(),
+        new ConflictError("Session summary version conflict.")
+      );
+    });
+  }
+}
+
+export class DrizzleMemoryRepository
+  extends BaseRepository
+  implements MemoryRepository
+{
+  createMemory(input: CreateMemoryInput): Promise<SessionMemoryRecord> {
+    return this.run(async () => {
+      validateMemoryInput(input);
+
+      return firstOrThrow(
+        await this.db.insert(sessionMemories).values(input).returning(),
+        new ConflictError("Session memory could not be created.")
+      );
+    });
+  }
+
+  listActiveForSession(
+    sessionId: string,
+    limit: number
+  ): Promise<SessionMemoryRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(sessionMemories)
+        .where(
+          and(eq(sessionMemories.sessionId, sessionId), eq(sessionMemories.active, true))
+        )
+        .orderBy(desc(sessionMemories.lastConfirmedTurn), desc(sessionMemories.createdAt))
+        .limit(limit)
+    );
+  }
+
+  listImportantForSession(
+    sessionId: string,
+    limit: number
+  ): Promise<SessionMemoryRecord[]> {
+    assertPositiveLimit(limit);
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(sessionMemories)
+        .where(
+          and(eq(sessionMemories.sessionId, sessionId), eq(sessionMemories.active, true))
+        )
+        .orderBy(
+          desc(sessionMemories.importance),
+          desc(sessionMemories.lastConfirmedTurn),
+          desc(sessionMemories.updatedAt)
+        )
+        .limit(limit)
+    );
+  }
+
+  findByKey(sessionId: string, key: string): Promise<SessionMemoryRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(sessionMemories)
+          .where(and(eq(sessionMemories.sessionId, sessionId), eq(sessionMemories.key, key)))
+          .limit(1)
+      )
+    );
+  }
+
+  deactivateMemory(
+    sessionId: string,
+    memoryId: string
+  ): Promise<SessionMemoryRecord> {
+    return this.updateMemory({
+      sessionId,
+      memoryId,
+      active: false
+    });
+  }
+
+  updateMemory(input: UpdateMemoryInput): Promise<SessionMemoryRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof sessionMemories.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.content !== undefined) {
+        validateMemoryText(input.content);
+        updates.content = input.content;
+      }
+
+      if (input.importance !== undefined) {
+        validateImportance(input.importance);
+        updates.importance = input.importance;
+      }
+
+      if (input.lastConfirmedTurn !== undefined) {
+        updates.lastConfirmedTurn = input.lastConfirmedTurn;
+      }
+
+      if (input.active !== undefined) {
+        updates.active = input.active;
+      }
+
+      if (input.metadata !== undefined) {
+        updates.metadata = input.metadata;
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(sessionMemories)
+          .set(updates)
+          .where(
+            and(
+              eq(sessionMemories.sessionId, input.sessionId),
+              eq(sessionMemories.id, input.memoryId)
+            )
+          )
+          .returning(),
+        new NotFoundError("Session memory")
+      );
+    });
+  }
+
+  confirmMemory(
+    sessionId: string,
+    memoryId: string,
+    turnNumber: number
+  ): Promise<SessionMemoryRecord> {
+    if (!Number.isInteger(turnNumber) || turnNumber < 0) {
+      throw new ValidationError("Memory turn number must be non-negative.");
+    }
+
+    return this.updateMemory({
+      sessionId,
+      memoryId,
+      lastConfirmedTurn: turnNumber,
+      active: true
+    });
+  }
+}
+
 function aiUsagePredicates(input: AIUsageQueryInput) {
   const predicates = [];
 
@@ -1083,5 +1302,54 @@ function validateAIUsageInput(input: RecordAIUsageInput): void {
     if (value !== null && value !== undefined && value < 0) {
       throw new ValidationError(`AI usage ${field} must be non-negative.`);
     }
+  }
+}
+
+function validateSummaryInput(input: {
+  readonly summaryText: string;
+  readonly summarizedThroughTurn: number;
+}): void {
+  if (!input.summaryText.trim()) {
+    throw new ValidationError("Session summary text is required.");
+  }
+
+  if (
+    !Number.isInteger(input.summarizedThroughTurn) ||
+    input.summarizedThroughTurn < 0
+  ) {
+    throw new ValidationError("Summarized turn must be non-negative.");
+  }
+}
+
+function validateMemoryInput(input: CreateMemoryInput): void {
+  validateMemoryText(input.content);
+  validateImportance(input.importance);
+
+  if (
+    input.firstObservedTurn !== null &&
+    input.firstObservedTurn !== undefined &&
+    (!Number.isInteger(input.firstObservedTurn) || input.firstObservedTurn < 0)
+  ) {
+    throw new ValidationError("First observed turn must be non-negative.");
+  }
+
+  if (
+    input.lastConfirmedTurn !== null &&
+    input.lastConfirmedTurn !== undefined &&
+    (!Number.isInteger(input.lastConfirmedTurn) || input.lastConfirmedTurn < 0)
+  ) {
+    throw new ValidationError("Last confirmed turn must be non-negative.");
+  }
+}
+
+function validateMemoryText(content: string): void {
+  if (!content.trim() || content.length > 1000) {
+    throw new ValidationError("Session memory content is invalid.");
+  }
+}
+
+function validateImportance(importance: number): void {
+  if (!Number.isInteger(importance) || importance < 1 || importance > 5) {
+    throw new ValidationError("Memory importance must be between 1 and 5.");
   }
 }

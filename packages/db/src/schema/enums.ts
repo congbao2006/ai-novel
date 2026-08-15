@@ -3,6 +3,7 @@ import {
   aiUsagePurposes,
   aiUsageStatuses,
   entityTypes,
+  memoryTypes,
   messageRoles,
   questStatuses,
   sessionStatuses,
@@ -16,3 +17,4 @@ export const questStatusEnum = pgEnum("quest_status", questStatuses);
 export const entityTypeEnum = pgEnum("entity_type", entityTypes);
 export const aiUsagePurposeEnum = pgEnum("ai_usage_purpose", aiUsagePurposes);
 export const aiUsageStatusEnum = pgEnum("ai_usage_status", aiUsageStatuses);
+export const memoryTypeEnum = pgEnum("memory_type", memoryTypes);

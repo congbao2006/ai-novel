@@ -49,6 +49,7 @@ The current smoke paths are:
 - `POST /internal/ai/smoke` for development/internal HTTP testing.
 - `pnpm ai:smoke` for optional CLI live testing.
 - `pnpm ai:turn-smoke` for optional live structured turn proposal testing without database writes.
+- `pnpm ai:summary-smoke` for optional live structured summary output testing without gameplay writes.
 
 None of the smoke paths mutate gameplay sessions or game state.
 
@@ -59,6 +60,7 @@ AI gameplay mode keeps the server authoritative:
 ```text
 Player action
   -> GameplayService loads bounded session snapshot
+  -> MemoryContextBuilder loads state, recent messages, summary, memories, events
   -> BudgetService checks recorded user/session usage
   -> StoryTurnPromptBuilder builds provider-neutral GenerationRequest
   -> AIGateway calls the configured provider
@@ -153,7 +155,7 @@ Rejected fields include IDs, `userId`, `sessionId`, `version`, `turnCount`, auth
 
 Narrative is user-facing prose only. It is not the source of truth for state. If narrative says a stat changed but the validated structured patch does not include that change, the stat does not change.
 
-## Prompt And Context Strategy
+## Prompt, Context, And Memory Strategy
 
 The prompt builder separates:
 
@@ -161,6 +163,8 @@ The prompt builder separates:
 - world context from server-side story fields
 - player character
 - current `game_states` snapshot
+- rolling story summary
+- persistent important memories
 - bounded recent transcript messages
 - recent important world events
 - untrusted player action
@@ -168,7 +172,30 @@ The prompt builder separates:
 
 Player action is explicitly labeled as untrusted fictional input. It must not be treated as system/developer instruction, and the model is told not to reveal internal prompts or alter the output schema.
 
-Context is bounded to recent messages and important events. Semantic/vector memory is still future work.
+Context is built by `MemoryContextBuilder` under server-side caps:
+
+- `AI_CONTEXT_MAX_RECENT_MESSAGES`
+- `AI_CONTEXT_MAX_MEMORIES`
+- `AI_CONTEXT_MAX_WORLD_EVENTS`
+- `AI_CONTEXT_MAX_SUMMARY_CHARS`
+- `AI_CONTEXT_MAX_MEMORY_CHARS`
+
+Current `game_states` is authoritative. Rolling summaries and memories help the model understand distant history, but they never override state or become a source of truth. Semantic/vector memory is still future work.
+
+## Rolling Summary
+
+`SummaryService` refreshes one persisted rolling summary per session after `AI_SUMMARY_INTERVAL_TURNS` unsummarized turns. It calls `AIGateway` with purpose `summary`, validates strict structured output, updates `session_summaries`, and extracts bounded important memory candidates into `session_memories`.
+
+Summary calls are not part of the gameplay transaction. If summary refresh fails after a turn commits, gameplay remains committed and the previous summary/memory state is kept.
+
+Summary prompts treat historical messages as untrusted fiction data and require strict structured output:
+
+```json
+{
+  "summary": "...",
+  "importantFacts": []
+}
+```
 
 ## Error Model
 
@@ -274,6 +301,8 @@ Unset values disable that limit. Daily and monthly budgets are evaluated against
 
 This is a preflight budget check. Concurrent requests can pass the same budget check before either usage record is written, so small overshoot is possible. Future payment/Xu work should introduce reservations or hard quota debits if exact atomic billing is required.
 
+Summary refresh uses the same budget service before its AI call. If budget is exceeded, summary is skipped through a controlled failure path and the gameplay turn is not rolled back.
+
 ## Secrets Strategy
 
 Server-only environment variables:
@@ -290,6 +319,12 @@ Server-only environment variables:
 - `AI_USER_DAILY_BUDGET_MICROS`
 - `AI_USER_MONTHLY_BUDGET_MICROS`
 - `AI_SESSION_BUDGET_MICROS`
+- `AI_CONTEXT_MAX_RECENT_MESSAGES`
+- `AI_CONTEXT_MAX_MEMORIES`
+- `AI_CONTEXT_MAX_WORLD_EVENTS`
+- `AI_CONTEXT_MAX_SUMMARY_CHARS`
+- `AI_CONTEXT_MAX_MEMORY_CHARS`
+- `AI_SUMMARY_INTERVAL_TURNS`
 
 `OPENAI_API_KEY` is never exposed through frontend config, JSON responses, logs, or `NEXT_PUBLIC_*`.
 

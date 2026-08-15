@@ -10,7 +10,9 @@ import { RepositoryAIUsageLedger } from "./modules/ai/usage-ledger.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
 import { GameplayService } from "./modules/sessions/gameplay-service.js";
+import { MemoryContextBuilder } from "./modules/sessions/memory-context-builder.js";
 import { SessionService } from "./modules/sessions/service.js";
+import { SummaryService } from "./modules/sessions/summary-service.js";
 import { StoryService } from "./modules/stories/service.js";
 
 const config = getServerConfig();
@@ -55,11 +57,30 @@ const aiGateway = createAIGateway({
   pricingRegistry: config.ai.modelPricingRegistry,
   ...(aiUsageLedger ? { usageLedger: aiUsageLedger } : {})
 });
+const memoryContextBuilder = repositories
+  ? new MemoryContextBuilder(repositories, {
+      maxRecentMessages: config.memory.contextMaxRecentMessages,
+      maxMemories: config.memory.contextMaxMemories,
+      maxWorldEvents: config.memory.contextMaxWorldEvents,
+      maxSummaryChars: config.memory.contextMaxSummaryChars,
+      maxMemoryChars: config.memory.contextMaxMemoryChars
+    })
+  : undefined;
+const summaryService =
+  repositories && aiGateway
+    ? new SummaryService(repositories, aiGateway, budgetService, {
+        intervalTurns: config.memory.summaryIntervalTurns,
+        maxSourceMessages: Math.max(config.memory.summaryIntervalTurns * 4, 40),
+        maxSourceEvents: Math.max(config.memory.contextMaxWorldEvents * 4, 20)
+      })
+    : undefined;
 const gameplayService = repositories
   ? new GameplayService(repositories, database, undefined, {
       engineMode: config.gameplay.engineMode,
       ...(aiGateway ? { aiGateway } : {}),
-      ...(budgetService ? { budgetService } : {})
+      ...(budgetService ? { budgetService } : {}),
+      ...(memoryContextBuilder ? { memoryContextBuilder } : {}),
+      ...(summaryService ? { summaryService } : {})
     })
   : undefined;
 const dependencies = {

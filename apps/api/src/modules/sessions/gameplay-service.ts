@@ -20,8 +20,7 @@ import type {
   RepositoryContext,
   Repositories,
   StoryCharacterRecord,
-  StoryRecord,
-  WorldEventRecord
+  StoryRecord
 } from "@ai-novel/db";
 import { StateVersionConflictError, withTransaction } from "@ai-novel/db";
 import {
@@ -39,6 +38,9 @@ import {
   type GameplayTurnResponseDto
 } from "./dto.js";
 import { buildAITurnGenerationRequest } from "./ai-turn-prompt.js";
+import { toStateSnapshot } from "./memory-context-builder.js";
+import type { MemoryContextBuilder } from "./memory-context-builder.js";
+import type { SummaryService } from "./summary-service.js";
 import type { TransactionRunner } from "./service.js";
 
 export type SubmitTurnInputDto = {
@@ -51,6 +53,8 @@ export type GameplayServiceOptions = {
   readonly engineMode?: GameplayEngineMode;
   readonly aiGateway?: AIGateway;
   readonly budgetService?: BudgetService;
+  readonly memoryContextBuilder?: MemoryContextBuilder;
+  readonly summaryService?: SummaryService;
 };
 
 export class GameplayService {
@@ -58,6 +62,8 @@ export class GameplayService {
   private readonly engineMode: GameplayEngineMode;
   private readonly aiGateway: AIGateway | undefined;
   private readonly budgetService: BudgetService | undefined;
+  private readonly memoryContextBuilder: MemoryContextBuilder | undefined;
+  private readonly summaryService: SummaryService | undefined;
 
   constructor(
     private readonly repositories: Repositories,
@@ -68,6 +74,8 @@ export class GameplayService {
     this.engineMode = options.engineMode ?? "deterministic";
     this.aiGateway = options.aiGateway;
     this.budgetService = options.budgetService;
+    this.memoryContextBuilder = options.memoryContextBuilder;
+    this.summaryService = options.summaryService;
     this.runInTransaction =
       transactionRunner ??
       (database
@@ -167,6 +175,25 @@ export class GameplayService {
     const snapshot = await this.loadAITurnSnapshot(user, sessionId);
     const expectedVersion = snapshot.state.version;
     const stateSnapshot = toStateSnapshot(snapshot.state);
+    const context = await (this.memoryContextBuilder
+      ? this.memoryContextBuilder.buildForTurn({
+          sessionId: snapshot.session.id,
+          state: snapshot.state
+        })
+      : Promise.resolve({
+          state: stateSnapshot,
+          recentMessages: [],
+          summary: null,
+          memories: [],
+          worldEvents: [],
+          budget: {
+            maxRecentMessages: 0,
+            maxMemories: 0,
+            maxWorldEvents: 0,
+            maxSummaryChars: 0,
+            maxMemoryChars: 0
+          }
+        }));
 
     await this.budgetService?.checkBeforeAI({
       userId: user.userId,
@@ -178,9 +205,7 @@ export class GameplayService {
       sessionId: snapshot.session.id,
       story: snapshot.story,
       character: snapshot.character,
-      state: stateSnapshot,
-      recentMessages: snapshot.recentMessages,
-      recentImportantEvents: snapshot.recentImportantEvents,
+      context,
       action
     });
     const result = await this.aiGateway.generate<AITurnProposal>(request);
@@ -191,9 +216,9 @@ export class GameplayService {
     );
 
     try {
-      return await this.runInTransaction(async (context) => {
+      const turnResponse = await this.runInTransaction(async (transactionContext) => {
         const { session, state } = await loadOwnedActiveTurnSnapshot(
-          context,
+          transactionContext,
           user,
           sessionId
         );
@@ -205,10 +230,10 @@ export class GameplayService {
         }
 
         const previousLastTurn =
-          await context.repositories.gameMessages.getLastTurnNumber(session.id);
+          await transactionContext.repositories.gameMessages.getLastTurnNumber(session.id);
         const turnNumber = (previousLastTurn ?? 0) + 1;
 
-        return persistTurn(context, {
+        return persistTurn(transactionContext, {
           sessionId: session.id,
           expectedVersion,
           turnNumber,
@@ -218,6 +243,10 @@ export class GameplayService {
           events: validatedProposal.events
         });
       });
+
+      await this.refreshSummaryAfterTurn(user, sessionId, turnResponse.turnNumber);
+
+      return turnResponse;
     } catch (error) {
       if (error instanceof StateVersionConflictError) {
         throw new ConflictApplicationError(
@@ -237,8 +266,6 @@ export class GameplayService {
     readonly state: GameStateRecord;
     readonly story: StoryRecord;
     readonly character: StoryCharacterRecord | null;
-    readonly recentMessages: GameMessageRecord[];
-    readonly recentImportantEvents: WorldEventRecord[];
   }> {
     const session = await this.repositories.gameSessions.getById(sessionId);
 
@@ -260,19 +287,29 @@ export class GameplayService {
       storyId: session.storyId,
       selectedCharacterId: session.selectedCharacterId
     });
-    const [recentMessages, recentImportantEvents] = await Promise.all([
-      this.repositories.gameMessages.getRecentMessages(session.id, 20),
-      this.repositories.worldEvents.getImportantEvents(session.id, 3, 10)
-    ]);
-
     return {
       session,
       state,
       story,
-      character,
-      recentMessages: recentMessages as GameMessageRecord[],
-      recentImportantEvents: recentImportantEvents as WorldEventRecord[]
+      character
     };
+  }
+
+  private async refreshSummaryAfterTurn(
+    user: CurrentUser,
+    sessionId: string,
+    turnNumber: number
+  ): Promise<void> {
+    try {
+      await this.summaryService?.refreshIfDue({
+        userId: user.userId,
+        sessionId,
+        targetTurn: turnNumber
+      });
+    } catch {
+      // Summary refresh is best-effort in the request path. Gameplay persistence
+      // has already completed and must not be rolled back by memory maintenance.
+    }
   }
 }
 
@@ -413,17 +450,6 @@ async function persistTurn(
     resultMessage: toGameMessageDto(resultMessage),
     state: toGameStateDto(updatedState),
     events: events.map(toWorldEventDto)
-  };
-}
-
-function toStateSnapshot(state: GameStateRecord): GameStateSnapshot {
-  return {
-    version: state.version,
-    location: state.location,
-    worldTime: state.worldTime,
-    playerStats: copyJsonObject(state.playerStats),
-    flags: copyJsonObject(state.flags),
-    stateData: copyJsonObject(state.stateData)
   };
 }
 

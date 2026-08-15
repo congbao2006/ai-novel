@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "ai:smoke": "tsx src/ai-smoke.ts",
     "ai:turn-smoke": "tsx src/ai-turn-smoke.ts",
+    "ai:summary-smoke": "tsx src/summary-smoke.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

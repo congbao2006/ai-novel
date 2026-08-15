@@ -16,6 +16,7 @@ import {
   aiUsagePurposeEnum,
   aiUsageStatusEnum,
   entityTypeEnum,
+  memoryTypeEnum,
   messageRoleEnum,
   questStatusEnum,
   sessionStatusEnum
@@ -420,6 +421,99 @@ export const aiUsageRecords = pgTable(
   ]
 );
 
+export const sessionSummaries = pgTable(
+  "session_summaries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => gameSessions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    summaryText: text("summary_text").notNull(),
+    summarizedThroughTurn: integer("summarized_through_turn").notNull().default(0),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("session_summaries_session_id_unique").on(table.sessionId),
+    check(
+      "session_summaries_summarized_turn_non_negative",
+      sql`${table.summarizedThroughTurn} >= 0`
+    ),
+    check("session_summaries_version_positive", sql`${table.version} > 0`)
+  ]
+);
+
+export const sessionMemories = pgTable(
+  "session_memories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => gameSessions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    memoryType: memoryTypeEnum("memory_type").notNull().default("other"),
+    subjectType: text("subject_type"),
+    subjectId: uuid("subject_id"),
+    key: text("key"),
+    content: text("content").notNull(),
+    importance: integer("importance").notNull().default(3),
+    firstObservedTurn: integer("first_observed_turn"),
+    lastConfirmedTurn: integer("last_confirmed_turn"),
+    active: boolean("active").notNull().default(true),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    index("session_memories_session_active_idx").on(table.sessionId, table.active),
+    index("session_memories_session_importance_idx").on(
+      table.sessionId,
+      table.importance
+    ),
+    index("session_memories_session_memory_type_idx").on(
+      table.sessionId,
+      table.memoryType
+    ),
+    index("session_memories_session_last_confirmed_idx").on(
+      table.sessionId,
+      table.lastConfirmedTurn
+    ),
+    uniqueIndex("session_memories_session_key_unique").on(
+      table.sessionId,
+      table.key
+    ),
+    check(
+      "session_memories_importance_range",
+      sql`${table.importance} between 1 and 5`
+    ),
+    check(
+      "session_memories_first_observed_non_negative",
+      sql`${table.firstObservedTurn} is null or ${table.firstObservedTurn} >= 0`
+    ),
+    check(
+      "session_memories_last_confirmed_non_negative",
+      sql`${table.lastConfirmedTurn} is null or ${table.lastConfirmedTurn} >= 0`
+    )
+  ]
+);
+
 export const gameSessionsRelations = relations(gameSessions, ({ one, many }) => ({
   user: one(users, {
     fields: [gameSessions.userId],
@@ -440,7 +534,9 @@ export const gameSessionsRelations = relations(gameSessions, ({ one, many }) => 
   inventoryItems: many(inventoryItems),
   quests: many(quests),
   worldEvents: many(worldEvents),
-  aiUsageRecords: many(aiUsageRecords)
+  aiUsageRecords: many(aiUsageRecords),
+  summary: one(sessionSummaries),
+  memories: many(sessionMemories)
 }));
 
 export const gameMessagesRelations = relations(gameMessages, ({ one }) => ({
@@ -507,6 +603,20 @@ export const aiUsageRecordsRelations = relations(aiUsageRecords, ({ one }) => ({
   })
 }));
 
+export const sessionSummariesRelations = relations(sessionSummaries, ({ one }) => ({
+  session: one(gameSessions, {
+    fields: [sessionSummaries.sessionId],
+    references: [gameSessions.id]
+  })
+}));
+
+export const sessionMemoriesRelations = relations(sessionMemories, ({ one }) => ({
+  session: one(gameSessions, {
+    fields: [sessionMemories.sessionId],
+    references: [gameSessions.id]
+  })
+}));
+
 export type GameSession = typeof gameSessions.$inferSelect;
 export type NewGameSession = typeof gameSessions.$inferInsert;
 export type GameMessage = typeof gameMessages.$inferSelect;
@@ -525,3 +635,7 @@ export type WorldEvent = typeof worldEvents.$inferSelect;
 export type NewWorldEvent = typeof worldEvents.$inferInsert;
 export type AIUsageRecord = typeof aiUsageRecords.$inferSelect;
 export type NewAIUsageRecord = typeof aiUsageRecords.$inferInsert;
+export type SessionSummary = typeof sessionSummaries.$inferSelect;
+export type NewSessionSummary = typeof sessionSummaries.$inferInsert;
+export type SessionMemory = typeof sessionMemories.$inferSelect;
+export type NewSessionMemory = typeof sessionMemories.$inferInsert;
