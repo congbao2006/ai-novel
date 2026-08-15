@@ -9,9 +9,14 @@ import type {
   GameStateRecord,
   Repositories,
   SessionMemoryRecord,
+  SemanticMemorySearchResult,
   SessionSummaryRecord,
   WorldEventRecord
 } from "@ai-novel/db";
+import {
+  mergeAndRankMemories,
+  type SemanticMemoryService
+} from "./semantic-memory-service.js";
 
 export type MemoryContextBudget = {
   readonly maxRecentMessages: number;
@@ -22,33 +27,60 @@ export type MemoryContextBudget = {
 };
 
 export type BuildMemoryContextInput = {
+  readonly userId?: string;
   readonly sessionId: string;
   readonly state: GameStateRecord;
+  readonly action?: string;
+};
+
+export type MemoryContextBuilderOptions = {
+  readonly semanticMemoryService?: SemanticMemoryService;
+  readonly logger?: {
+    info(metadata: Record<string, unknown>, message: string): void;
+  };
 };
 
 export class MemoryContextBuilder {
   constructor(
     private readonly repositories: Repositories,
-    private readonly budget: MemoryContextBudget
+    private readonly budget: MemoryContextBudget,
+    private readonly options: MemoryContextBuilderOptions = {}
   ) {}
 
   async buildForTurn(input: BuildMemoryContextInput): Promise<ContextBundle> {
-    const [recentMessages, summary, memories, worldEvents] = await Promise.all([
-      this.repositories.gameMessages.getRecentMessages(
-        input.sessionId,
-        this.budget.maxRecentMessages
-      ),
-      this.repositories.sessionSummaries.getForSession(input.sessionId),
-      this.repositories.memories.listImportantForSession(
-        input.sessionId,
-        this.budget.maxMemories
-      ),
-      this.repositories.worldEvents.getImportantEvents(
-        input.sessionId,
-        3,
-        this.budget.maxWorldEvents
-      )
-    ]);
+    const [recentMessages, summary, deterministicMemories, worldEvents] =
+      await Promise.all([
+        this.repositories.gameMessages.getRecentMessages(
+          input.sessionId,
+          this.budget.maxRecentMessages
+        ),
+        this.repositories.sessionSummaries.getForSession(input.sessionId),
+        this.repositories.memories.listImportantForSession(
+          input.sessionId,
+          this.budget.maxMemories
+        ),
+        this.repositories.worldEvents.getImportantEvents(
+          input.sessionId,
+          3,
+          this.budget.maxWorldEvents
+        )
+      ]);
+    const semanticMemories = await this.trySearchSemanticMemories(input);
+    const rankedMemories = mergeAndRankMemories({
+      deterministic: deterministicMemories,
+      semantic: semanticMemories,
+      limit: this.budget.maxMemories
+    });
+
+    this.options.logger?.info(
+      {
+        sessionId: input.sessionId,
+        deterministicMemoryCount: deterministicMemories.length,
+        semanticMemoryCount: semanticMemories.length,
+        finalMemoryCount: rankedMemories.length
+      },
+      "memory context built"
+    );
 
     return {
       state: toStateSnapshot(input.state),
@@ -60,12 +92,31 @@ export class MemoryContextBuilder {
           turnNumber: message.turnNumber
         })),
       summary: summary ? toSessionSummary(summary, this.budget.maxSummaryChars) : null,
-      memories: memories.map((memory) =>
+      memories: rankedMemories.map(({ memory }) =>
         toPersistentMemory(memory, this.budget.maxMemoryChars)
       ),
       worldEvents: worldEvents.map(toContextWorldEvent),
       budget: this.budget
     };
+  }
+
+  private async trySearchSemanticMemories(
+    input: BuildMemoryContextInput
+  ): Promise<SemanticMemorySearchResult[]> {
+    if (!this.options.semanticMemoryService || !input.userId || !input.action) {
+      return [];
+    }
+
+    try {
+      return await this.options.semanticMemoryService.searchRelevantMemories({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        action: input.action,
+        location: input.state.location
+      });
+    } catch {
+      return [];
+    }
   }
 }
 

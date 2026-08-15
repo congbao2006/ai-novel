@@ -29,6 +29,7 @@ export const aiUsagePurposes = [
   "summary",
   "npc",
   "memory",
+  "embedding",
   "other"
 ] as const;
 export type AIUsagePurpose = (typeof aiUsagePurposes)[number];

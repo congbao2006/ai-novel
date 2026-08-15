@@ -3,22 +3,22 @@ import type { ModelPricingRegistry } from "./cost.js";
 import {
   AIConfigurationError,
   AIError,
-  AITimeoutError,
-  AIProviderUnavailableError
+  AIInvalidResponseError,
+  AIProviderUnavailableError,
+  AITimeoutError
 } from "./errors.js";
 import type {
-  AIGatewayGenerateOptions,
-  AIUsagePurpose,
   AIUsageLedger,
-  GenerationRequest,
-  GenerationResult,
-  LLMProvider,
-  ModelPolicy,
+  EmbeddingGatewayOptions,
+  EmbeddingProvider,
+  EmbeddingRequest,
+  EmbeddingResult
 } from "./types.js";
 
-export type AIGatewayOptions = {
-  readonly providers: readonly LLMProvider[];
-  readonly defaultModelPolicy: ModelPolicy;
+export type EmbeddingGatewayConfig = {
+  readonly providers: readonly EmbeddingProvider[];
+  readonly defaultProvider: string;
+  readonly defaultModel: string;
   readonly timeoutMs: number;
   readonly maxRetries: number;
   readonly pricingRegistry?: ModelPricingRegistry;
@@ -29,66 +29,70 @@ export type AIGatewayOptions = {
   };
 };
 
-export class AIGateway {
-  private readonly providers = new Map<string, LLMProvider>();
+export class EmbeddingGateway {
+  private readonly providers = new Map<string, EmbeddingProvider>();
 
-  constructor(private readonly options: AIGatewayOptions) {
-    for (const provider of options.providers) {
+  constructor(private readonly config: EmbeddingGatewayConfig) {
+    for (const provider of config.providers) {
       this.providers.set(provider.id, provider);
     }
   }
 
-  async generate<TStructuredOutput = unknown>(
-    request: GenerationRequest<TStructuredOutput>,
-    options: AIGatewayGenerateOptions = {}
-  ): Promise<GenerationResult<TStructuredOutput>> {
-    const policy = request.modelPolicy ?? this.options.defaultModelPolicy;
-    const providerId = policy.preferredProvider ?? policy.allowedProviders[0];
-
-    if (!providerId) {
-      throw new AIConfigurationError("Model policy has no allowed provider.");
+  async embed(
+    request: EmbeddingRequest,
+    options: EmbeddingGatewayOptions = {}
+  ): Promise<EmbeddingResult> {
+    if (!request.texts.length) {
+      throw new AIInvalidResponseError("Embedding request must include text.");
     }
 
-    const provider = this.providers.get(providerId) as
-      | LLMProvider<TStructuredOutput>
-      | undefined;
+    const providerId = this.config.defaultProvider;
+    const provider = this.providers.get(providerId);
 
     if (!provider) {
       throw new AIProviderUnavailableError(providerId);
     }
 
-    const maxRetries = options.maxRetries ?? this.options.maxRetries;
-    const timeoutMs = options.timeoutMs ?? this.options.timeoutMs;
-    const model = request.model ?? policy.preferredModel;
+    const model = request.model ?? this.config.defaultModel;
 
     if (!model) {
-      throw new AIConfigurationError("Model policy has no model.");
+      throw new AIConfigurationError("Embedding model is required.");
     }
 
+    const timeoutMs = options.timeoutMs ?? this.config.timeoutMs;
+    const maxRetries = options.maxRetries ?? this.config.maxRetries;
+    const startedAt = Date.now();
     const normalizedRequest = {
       ...request,
       model,
-      maxOutputTokens:
-        request.maxOutputTokens ?? policy.tokenBudget.maxOutputTokens,
-      modelPolicy: policy
+      metadata: {
+        ...(request.metadata ?? {}),
+        purpose: request.metadata?.purpose ?? "embedding"
+      }
     };
-    const startedAt = Date.now();
 
     try {
       const result = await retryWithBackoff(
-        () => withTimeout(provider.generate(normalizedRequest), timeoutMs),
+        () => withTimeout(provider.embed(normalizedRequest), timeoutMs),
         maxRetries
       );
+
+      if (result.embeddings.length !== request.texts.length) {
+        throw new AIInvalidResponseError(
+          "Embedding provider returned a mismatched vector count."
+        );
+      }
+
       const estimatedCostMicros = estimateGenerationCostMicros({
         provider: result.provider,
         model: result.model,
         inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        ...(this.options.pricingRegistry
-          ? { pricingRegistry: this.options.pricingRegistry }
+        outputTokens: 0,
+        ...(this.config.pricingRegistry
+          ? { pricingRegistry: this.config.pricingRegistry }
           : {})
       });
-      const enrichedResult: GenerationResult<TStructuredOutput> = {
+      const enrichedResult: EmbeddingResult = {
         ...result,
         ...(estimatedCostMicros !== undefined
           ? {
@@ -101,18 +105,27 @@ export class AIGateway {
           : {})
       };
 
-      this.options.logger?.info(
-        safeLogMetadata(enrichedResult, "success"),
-        "ai generation completed"
+      this.config.logger?.info(
+        {
+          provider: enrichedResult.provider,
+          model: enrichedResult.model,
+          vectorCount: enrichedResult.embeddings.length,
+          latencyMs: enrichedResult.latencyMs,
+          inputTokens: enrichedResult.usage.inputTokens,
+          estimatedCostMicros,
+          success: true
+        },
+        "embedding completed"
       );
-      await this.options.usageLedger?.recordUsage({
+
+      await this.config.usageLedger?.recordUsage({
         ...(request.userId ? { userId: request.userId } : {}),
         ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         provider: enrichedResult.provider,
         model: enrichedResult.model,
-        purpose: usagePurposeFromRequest(request),
+        purpose: "embedding",
         inputTokens: enrichedResult.usage.inputTokens,
-        outputTokens: enrichedResult.usage.outputTokens,
+        outputTokens: 0,
         totalTokens: enrichedResult.usage.totalTokens,
         ...(estimatedCostMicros !== undefined ? { estimatedCostMicros } : {}),
         latencyMs: enrichedResult.latencyMs,
@@ -124,25 +137,27 @@ export class AIGateway {
 
       return enrichedResult;
     } catch (error) {
-      const aiError = normalizeGatewayError(error);
+      const aiError = normalizeEmbeddingError(error);
       const latencyMs = Date.now() - startedAt;
 
-      this.options.logger?.warn(
+      this.config.logger?.warn(
         {
           provider: provider.id,
           model,
+          vectorCount: request.texts.length,
           latencyMs,
           success: false,
           errorCode: aiError.code
         },
-        "ai generation failed"
+        "embedding failed"
       );
-      await this.options.usageLedger?.recordUsage({
+
+      await this.config.usageLedger?.recordUsage({
         ...(request.userId ? { userId: request.userId } : {}),
         ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         provider: provider.id,
         model,
-        purpose: usagePurposeFromRequest(request),
+        purpose: "embedding",
         inputTokens: null,
         outputTokens: null,
         totalTokens: null,
@@ -158,24 +173,6 @@ export class AIGateway {
   }
 }
 
-function usagePurposeFromRequest(request: GenerationRequest): AIUsagePurpose {
-  const purpose = request.metadata?.purpose;
-
-  if (
-    purpose === "gameplay_turn" ||
-    purpose === "smoke" ||
-    purpose === "summary" ||
-    purpose === "npc" ||
-    purpose === "memory" ||
-    purpose === "embedding" ||
-    purpose === "other"
-  ) {
-    return purpose;
-  }
-
-  return "other";
-}
-
 async function retryWithBackoff<T>(
   work: () => Promise<T>,
   maxRetries: number
@@ -186,7 +183,7 @@ async function retryWithBackoff<T>(
     try {
       return await work();
     } catch (error) {
-      const aiError = normalizeGatewayError(error);
+      const aiError = normalizeEmbeddingError(error);
 
       if (!aiError.retryable || attempt >= maxRetries) {
         throw aiError;
@@ -213,36 +210,18 @@ async function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
   }
 }
 
-function normalizeGatewayError(error: unknown): AIError {
+function normalizeEmbeddingError(error: unknown): AIError {
   if (error instanceof AIError) {
     return error;
   }
 
-  return new AIError("AI gateway failed.", "ai_error", false, error);
+  return new AIError("Embedding gateway failed.", "ai_error", false, error);
 }
 
 function backoffMs(attempt: number): number {
-  const base = 100 * 2 ** attempt;
-  const jitter = Math.floor(Math.random() * 50);
-  return base + jitter;
+  return 100 * 2 ** attempt + Math.floor(Math.random() * 50);
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function safeLogMetadata(
-  result: GenerationResult,
-  status: "success" | "failure"
-): Record<string, unknown> {
-  return {
-    provider: result.provider,
-    model: result.model,
-    requestId: result.requestId,
-    latencyMs: result.latencyMs,
-    inputTokens: result.usage.inputTokens,
-    outputTokens: result.usage.outputTokens,
-    estimatedCostMicros: result.estimatedCostMicros,
-    success: status === "success"
-  };
 }

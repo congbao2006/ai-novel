@@ -15,8 +15,10 @@ const serverConfigSchema = z.object({
   }),
   ai: z.object({
     provider: z.enum(["disabled", "openai"]).default("disabled"),
+    embeddingProvider: z.enum(["disabled", "openai"]).default("disabled"),
     openaiApiKey: z.string().optional(),
     openaiModel: z.string().min(1).optional(),
+    openaiEmbeddingModel: z.string().min(1).optional(),
     requestTimeoutMs: z.coerce.number().int().positive().default(30_000),
     maxRetries: z.coerce.number().int().min(0).max(5).default(2),
     maxOutputTokens: z.coerce.number().int().positive().default(256),
@@ -40,7 +42,10 @@ const serverConfigSchema = z.object({
     contextMaxWorldEvents: z.coerce.number().int().positive().default(10),
     contextMaxSummaryChars: z.coerce.number().int().positive().default(6000),
     contextMaxMemoryChars: z.coerce.number().int().positive().default(1000),
-    summaryIntervalTurns: z.coerce.number().int().positive().default(10)
+    summaryIntervalTurns: z.coerce.number().int().positive().default(10),
+    semanticSearchEnabled: z.boolean().default(false),
+    semanticTopK: z.coerce.number().int().positive().max(100).default(12),
+    semanticMinScore: z.coerce.number().min(0).max(1).default(0.72)
   }),
   gameplay: z.object({
     engineMode: z.enum(["deterministic", "ai"]).default("deterministic")
@@ -64,6 +69,37 @@ const serverConfigSchema = z.object({
     }
   }
 
+  if (config.memory.semanticSearchEnabled) {
+    if (config.ai.embeddingProvider === "disabled") {
+      context.addIssue({
+        code: "custom",
+        path: ["ai", "embeddingProvider"],
+        message:
+          "MEMORY_SEMANTIC_SEARCH_ENABLED=true requires AI_EMBEDDING_PROVIDER."
+      });
+    }
+
+    if (config.ai.embeddingProvider === "openai") {
+      if (!config.ai.openaiApiKey) {
+        context.addIssue({
+          code: "custom",
+          path: ["ai", "openaiApiKey"],
+          message:
+            "OPENAI_API_KEY is required when AI_EMBEDDING_PROVIDER=openai."
+        });
+      }
+
+      if (!config.ai.openaiEmbeddingModel) {
+        context.addIssue({
+          code: "custom",
+          path: ["ai", "openaiEmbeddingModel"],
+          message:
+            "OPENAI_EMBEDDING_MODEL is required when AI_EMBEDDING_PROVIDER=openai."
+        });
+      }
+    }
+  }
+
   if (config.gameplay.engineMode === "ai" && config.ai.provider === "disabled") {
     context.addIssue({
       code: "custom",
@@ -80,6 +116,25 @@ const serverConfigSchema = z.object({
     config.ai.openaiModel
   ) {
     const pricingKey = `${config.ai.provider}:${config.ai.openaiModel}`;
+
+    if (!config.ai.modelPricingRegistry[pricingKey]) {
+      context.addIssue({
+        code: "custom",
+        path: ["ai", "modelPricingRegistry"],
+        message:
+          `Budget enforcement requires pricing for ${pricingKey}.`
+      });
+    }
+  }
+
+  if (
+    config.memory.semanticSearchEnabled &&
+    hasEnabledBudget(config.budget) &&
+    config.ai.embeddingProvider !== "disabled" &&
+    config.ai.openaiEmbeddingModel
+  ) {
+    const pricingKey =
+      `${config.ai.embeddingProvider}:${config.ai.openaiEmbeddingModel}`;
 
     if (!config.ai.modelPricingRegistry[pricingKey]) {
       context.addIssue({
@@ -113,8 +168,10 @@ export function getServerConfig(
     },
     ai: {
       provider: env.AI_PROVIDER,
+      embeddingProvider: env.AI_EMBEDDING_PROVIDER,
       openaiApiKey: env.OPENAI_API_KEY || undefined,
       openaiModel: env.OPENAI_MODEL || undefined,
+      openaiEmbeddingModel: env.OPENAI_EMBEDDING_MODEL || undefined,
       requestTimeoutMs: env.AI_REQUEST_TIMEOUT_MS,
       maxRetries: env.AI_MAX_RETRIES,
       maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
@@ -132,7 +189,10 @@ export function getServerConfig(
       contextMaxWorldEvents: env.AI_CONTEXT_MAX_WORLD_EVENTS,
       contextMaxSummaryChars: env.AI_CONTEXT_MAX_SUMMARY_CHARS,
       contextMaxMemoryChars: env.AI_CONTEXT_MAX_MEMORY_CHARS,
-      summaryIntervalTurns: env.AI_SUMMARY_INTERVAL_TURNS
+      summaryIntervalTurns: env.AI_SUMMARY_INTERVAL_TURNS,
+      semanticSearchEnabled: parseBooleanEnv(env.MEMORY_SEMANTIC_SEARCH_ENABLED),
+      semanticTopK: env.MEMORY_SEMANTIC_TOP_K,
+      semanticMinScore: env.MEMORY_SEMANTIC_MIN_SCORE
     },
     gameplay: {
       engineMode: env.GAMEPLAY_ENGINE_MODE

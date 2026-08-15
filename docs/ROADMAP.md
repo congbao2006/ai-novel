@@ -301,6 +301,34 @@ Next step:
 
 - Semantic Memory Retrieval. This should add embeddings/vector search and relevance scoring before NPC runtime intelligence depends on long-term memory.
 
+## Phase 4.8: Semantic Memory Retrieval
+
+Status: completed.
+
+Goals:
+
+- Retrieve persistent memories by semantic similarity without sending full history.
+- Keep deterministic memory selection as fallback.
+- Store embeddings in PostgreSQL with pgvector.
+- Track embedding usage and estimated cost.
+- Keep vector search scoped to the current session.
+
+Completed:
+
+- Added provider-neutral `EmbeddingProvider` and `EmbeddingGateway`.
+- Added `OpenAIEmbeddingProvider` behind the provider abstraction.
+- Added `memory_embeddings` table with pgvector `vector`, provider/model/dimensions, and content hash.
+- Added `SemanticMemoryRepository` for embedding upsert, backfill lookup, and session-scoped similarity search.
+- Added `MemoryEmbeddingService` for content-hash skip, batch embedding, best-effort summary integration, and backfill support.
+- Added `SemanticMemoryService` for query embedding and hybrid ranking by similarity, importance, and recency.
+- Updated `MemoryContextBuilder` to merge deterministic and semantic memories with dedup and context caps.
+- Added optional `pnpm memory:embed-backfill` and `pnpm ai:embedding-smoke`.
+- Semantic retrieval falls back to deterministic memory selection when disabled or unavailable.
+
+Next step:
+
+- NPC Runtime Intelligence Foundation.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

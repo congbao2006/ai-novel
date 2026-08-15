@@ -67,6 +67,8 @@ Current application services:
 - `RepositoryAIUsageLedger` records provider/model/token/cost metadata through the database repository layer.
 - `MemoryContextBuilder` owns bounded AI gameplay context assembly from authoritative state, recent transcript rows, rolling summaries, important memories, and important world events.
 - `SummaryService` owns rolling summary refresh and important memory extraction when configured turn thresholds are reached.
+- `MemoryEmbeddingService` owns embedding generation/backfill for persistent memories without making repositories call external providers.
+- `SemanticMemoryService` owns query embedding and hybrid semantic/importance/recency ranking for memory retrieval.
 
 ### Domain Package
 
@@ -85,6 +87,17 @@ apps/api
   -> LLMProvider
   -> OpenAIProvider
   -> OpenAI Responses API
+```
+
+Embedding dependency flow:
+
+```text
+apps/api
+  -> MemoryEmbeddingService / SemanticMemoryService
+  -> EmbeddingGateway
+  -> EmbeddingProvider
+  -> OpenAIEmbeddingProvider
+  -> OpenAI Embeddings API
 ```
 
 Gameplay defaults to the deterministic turn engine. When `GAMEPLAY_ENGINE_MODE=ai`, gameplay calls `AIGateway` for a structured narrative proposal, then server-side validators decide what can be persisted.
@@ -185,7 +198,8 @@ AI gameplay context is assembled from ordered layers:
 Authoritative GameState
   + bounded recent messages
   + rolling session summary
-  + persistent important memories
+  + deterministic important memories
+  + semantic memory retrieval
   + important world events
   -> MemoryContextBuilder
   -> StoryTurnPromptBuilder
@@ -193,6 +207,22 @@ Authoritative GameState
 ```
 
 `game_states` remains the source of truth. Summaries and memories help the AI reason about long-running context, but they do not override current state or mutate state directly.
+
+Semantic memory retrieval is hybrid:
+
+```text
+Player action
+  -> query embedding
+  -> SemanticMemoryRepository.searchSimilar(sessionId, vector)
+  -> hybrid rank
+       semantic similarity * 0.65
+       importance          * 0.25
+       recency             * 0.10
+  -> dedup with deterministic memories
+  -> context budget
+```
+
+The vector store is PostgreSQL with pgvector, using a separate `memory_embeddings` table so provider/model/dimension changes can be backfilled without rewriting `session_memories`. Vector queries are scoped by `session_id` at the repository query level.
 
 ## Game State Rule
 
@@ -256,6 +286,8 @@ GameplayService
 If budgets are enabled for AI gameplay and the configured model has no pricing, startup fails closed. The preflight check is not a distributed reservation system; concurrent requests may overshoot slightly until future payment/Xu work adds atomic quota reservations.
 
 Summary refresh calls use the same gateway and ledger with purpose `summary`, so they are budgeted and usage-accounted separately from gameplay turns.
+
+Embedding calls use purpose `embedding` in the same usage ledger. Runtime semantic retrieval falls back to deterministic memory selection if embeddings are disabled, unavailable, or below threshold.
 
 ## Security
 

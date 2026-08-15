@@ -10,6 +10,8 @@
     "ai:smoke": "tsx src/ai-smoke.ts",
     "ai:turn-smoke": "tsx src/ai-turn-smoke.ts",
     "ai:summary-smoke": "tsx src/summary-smoke.ts",
+    "ai:embedding-smoke": "tsx src/embedding-smoke.ts",
+    "memory:embed-backfill": "tsx src/memory-embed-backfill.ts",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

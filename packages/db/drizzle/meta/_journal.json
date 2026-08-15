@@ -29,6 +29,13 @@
       "when": 1786787282497,
       "tag": "0003_salty_mimic",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786806838158,
+      "tag": "0004_careless_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

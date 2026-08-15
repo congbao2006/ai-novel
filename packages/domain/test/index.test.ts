@@ -76,6 +76,7 @@ describe("domain package", () => {
       "summary",
       "npc",
       "memory",
+      "embedding",
       "other"
     ]);
     expect(aiUsageStatuses).toEqual(["success", "failed"]);

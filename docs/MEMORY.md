@@ -76,6 +76,32 @@ The summary prompt treats historical messages as untrusted fiction data. It asks
 
 Important memories are selected by deterministic importance and recency rules. MVP memory retrieval is not semantic.
 
+Semantic retrieval now supplements deterministic memory selection when configured:
+
+```text
+                Current state
+                     |
+        +------------+------------+
+        |                         |
+Deterministic memories     Semantic search
+                                  |
+                           query embedding
+                                  |
+                              pgvector
+                                  |
+                           similar memories
+        |                         |
+        +------------+------------+
+                     |
+               Hybrid ranking
+                     |
+                  Dedup
+                     |
+             Context budget
+                     |
+                  AI Turn
+```
+
 ### Important World Events
 
 `world_events` remains the validated event log. AI context includes a bounded set of important/recent events, not the full event table.
@@ -100,9 +126,108 @@ Priority order:
 2. Rolling summary is compact and high value.
 3. Recent messages preserve immediate continuity.
 4. Important memories are selected by importance and recency.
-5. Important world events are bounded by importance threshold and count.
+5. Semantic memories are selected by similarity, importance, and recency.
+6. Important world events are bounded by importance threshold and count.
 
-This is character-count budgeting for MVP. Exact tokenizer budgeting and semantic relevance are future work.
+This is character-count budgeting for MVP. Exact tokenizer budgeting is future work.
+
+## Semantic Retrieval
+
+Semantic retrieval is enabled by server-side config:
+
+- `MEMORY_SEMANTIC_SEARCH_ENABLED`
+- `MEMORY_SEMANTIC_TOP_K`
+- `MEMORY_SEMANTIC_MIN_SCORE`
+- `AI_EMBEDDING_PROVIDER`
+- `OPENAI_EMBEDDING_MODEL`
+
+When disabled, missing, or unavailable, the system continues with deterministic important-memory retrieval.
+
+The query is intentionally short:
+
+```text
+Location: current location
+Player action: current player action
+```
+
+It does not embed full `GameState`, full transcript history, auth data, emails, cookies, API keys, or story prompts.
+
+## Vector Storage
+
+The MVP vector store is PostgreSQL with pgvector.
+
+Reasons:
+
+- Memory already lives in PostgreSQL.
+- Session ownership and transaction boundaries remain simple.
+- It avoids introducing Pinecone, Qdrant, Weaviate, or another service before scale requires it.
+
+The migration creates:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Deployment environments must provide PostgreSQL with pgvector available. Normal unit/build tests do not require a live pgvector server. Vector integration tests remain opt-in through a vector-capable test database.
+
+Embeddings are stored in `memory_embeddings`, not as JSONB and not inside `session_memories`.
+
+This separate table supports:
+
+- provider/model changes
+- dimension changes
+- re-embedding
+- multiple embedding versions per memory
+- non-destructive cleanup later
+
+## Embedding Lifecycle
+
+`MemoryEmbeddingService` embeds only active persistent memories.
+
+Flow:
+
+```text
+SummaryService persists memories
+  -> MemoryEmbeddingService
+  -> content hash check
+  -> batch EmbeddingGateway call
+  -> memory_embeddings upsert
+```
+
+If memory content has the same hash for the configured provider/model, embedding is skipped. If content changes, the embedding is regenerated and the row is updated.
+
+If embedding fails, the memory still exists. Gameplay and summary persistence are not rolled back. Semantic retrieval simply misses that memory until a later backfill or retry.
+
+## Content Hash
+
+The content hash is deterministic SHA-256 over the safe embedding input:
+
+```text
+[memoryType] subject:key content
+```
+
+It prevents repeated embedding calls for unchanged memory content and configured provider/model.
+
+## Hybrid Ranking
+
+Semantic search does not use similarity alone. Results are ranked with a deterministic formula:
+
+```text
+score =
+  semanticScore * 0.65
+  + importanceNormalized * 0.25
+  + recencyNormalized * 0.10
+```
+
+Deterministic high-importance memories are merged with semantic results before ranking. Final context is deduplicated by stable memory key when present, otherwise by memory ID.
+
+`MEMORY_SEMANTIC_MIN_SCORE` filters weak vector matches even if they appear in top K. Threshold tuning will need real gameplay data.
+
+## Session Isolation
+
+Semantic vector search is scoped by `session_id` inside `SemanticMemoryRepository.searchSimilar`.
+
+The query joins `memory_embeddings` to `session_memories` and filters the session before returning results. The application does not perform a global vector search and then filter another user's memories afterward.
 
 ## Summary Output Contract
 
@@ -143,7 +268,7 @@ MVP dedup rules:
 - If no key exists, use conservative normalized exact-content dedup.
 - Otherwise create a new memory.
 
-No fuzzy matching, embeddings, or vector database are used yet.
+No fuzzy matching is used yet. Embeddings cover only `session_memories`, not the whole message transcript.
 
 ## Staleness And Correction
 
@@ -173,6 +298,8 @@ The external AI call does not hold a PostgreSQL gameplay transaction open. If a 
 
 Summary refresh is best-effort in the request path. If it fails, the committed gameplay turn remains committed and the previous summary/memory records remain valid.
 
+Semantic memory retrieval is also best-effort. Query embedding failure, provider outage, pgvector unavailability, no embedded memories, or low similarity results all fall back to deterministic memory selection.
+
 ## Usage And Budget
 
 Summary calls use:
@@ -183,6 +310,35 @@ Summary calls use:
 
 The usage ledger records provider/model/token/cost metadata through the normal `AIGateway` path. Budget checks apply before summary calls so memory maintenance cannot run unlimited paid AI work.
 
+Embedding calls use `EmbeddingGateway` and usage purpose `embedding`. They record provider, model, tokens when available, estimated cost when pricing is configured, latency, status, and safe error code.
+
+If AI budgets are enabled and semantic search is enabled, configured embedding model pricing is required. This fails closed rather than making paid embedding calls with unknown cost.
+
+## Backfill
+
+Existing active memories may not have embeddings after semantic retrieval is introduced.
+
+Use:
+
+```bash
+pnpm memory:embed-backfill
+```
+
+The backfill command:
+
+- finds active memories missing the current provider/model embedding
+- processes in batches
+- skips unchanged hashes
+- is resumable
+- prints counts only
+- does not run automatically on application startup
+
+## Model Migration
+
+Search uses embeddings matching the configured provider/model and vector dimensions. If `OPENAI_EMBEDDING_MODEL` changes, old embeddings are not mixed silently with new ones.
+
+Backfill can generate rows for the new provider/model. Old rows remain until a future explicit cleanup operation.
+
 ## Security
 
 - Memory is loaded server-side only.
@@ -191,12 +347,11 @@ The usage ledger records provider/model/token/cost metadata through the normal `
 - Summary and turn prompts instruct the model not to follow embedded instructions from historical messages.
 - Server validators still enforce output shape and size.
 - API keys, auth cookies, emails, full prompts, and full AI outputs are never persisted in memory tables.
+- Raw embeddings and similarity scores are not exposed to the frontend.
 
 ## Current Non-Goals
 
-- Vector database.
-- Embeddings.
-- Semantic search.
 - Autonomous NPC memory behavior.
 - AI-generated quest memory automation.
+- Full transcript semantic search.
 - Background worker infrastructure.

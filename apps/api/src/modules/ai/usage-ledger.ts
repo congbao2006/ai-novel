@@ -41,6 +41,7 @@ function toDbPurpose(purpose: AIUsagePurpose): DbAIUsagePurpose {
     purpose === "summary" ||
     purpose === "npc" ||
     purpose === "memory" ||
+    purpose === "embedding" ||
     purpose === "other"
   ) {
     return purpose;

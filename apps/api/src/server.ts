@@ -1,5 +1,5 @@
 import { getServerConfig } from "@ai-novel/config";
-import { createAIGateway } from "@ai-novel/ai-engine";
+import { createAIGateway, createEmbeddingGateway } from "@ai-novel/ai-engine";
 import {
   createRepositories,
   getDatabaseClient
@@ -10,7 +10,9 @@ import { RepositoryAIUsageLedger } from "./modules/ai/usage-ledger.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
 import { GameplayService } from "./modules/sessions/gameplay-service.js";
+import { MemoryEmbeddingService } from "./modules/sessions/memory-embedding-service.js";
 import { MemoryContextBuilder } from "./modules/sessions/memory-context-builder.js";
+import { SemanticMemoryService } from "./modules/sessions/semantic-memory-service.js";
 import { SessionService } from "./modules/sessions/service.js";
 import { SummaryService } from "./modules/sessions/summary-service.js";
 import { StoryService } from "./modules/stories/service.js";
@@ -57,14 +59,61 @@ const aiGateway = createAIGateway({
   pricingRegistry: config.ai.modelPricingRegistry,
   ...(aiUsageLedger ? { usageLedger: aiUsageLedger } : {})
 });
+const embeddingGateway = createEmbeddingGateway({
+  provider: config.ai.embeddingProvider,
+  ...(config.ai.openaiApiKey ? { openaiApiKey: config.ai.openaiApiKey } : {}),
+  ...(config.ai.openaiEmbeddingModel
+    ? { openaiEmbeddingModel: config.ai.openaiEmbeddingModel }
+    : {}),
+  timeoutMs: config.ai.requestTimeoutMs,
+  maxRetries: config.ai.maxRetries,
+  pricingRegistry: config.ai.modelPricingRegistry,
+  ...(aiUsageLedger ? { usageLedger: aiUsageLedger } : {})
+});
+const memoryEmbeddingService =
+  repositories && embeddingGateway && config.ai.openaiEmbeddingModel
+    ? new MemoryEmbeddingService(
+        repositories,
+        embeddingGateway,
+        budgetService,
+        {
+          provider: config.ai.embeddingProvider,
+          model: config.ai.openaiEmbeddingModel,
+          batchSize: 32
+        }
+      )
+    : undefined;
+const semanticMemoryService =
+  repositories &&
+  embeddingGateway &&
+  config.memory.semanticSearchEnabled &&
+  config.ai.openaiEmbeddingModel
+    ? new SemanticMemoryService(
+        repositories,
+        embeddingGateway,
+        budgetService,
+        {
+          provider: config.ai.embeddingProvider,
+          model: config.ai.openaiEmbeddingModel,
+          topK: config.memory.semanticTopK,
+          minScore: config.memory.semanticMinScore
+        }
+      )
+    : undefined;
 const memoryContextBuilder = repositories
-  ? new MemoryContextBuilder(repositories, {
-      maxRecentMessages: config.memory.contextMaxRecentMessages,
-      maxMemories: config.memory.contextMaxMemories,
-      maxWorldEvents: config.memory.contextMaxWorldEvents,
-      maxSummaryChars: config.memory.contextMaxSummaryChars,
-      maxMemoryChars: config.memory.contextMaxMemoryChars
-    })
+  ? new MemoryContextBuilder(
+      repositories,
+      {
+        maxRecentMessages: config.memory.contextMaxRecentMessages,
+        maxMemories: config.memory.contextMaxMemories,
+        maxWorldEvents: config.memory.contextMaxWorldEvents,
+        maxSummaryChars: config.memory.contextMaxSummaryChars,
+        maxMemoryChars: config.memory.contextMaxMemoryChars
+      },
+      {
+        ...(semanticMemoryService ? { semanticMemoryService } : {})
+      }
+    )
   : undefined;
 const summaryService =
   repositories && aiGateway
@@ -72,7 +121,7 @@ const summaryService =
         intervalTurns: config.memory.summaryIntervalTurns,
         maxSourceMessages: Math.max(config.memory.summaryIntervalTurns * 4, 40),
         maxSourceEvents: Math.max(config.memory.contextMaxWorldEvents * 4, 20)
-      })
+      }, memoryEmbeddingService)
     : undefined;
 const gameplayService = repositories
   ? new GameplayService(repositories, database, undefined, {

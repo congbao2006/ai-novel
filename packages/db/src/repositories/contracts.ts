@@ -19,11 +19,14 @@ import type {
   GameSessionRecord,
   GameStateRecord,
   InventoryItemRecord,
+  MemoryEmbeddingRecord,
   MessagePageInput,
   NpcRecord,
   QuestRecord,
   RecordAIUsageInput,
   RelationshipRecord,
+  SearchSimilarMemoriesInput,
+  SemanticMemorySearchResult,
   SessionMemoryRecord,
   SessionSummaryRecord,
   StoryRecord,
@@ -35,6 +38,7 @@ import type {
   UpdateStateInput,
   UpdateMemoryInput,
   UpdateSessionSummaryWithVersionInput,
+  UpsertMemoryEmbeddingInput,
   UpsertSessionSummaryInput,
   UpsertRelationshipInput,
   UserRecord,
@@ -185,4 +189,21 @@ export type MemoryRepository = {
     memoryId: string,
     turnNumber: number
   ): Promise<SessionMemoryRecord>;
+};
+
+export type SemanticMemoryRepository = {
+  getEmbeddingForMemory(
+    memoryId: string,
+    provider: string,
+    model: string
+  ): Promise<MemoryEmbeddingRecord | null>;
+  upsertEmbedding(input: UpsertMemoryEmbeddingInput): Promise<MemoryEmbeddingRecord>;
+  listActiveMemoriesMissingEmbedding(
+    provider: string,
+    model: string,
+    limit: number
+  ): Promise<SessionMemoryRecord[]>;
+  searchSimilar(
+    input: SearchSimilarMemoriesInput
+  ): Promise<SemanticMemorySearchResult[]>;
 };

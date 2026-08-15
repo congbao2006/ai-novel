@@ -37,11 +37,14 @@ import type {
   GameSessionRecord,
   GameStateRecord,
   InventoryItemRecord,
+  MemoryEmbeddingRecord,
   MessagePageInput,
   NpcRecord,
   QuestRecord,
   RecordAIUsageInput,
   RelationshipRecord,
+  SearchSimilarMemoriesInput,
+  SemanticMemorySearchResult,
   SessionMemoryRecord,
   SessionSummaryRecord,
   StoryRecord,
@@ -53,6 +56,7 @@ import type {
   UpdateStateInput,
   UpdateMemoryInput,
   UpdateSessionSummaryWithVersionInput,
+  UpsertMemoryEmbeddingInput,
   UpsertSessionSummaryInput,
   UpsertRelationshipInput,
   UserRecord,
@@ -65,6 +69,7 @@ import {
   gameSessions,
   gameStates,
   inventoryItems,
+  memoryEmbeddings,
   npcs,
   quests,
   relationships,
@@ -86,6 +91,7 @@ import type {
   NPCRepository,
   QuestRepository,
   RelationshipRepository,
+  SemanticMemoryRepository,
   SessionSummaryRepository,
   StoryRepository,
   UserRepository,
@@ -99,6 +105,17 @@ const publicUserColumns = {
   emailVerifiedAt: users.emailVerifiedAt,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt
+};
+
+const memoryEmbeddingPublicColumns = {
+  id: memoryEmbeddings.id,
+  memoryId: memoryEmbeddings.memoryId,
+  provider: memoryEmbeddings.provider,
+  model: memoryEmbeddings.model,
+  dimensions: memoryEmbeddings.dimensions,
+  contentHash: memoryEmbeddings.contentHash,
+  createdAt: memoryEmbeddings.createdAt,
+  updatedAt: memoryEmbeddings.updatedAt
 };
 
 abstract class BaseRepository {
@@ -1265,6 +1282,136 @@ export class DrizzleMemoryRepository
   }
 }
 
+export class DrizzleSemanticMemoryRepository
+  extends BaseRepository
+  implements SemanticMemoryRepository
+{
+  getEmbeddingForMemory(
+    memoryId: string,
+    provider: string,
+    model: string
+  ): Promise<MemoryEmbeddingRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select(memoryEmbeddingPublicColumns)
+          .from(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.memoryId, memoryId),
+              eq(memoryEmbeddings.provider, provider),
+              eq(memoryEmbeddings.model, model)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  upsertEmbedding(
+    input: UpsertMemoryEmbeddingInput
+  ): Promise<MemoryEmbeddingRecord> {
+    return this.run(async () => {
+      validateMemoryEmbeddingInput(input);
+      const now = new Date();
+
+      return firstOrThrow(
+        await this.db
+          .insert(memoryEmbeddings)
+          .values({
+            ...input,
+            embedding: [...input.embedding],
+            updatedAt: now
+          })
+          .onConflictDoUpdate({
+            target: [
+              memoryEmbeddings.memoryId,
+              memoryEmbeddings.provider,
+              memoryEmbeddings.model
+            ],
+            set: {
+              dimensions: input.dimensions,
+              embedding: [...input.embedding],
+              contentHash: input.contentHash,
+              updatedAt: now
+            }
+          })
+          .returning(memoryEmbeddingPublicColumns),
+        new ConflictError("Memory embedding could not be upserted.")
+      );
+    });
+  }
+
+  listActiveMemoriesMissingEmbedding(
+    provider: string,
+    model: string,
+    limit: number
+  ): Promise<SessionMemoryRecord[]> {
+    assertPositiveLimit(limit);
+
+    return this.run(async () => {
+      const rows = await this.db
+        .select({ memory: sessionMemories })
+        .from(sessionMemories)
+        .leftJoin(
+          memoryEmbeddings,
+          and(
+            eq(memoryEmbeddings.memoryId, sessionMemories.id),
+            eq(memoryEmbeddings.provider, provider),
+            eq(memoryEmbeddings.model, model)
+          )
+        )
+        .where(
+          and(
+            eq(sessionMemories.active, true),
+            isNull(memoryEmbeddings.id)
+          )
+        )
+        .orderBy(desc(sessionMemories.importance), desc(sessionMemories.updatedAt))
+        .limit(limit);
+
+      return rows.map((row) => row.memory);
+    });
+  }
+
+  searchSimilar(
+    input: SearchSimilarMemoriesInput
+  ): Promise<SemanticMemorySearchResult[]> {
+    validateSemanticSearchInput(input);
+    const vectorParam = vectorSqlParam(input.queryEmbedding);
+    const similarity = sql<number>`(1 - (${memoryEmbeddings.embedding} <=> ${vectorParam}::vector))`;
+
+    return this.run(async () => {
+      const rows = await this.db
+        .select({
+          memory: sessionMemories,
+          semanticScore: similarity
+        })
+        .from(memoryEmbeddings)
+        .innerJoin(sessionMemories, eq(memoryEmbeddings.memoryId, sessionMemories.id))
+        .where(
+          and(
+            eq(sessionMemories.sessionId, input.sessionId),
+            input.activeOnly === false
+              ? undefined
+              : eq(sessionMemories.active, true),
+            eq(memoryEmbeddings.provider, input.provider),
+            eq(memoryEmbeddings.model, input.model),
+            eq(memoryEmbeddings.dimensions, input.dimensions),
+            gte(similarity, input.minScore)
+          )
+        )
+        .orderBy(desc(similarity))
+        .limit(input.limit);
+
+      return rows.map((row) => ({
+        memory: row.memory,
+        semanticScore: row.semanticScore
+      }));
+    });
+  }
+}
+
 function aiUsagePredicates(input: AIUsageQueryInput) {
   const predicates = [];
 
@@ -1340,6 +1487,52 @@ function validateMemoryInput(input: CreateMemoryInput): void {
   ) {
     throw new ValidationError("Last confirmed turn must be non-negative.");
   }
+}
+
+function validateMemoryEmbeddingInput(input: UpsertMemoryEmbeddingInput): void {
+  if (!input.provider.trim() || !input.model.trim()) {
+    throw new ValidationError("Memory embedding provider and model are required.");
+  }
+
+  if (!input.contentHash.trim()) {
+    throw new ValidationError("Memory embedding content hash is required.");
+  }
+
+  if (!Number.isInteger(input.dimensions) || input.dimensions < 1) {
+    throw new ValidationError("Memory embedding dimensions must be positive.");
+  }
+
+  validateEmbeddingVector(input.embedding, input.dimensions);
+}
+
+function validateSemanticSearchInput(input: SearchSimilarMemoriesInput): void {
+  assertPositiveLimit(input.limit);
+
+  if (!input.provider.trim() || !input.model.trim()) {
+    throw new ValidationError("Semantic search provider and model are required.");
+  }
+
+  if (input.minScore < 0 || input.minScore > 1) {
+    throw new ValidationError("Semantic search minimum score must be between 0 and 1.");
+  }
+
+  validateEmbeddingVector(input.queryEmbedding, input.dimensions);
+}
+
+function validateEmbeddingVector(
+  embedding: readonly number[],
+  dimensions: number
+): void {
+  if (
+    embedding.length !== dimensions ||
+    embedding.some((value) => !Number.isFinite(value))
+  ) {
+    throw new ValidationError("Embedding vector dimensions are invalid.");
+  }
+}
+
+function vectorSqlParam(embedding: readonly number[]): string {
+  return `[${embedding.join(",")}]`;
 }
 
 function validateMemoryText(content: string): void {

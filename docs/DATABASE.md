@@ -8,7 +8,7 @@ PostgreSQL is the primary database. The project uses Drizzle ORM for TypeScript 
 
 The foundational business schema is implemented for the AI Interactive Novel platform. It supports users, auth sessions, story templates, runtime sessions, messages, current state, NPCs, relationships, inventory, quests, and world events.
 
-Memory foundation tables now support rolling summaries and persistent important memories for AI gameplay context.
+Memory foundation tables now support rolling summaries, persistent important memories, and pgvector-backed semantic memory retrieval for AI gameplay context.
 
 Not implemented yet:
 
@@ -267,7 +267,7 @@ Important columns:
 - `error_code`
 - `created_at`
 
-`purpose` uses `ai_usage_purpose`: `gameplay_turn`, `smoke`, `summary`, `npc`, `memory`, `other`.
+`purpose` uses `ai_usage_purpose`: `gameplay_turn`, `smoke`, `summary`, `npc`, `memory`, `embedding`, `other`.
 
 `status` uses `ai_usage_status`: `success`, `failed`.
 
@@ -316,6 +316,28 @@ Important columns:
 
 Memory records help build AI context. They are not authoritative state and do not override `game_states`.
 
+### `memory_embeddings`
+
+Stores pgvector embeddings for active persistent memories.
+
+Important columns:
+
+- `id`
+- `memory_id`
+- `provider`
+- `model`
+- `dimensions`
+- `embedding`
+- `content_hash`
+- `created_at`
+- `updated_at`
+
+`embedding` uses pgvector's `vector` type, not JSONB. The migration creates `CREATE EXTENSION IF NOT EXISTS vector`, so PostgreSQL deployments must support pgvector.
+
+`(memory_id, provider, model)` is unique. This allows safe re-embedding and model migration without mixing incompatible provider/model rows.
+
+The table does not store prompt text, API keys, cookies, emails, or full transcript rows.
+
 ## Table Relationships
 
 - `stories.created_by_user_id -> users.id`, nullable.
@@ -336,6 +358,7 @@ Memory records help build AI context. They are not authoritative state and do no
 - `ai_usage_records.session_id -> game_sessions.id`, nullable.
 - `session_summaries.session_id -> game_sessions.id`, unique.
 - `session_memories.session_id -> game_sessions.id`.
+- `memory_embeddings.memory_id -> session_memories.id`.
 
 Polymorphic runtime references such as relationship endpoints and inventory owners are represented by `entity_type` plus nullable UUID columns. They are constrained for player/NPC shape, but exact NPC existence is expected to be enforced by domain/application services until a dedicated entity registry is introduced.
 
@@ -359,6 +382,7 @@ Runtime data belongs to a specific playthrough:
 - `ai_usage_records`
 - `session_summaries`
 - `session_memories`
+- `memory_embeddings`
 
 This separation prevents story templates from being mutated by playthrough state. A runtime NPC can reference a template through `npcs.template_character_id`, but its current goals, secrets, alive status, and state are session-owned.
 
@@ -380,6 +404,9 @@ Current story/session browsing operations:
 - `MemoryRepository.listImportantForSession(sessionId, limit)` selects bounded memory by importance and recency for AI context.
 - `MemoryRepository.findByKey(sessionId, key)` supports deterministic memory dedup without embeddings.
 - `MemoryRepository.createMemory(...)`, `updateMemory(...)`, `deactivateMemory(...)`, and `confirmMemory(...)` manage validated persistent memory facts.
+- `SemanticMemoryRepository.upsertEmbedding(...)` stores provider/model/dimension-scoped memory embeddings.
+- `SemanticMemoryRepository.searchSimilar(...)` performs session-scoped vector search and returns memories with similarity scores.
+- `SemanticMemoryRepository.listActiveMemoriesMissingEmbedding(...)` supports explicit backfill without running embedding work at startup.
 
 The foundation currently uses page/limit pagination for story catalog browsing. Cursor pagination can replace or supplement it when catalog size, ranking, or search requirements justify it.
 
@@ -454,7 +481,26 @@ The current caps come from server config:
 - `AI_CONTEXT_MAX_SUMMARY_CHARS`
 - `AI_CONTEXT_MAX_MEMORY_CHARS`
 
-The current selection is deterministic: state first, summary, recent messages, important memories by importance/confirmation recency, and important world events. Semantic/vector retrieval is intentionally not implemented yet.
+The baseline selection is deterministic: state first, summary, recent messages, important memories by importance/confirmation recency, and important world events.
+When semantic retrieval is enabled, the deterministic memory set is merged with vector results and ranked by similarity, importance, and recency before the final memory cap is applied.
+
+## Semantic Memory Search
+
+Vector search is scoped at the repository query level:
+
+```text
+SemanticMemoryRepository.searchSimilar
+  -> memory_embeddings
+  -> join session_memories
+  -> filter session_memories.session_id = requested session
+  -> filter active memories
+  -> filter provider/model/dimensions
+  -> order by pgvector distance
+```
+
+The API does not run a global vector search and then filter another user's memories in application code.
+
+The current pgvector column is unbounded `vector` plus a `dimensions` column. Search only compares rows matching the configured provider/model and query dimensions. This keeps model migration safe without destructive schema changes.
 
 ## AI Turn Proposal Transaction
 
@@ -599,10 +645,15 @@ Current indexes:
 - `session_memories_session_memory_type_idx`
 - `session_memories_session_last_confirmed_idx`
 - `session_memories_session_key_unique`
+- `memory_embeddings_memory_provider_model_unique`
+- `memory_embeddings_memory_id_idx`
+- `memory_embeddings_provider_model_idx`
 
 These support common access patterns: loading a user's sessions, filtering story/session status, loading transcript by turn, loading current state, loading runtime entities by session, querying important world events, and aggregating AI cost by user/session/provider/purpose/status windows.
 
-The memory indexes support loading active memories, important memories, memories by type, recent confirmations, and stable-key dedup per session.
+The memory indexes support loading active memories, important memories, memories by type, recent confirmations, stable-key dedup per session, and embedding lookup/backfill by memory/provider/model.
+
+No approximate vector index is added yet. For MVP, vector search is scoped to one session's embedded memories. If sessions grow large enough, add a pgvector HNSW/IVFFlat index after choosing fixed operational dimensions for the active embedding model.
 
 ## Deletion And Cascade Strategy
 
@@ -613,7 +664,7 @@ The memory indexes support loading active memories, important memories, memories
 - `stories.created_by_user_id` is set to null when the creator user is deleted.
 - `game_sessions.selected_character_id` is set to null if a character template is removed.
 - `npcs.template_character_id` is set to null if a template is removed.
-- Session-owned runtime rows cascade on session deletion: messages, current state, NPCs, relationships, inventory items, quests, world events, summaries, and memories.
+- Session-owned runtime rows cascade on session deletion: messages, current state, NPCs, relationships, inventory items, quests, world events, summaries, memories, and memory embeddings through memory cascade.
 - `ai_usage_records.session_id` is set to null when a session is deleted so cost/accounting history can remain without retaining the deleted session link.
 - `ai_usage_records.user_id` cascades when a user is deleted, aligning with user data deletion.
 

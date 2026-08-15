@@ -35,10 +35,11 @@ In scope:
 - Optional AI narrative turn proposal mode guarded by server-side validation.
 - Persistent AI usage ledger and server-side cost budget enforcement.
 - Memory foundation for AI gameplay context using current state, bounded recent messages, rolling summaries, important memories, and important world events.
+- Semantic memory retrieval for persistent memories using deterministic filtering, embeddings, importance, and recency.
 
 Out of scope:
 
-- Autonomous NPC AI, semantic/vector memory retrieval, and AI-generated quest gameplay.
+- Autonomous NPC AI and AI-generated quest gameplay.
 - Payment or coin system implementation.
 - User-visible token/cost dashboard.
 - Admin dashboard implementation.
@@ -76,6 +77,8 @@ When `GAMEPLAY_ENGINE_MODE=ai` is configured, a turn can ask the AI gateway for 
 AI gameplay calls are usage-accounted server-side. The product can enforce configured daily, monthly, and per-session AI cost limits before a provider call is made. This is a platform budget guard, not a payment/Xu system.
 
 AI gameplay context now includes persistent memory layers so long sessions do not require sending the entire transcript. Rolling summaries and important memories help the AI understand history, but they are not the source of truth and cannot override `game_states`.
+
+When semantic memory is enabled, old persistent memories can be retrieved by meaning rather than only by recency or importance. This applies only to `session_memories`, not the full message history.
 
 ### Save
 

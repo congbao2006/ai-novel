@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AIGateway,
+  EmbeddingGateway,
   createPolicy,
+  type EmbeddingRequest,
+  type EmbeddingResult,
   type LLMProvider
 } from "@ai-novel/ai-engine";
 import type {
@@ -15,6 +18,14 @@ import type {
 import { AIInvalidResponseError } from "@ai-novel/ai-engine";
 import type { SummaryOutput } from "@ai-novel/domain";
 import { MemoryContextBuilder } from "../src/modules/sessions/memory-context-builder.js";
+import {
+  MemoryEmbeddingService,
+  hashMemoryEmbeddingText
+} from "../src/modules/sessions/memory-embedding-service.js";
+import {
+  SemanticMemoryService,
+  mergeAndRankMemories
+} from "../src/modules/sessions/semantic-memory-service.js";
 import { SummaryService } from "../src/modules/sessions/summary-service.js";
 
 const sessionId = "550e8400-e29b-41d4-a716-446655440002";
@@ -59,6 +70,184 @@ describe("memory context builder", () => {
     expect(context.memories[0]?.content.endsWith("...")).toBe(true);
     expect(context.worldEvents).toHaveLength(1);
     expect(context.budget.maxMemories).toBe(1);
+  });
+
+  it("falls back to deterministic memories when semantic retrieval fails", async () => {
+    const repositories = createMemoryRepositories();
+    const builder = new MemoryContextBuilder(
+      repositories,
+      {
+        maxRecentMessages: 2,
+        maxMemories: 1,
+        maxWorldEvents: 1,
+        maxSummaryChars: 1000,
+        maxMemoryChars: 1000
+      },
+      {
+        semanticMemoryService: {
+          searchRelevantMemories: async () => {
+            throw new Error("embedding provider down");
+          }
+        } as unknown as SemanticMemoryService
+      }
+    );
+
+    const context = await builder.buildForTurn({
+      userId,
+      sessionId,
+      state,
+      action: "Tôi hỏi về bến thuyền."
+    });
+
+    expect(context.memories).toHaveLength(1);
+    expect(context.memories[0]?.id).toBe("memory-keyed");
+  });
+});
+
+describe("semantic memory retrieval", () => {
+  it("uses session-scoped vector search and hybrid ranking", async () => {
+    const repositories = createMemoryRepositories();
+    const searchedSessions: string[] = [];
+    const embeddingGateway = createEmbeddingGateway(async (request) =>
+      createEmbeddingResult(request, [[0.1, 0.2, 0.3]])
+    );
+    const service = new SemanticMemoryService(
+      {
+        ...repositories,
+        semanticMemories: {
+          ...repositories.semanticMemories,
+          searchSimilar: async (input) => {
+            searchedSessions.push(input.sessionId);
+            return [
+              { memory: memory("semantic-relevant", null, 2), semanticScore: 0.95 },
+              { memory: memory("semantic-important", null, 5), semanticScore: 0.7 }
+            ];
+          }
+        }
+      } as Repositories,
+      embeddingGateway,
+      undefined,
+      {
+        provider: "fake",
+        model: "embedding-model",
+        topK: 2,
+        minScore: 0.65
+      }
+    );
+
+    const results = await service.searchRelevantMemories({
+      userId,
+      sessionId,
+      action: "Tôi muốn tìm cô gái từng được cứu gần bờ sông.",
+      location: "Cổng thành"
+    });
+    const ranked = mergeAndRankMemories({
+      deterministic: [memory("deterministic-critical", null, 5)],
+      semantic: results,
+      limit: 2
+    });
+
+    expect(searchedSessions).toEqual([sessionId]);
+    expect(results).toHaveLength(2);
+    expect(ranked).toHaveLength(2);
+    expect(ranked[0]?.hybridScore).toBeGreaterThanOrEqual(
+      ranked[1]?.hybridScore ?? 0
+    );
+  });
+
+  it("deduplicates deterministic and semantic memories by key", () => {
+    const deterministic = { ...memory("deterministic", "shared.key", 5) };
+    const semantic = { ...memory("semantic", "shared.key", 3) };
+    const ranked = mergeAndRankMemories({
+      deterministic: [deterministic],
+      semantic: [{ memory: semantic, semanticScore: 0.99 }],
+      limit: 5
+    });
+
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.memory.key).toBe("shared.key");
+  });
+});
+
+describe("memory embedding service", () => {
+  it("skips unchanged content hashes and embeds changed active memories", async () => {
+    const repositories = createMemoryRepositories();
+    const target = memory("memory-to-embed", null, 4);
+    let embedCalls = 0;
+    const embeddingGateway = createEmbeddingGateway(async (request) => {
+      embedCalls += 1;
+      return createEmbeddingResult(request, [[0.1, 0.2, 0.3]]);
+    });
+    const service = new MemoryEmbeddingService(
+      {
+        ...repositories,
+        semanticMemories: {
+          ...repositories.semanticMemories,
+          getEmbeddingForMemory: async (memoryId) =>
+            memoryId === "memory-unchanged"
+              ? {
+                  id: "embedding-1",
+                  memoryId,
+                  provider: "fake",
+                  model: "embedding-model",
+                  dimensions: 3,
+                  contentHash: hashMemoryEmbeddingText({
+                    ...target,
+                    id: "memory-unchanged"
+                  }),
+                  createdAt: now,
+                  updatedAt: now
+                }
+              : null
+        }
+      } as Repositories,
+      embeddingGateway,
+      undefined,
+      {
+        provider: "fake",
+        model: "embedding-model",
+        batchSize: 8
+      }
+    );
+
+    const result = await service.embedMemories({
+      userId,
+      sessionId,
+      memories: [
+        { ...target, id: "memory-unchanged" },
+        target,
+        { ...target, id: "memory-inactive", active: false }
+      ]
+    });
+
+    expect(embedCalls).toBe(1);
+    expect(result).toEqual({ embedded: 1, skipped: 2, failed: 0 });
+    expect(repositories.semanticMemories.embeddings).toHaveLength(1);
+  });
+
+  it("keeps memory records when embedding fails", async () => {
+    const repositories = createMemoryRepositories();
+    const service = new MemoryEmbeddingService(
+      repositories,
+      createEmbeddingGateway(async () => {
+        throw new Error("provider down");
+      }),
+      undefined,
+      {
+        provider: "fake",
+        model: "embedding-model",
+        batchSize: 8
+      }
+    );
+
+    const result = await service.embedMemoriesBestEffort({
+      userId,
+      sessionId,
+      memories: [memory("memory-failure", null, 3)]
+    });
+
+    expect(result.failed).toBe(1);
+    expect(repositories.memories.created).toEqual([]);
   });
 });
 
@@ -185,6 +374,37 @@ function createGateway(
   });
 }
 
+function createEmbeddingGateway(
+  embed: (request: EmbeddingRequest) => Promise<EmbeddingResult>
+): EmbeddingGateway {
+  return new EmbeddingGateway({
+    providers: [
+      {
+        id: "fake",
+        embed
+      }
+    ],
+    defaultProvider: "fake",
+    defaultModel: "embedding-model",
+    timeoutMs: 1000,
+    maxRetries: 0
+  });
+}
+
+function createEmbeddingResult(
+  request: EmbeddingRequest,
+  embeddings: readonly (readonly number[])[]
+): EmbeddingResult {
+  return {
+    requestId: "embedding-request",
+    provider: "fake",
+    model: request.model ?? "embedding-model",
+    embeddings,
+    usage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 },
+    latencyMs: 1
+  };
+}
+
 function createMemoryRepositories() {
   const messages: GameMessageRecord[] = [
     message("message-1", 1),
@@ -230,6 +450,7 @@ function createMemoryRepositories() {
   ];
   const created: unknown[] = [];
   const updated: unknown[] = [];
+  const embeddings: unknown[] = [];
   let upserted: { summaryText: string; summarizedThroughTurn: number } | null =
     null;
 
@@ -280,6 +501,25 @@ function createMemoryRepositories() {
       created,
       updated
     },
+    semanticMemories: {
+      getEmbeddingForMemory: async () => null,
+      upsertEmbedding: async (input: unknown) => {
+        embeddings.push(input);
+        return {
+          id: `embedding-${embeddings.length}`,
+          memoryId: (input as { memoryId: string }).memoryId,
+          provider: (input as { provider: string }).provider,
+          model: (input as { model: string }).model,
+          dimensions: (input as { dimensions: number }).dimensions,
+          contentHash: (input as { contentHash: string }).contentHash,
+          createdAt: now,
+          updatedAt: now
+        };
+      },
+      listActiveMemoriesMissingEmbedding: async () => memories,
+      searchSimilar: async () => [],
+      embeddings
+    },
     worldEvents: {
       getImportantEvents: async (
         _sessionId: string,
@@ -302,6 +542,9 @@ function createMemoryRepositories() {
     readonly memories: Repositories["memories"] & {
       readonly created: readonly unknown[];
       readonly updated: readonly unknown[];
+    };
+    readonly semanticMemories: Repositories["semanticMemories"] & {
+      readonly embeddings: readonly unknown[];
     };
   };
 }

@@ -15,6 +15,8 @@ import type {
   GameSession,
   GameState,
   InventoryItem,
+  MemoryEmbedding,
+  NewMemoryEmbedding,
   NewGameMessage,
   NewGameSession,
   NewInventoryItem,
@@ -243,4 +245,26 @@ export type UpdateMemoryInput = {
   readonly lastConfirmedTurn?: number | null;
   readonly active?: boolean;
   readonly metadata?: JsonObject;
+};
+
+export type MemoryEmbeddingRecord = Omit<MemoryEmbedding, "embedding">;
+export type UpsertMemoryEmbeddingInput = Pick<
+  NewMemoryEmbedding,
+  "memoryId" | "provider" | "model" | "dimensions" | "contentHash"
+> & {
+  readonly embedding: readonly number[];
+};
+export type SearchSimilarMemoriesInput = {
+  readonly sessionId: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly dimensions: number;
+  readonly queryEmbedding: readonly number[];
+  readonly limit: number;
+  readonly minScore: number;
+  readonly activeOnly?: boolean;
+};
+export type SemanticMemorySearchResult = {
+  readonly memory: SessionMemoryRecord;
+  readonly semanticScore: number;
 };

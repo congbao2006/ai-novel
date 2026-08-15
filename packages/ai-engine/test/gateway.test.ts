@@ -3,10 +3,12 @@ import {
   AIAuthenticationError,
   AIBudgetExceededError,
   AIGateway,
+  EmbeddingGateway,
   AIProviderUnavailableError,
   AIRateLimitError,
   AITimeoutError,
   createAIGateway,
+  createEmbeddingGateway,
   createPolicy,
   evaluateAIBudget,
   estimateGenerationCostMicros,
@@ -15,6 +17,9 @@ import {
   type AIUsageLedgerRecordInput,
   type GenerationRequest,
   type GenerationResult,
+  type EmbeddingProvider,
+  type EmbeddingRequest,
+  type EmbeddingResult,
   type LLMProvider,
   type ModelPolicy
 } from "../src/index.js";
@@ -25,6 +30,30 @@ const policy = createPolicy({
   model: "test-model",
   maxOutputTokens: 64
 });
+
+function createEmbeddingResult(request: EmbeddingRequest): EmbeddingResult {
+  return {
+    requestId: request.requestId ?? "embedding-request-id",
+    provider: "test-provider",
+    model: request.model ?? "embedding-model",
+    embeddings: request.texts.map((_, index) => [index + 1, index + 2, index + 3]),
+    usage: {
+      inputTokens: 12,
+      outputTokens: 0,
+      totalTokens: 12
+    },
+    latencyMs: 8
+  };
+}
+
+function createFakeEmbeddingProvider(
+  embed: (request: EmbeddingRequest) => Promise<EmbeddingResult>
+): EmbeddingProvider {
+  return {
+    id: "test-provider",
+    embed
+  };
+}
 
 function createResult(request: GenerationRequest): GenerationResult {
   return {
@@ -294,6 +323,127 @@ describe("AIGateway", () => {
   });
 });
 
+describe("EmbeddingGateway", () => {
+  it("normalizes batch embedding through a provider-neutral gateway", async () => {
+    let captured: EmbeddingRequest | undefined;
+    const gateway = new EmbeddingGateway({
+      providers: [
+        createFakeEmbeddingProvider(async (request) => {
+          captured = request;
+          return createEmbeddingResult(request);
+        })
+      ],
+      defaultProvider: "test-provider",
+      defaultModel: "embedding-model",
+      timeoutMs: 100,
+      maxRetries: 0
+    });
+
+    const result = await gateway.embed({
+      texts: ["memory one", "memory two"]
+    });
+
+    expect(captured).toMatchObject({
+      model: "embedding-model",
+      metadata: { purpose: "embedding" }
+    });
+    expect(result.embeddings).toHaveLength(2);
+    expect(result.provider).toBe("test-provider");
+  });
+
+  it("rejects mismatched provider vector count", async () => {
+    const gateway = new EmbeddingGateway({
+      providers: [
+        createFakeEmbeddingProvider(async (request) => ({
+          ...createEmbeddingResult(request),
+          embeddings: [[1, 2, 3]]
+        }))
+      ],
+      defaultProvider: "test-provider",
+      defaultModel: "embedding-model",
+      timeoutMs: 100,
+      maxRetries: 0
+    });
+
+    await expect(
+      gateway.embed({ texts: ["one", "two"] })
+    ).rejects.toThrow("mismatched vector count");
+  });
+
+  it("maps embedding timeout and records failed usage", async () => {
+    const records: AIUsageLedgerRecordInput[] = [];
+    const gateway = new EmbeddingGateway({
+      providers: [
+        createFakeEmbeddingProvider(
+          () => new Promise<EmbeddingResult>(() => undefined)
+        )
+      ],
+      defaultProvider: "test-provider",
+      defaultModel: "embedding-model",
+      timeoutMs: 5,
+      maxRetries: 0,
+      usageLedger: {
+        async recordUsage(input) {
+          records.push(input);
+        }
+      }
+    });
+
+    await expect(gateway.embed({ texts: ["slow"] })).rejects.toBeInstanceOf(
+      AITimeoutError
+    );
+    expect(records[0]).toMatchObject({
+      purpose: "embedding",
+      status: "failed",
+      errorCode: "ai_timeout_error"
+    });
+  });
+
+  it("records embedding success with integer cost", async () => {
+    const records: AIUsageLedgerRecordInput[] = [];
+    const gateway = new EmbeddingGateway({
+      providers: [
+        createFakeEmbeddingProvider(async (request) => createEmbeddingResult(request))
+      ],
+      defaultProvider: "test-provider",
+      defaultModel: "embedding-model",
+      timeoutMs: 100,
+      maxRetries: 0,
+      pricingRegistry: {
+        [pricingKey("test-provider", "embedding-model")]: {
+          inputMicrosPerMillionTokens: 1_000_000,
+          outputMicrosPerMillionTokens: 0
+        }
+      },
+      usageLedger: {
+        async recordUsage(input) {
+          records.push(input);
+        }
+      }
+    });
+
+    const result = await gateway.embed({
+      userId: "user-1",
+      sessionId: "session-1",
+      texts: ["memory"],
+      metadata: { purpose: "embedding" }
+    });
+
+    expect(result.estimatedCostMicros).toBe(12);
+    expect(records[0]).toMatchObject({
+      userId: "user-1",
+      sessionId: "session-1",
+      purpose: "embedding",
+      inputTokens: 12,
+      outputTokens: 0,
+      totalTokens: 12,
+      estimatedCostMicros: 12,
+      providerRequestId: "embedding-request-id",
+      status: "success"
+    });
+  });
+});
+
 describe("provider factory and cost estimation", () => {
   it("rejects unsupported providers and missing OpenAI keys", () => {
     expect(() =>
@@ -312,6 +462,14 @@ describe("provider factory and cost estimation", () => {
         timeoutMs: 100,
         maxRetries: 0,
         maxOutputTokens: 16
+      })
+    ).toThrow("OPENAI_API_KEY");
+
+    expect(() =>
+      createEmbeddingGateway({
+        provider: "openai",
+        timeoutMs: 100,
+        maxRetries: 0
       })
     ).toThrow("OPENAI_API_KEY");
   });

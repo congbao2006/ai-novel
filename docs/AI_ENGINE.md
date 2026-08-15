@@ -15,6 +15,16 @@ application
   -> OpenAI Responses API
 ```
 
+Embedding flow:
+
+```text
+application
+  -> EmbeddingGateway
+  -> EmbeddingProvider
+  -> OpenAIEmbeddingProvider
+  -> OpenAI Embeddings API
+```
+
 Gameplay code must not call a provider SDK directly. The OpenAI SDK is isolated inside `packages/ai-engine`.
 
 ## Provider Abstraction
@@ -50,6 +60,7 @@ The current smoke paths are:
 - `pnpm ai:smoke` for optional CLI live testing.
 - `pnpm ai:turn-smoke` for optional live structured turn proposal testing without database writes.
 - `pnpm ai:summary-smoke` for optional live structured summary output testing without gameplay writes.
+- `pnpm ai:embedding-smoke` for optional live embedding shape/sanity testing without database writes.
 
 None of the smoke paths mutate gameplay sessions or game state.
 
@@ -61,6 +72,7 @@ AI gameplay mode keeps the server authoritative:
 Player action
   -> GameplayService loads bounded session snapshot
   -> MemoryContextBuilder loads state, recent messages, summary, memories, events
+  -> SemanticMemoryService optionally retrieves relevant old memories
   -> BudgetService checks recorded user/session usage
   -> StoryTurnPromptBuilder builds provider-neutral GenerationRequest
   -> AIGateway calls the configured provider
@@ -180,13 +192,36 @@ Context is built by `MemoryContextBuilder` under server-side caps:
 - `AI_CONTEXT_MAX_SUMMARY_CHARS`
 - `AI_CONTEXT_MAX_MEMORY_CHARS`
 
-Current `game_states` is authoritative. Rolling summaries and memories help the model understand distant history, but they never override state or become a source of truth. Semantic/vector memory is still future work.
+Current `game_states` is authoritative. Rolling summaries and memories help the model understand distant history, but they never override state or become a source of truth.
+
+Semantic memory retrieval is hybrid when enabled:
+
+```text
+player action + current location
+  -> EmbeddingGateway
+  -> SemanticMemoryRepository.searchSimilar scoped by sessionId
+  -> hybrid rank by semantic similarity, importance, recency
+  -> dedup with deterministic memories
+  -> context budget
+```
+
+The rank formula is:
+
+```text
+semanticScore * 0.65
+  + importanceNormalized * 0.25
+  + recencyNormalized * 0.10
+```
+
+If semantic retrieval fails, is disabled, or returns only low-score results, deterministic important-memory selection continues to work.
 
 ## Rolling Summary
 
 `SummaryService` refreshes one persisted rolling summary per session after `AI_SUMMARY_INTERVAL_TURNS` unsummarized turns. It calls `AIGateway` with purpose `summary`, validates strict structured output, updates `session_summaries`, and extracts bounded important memory candidates into `session_memories`.
 
 Summary calls are not part of the gameplay transaction. If summary refresh fails after a turn commits, gameplay remains committed and the previous summary/memory state is kept.
+
+After memory persistence, `MemoryEmbeddingService` may embed newly created or changed active memories through `EmbeddingGateway`. Embedding failures do not roll back summary or gameplay state.
 
 Summary prompts treat historical messages as untrusted fiction data and require strict structured output:
 
@@ -231,6 +266,8 @@ Every normalized generation result includes token usage when the provider return
 - `totalTokens`
 
 If a provider does not return usage, fields remain `null`. The system does not invent token counts.
+
+Embedding results also include usage when the provider returns it. OpenAI embedding usage maps prompt tokens to `inputTokens`; `outputTokens` is recorded as `0`.
 
 ## Cost Estimation
 
@@ -303,13 +340,17 @@ This is a preflight budget check. Concurrent requests can pass the same budget c
 
 Summary refresh uses the same budget service before its AI call. If budget is exceeded, summary is skipped through a controlled failure path and the gameplay turn is not rolled back.
 
+Embedding calls use the same usage ledger with purpose `embedding`. If budgets are enabled while semantic memory is enabled, startup requires pricing for the configured embedding provider/model.
+
 ## Secrets Strategy
 
 Server-only environment variables:
 
 - `AI_PROVIDER`
+- `AI_EMBEDDING_PROVIDER`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
+- `OPENAI_EMBEDDING_MODEL`
 - `AI_REQUEST_TIMEOUT_MS`
 - `AI_MAX_RETRIES`
 - `AI_MAX_OUTPUT_TOKENS`
@@ -325,6 +366,9 @@ Server-only environment variables:
 - `AI_CONTEXT_MAX_SUMMARY_CHARS`
 - `AI_CONTEXT_MAX_MEMORY_CHARS`
 - `AI_SUMMARY_INTERVAL_TURNS`
+- `MEMORY_SEMANTIC_SEARCH_ENABLED`
+- `MEMORY_SEMANTIC_TOP_K`
+- `MEMORY_SEMANTIC_MIN_SCORE`
 
 `OPENAI_API_KEY` is never exposed through frontend config, JSON responses, logs, or `NEXT_PUBLIC_*`.
 
@@ -352,7 +396,6 @@ Do not log:
 ## Current Non-Goals
 
 - NPC AI behavior.
-- Semantic memory or vector search.
 - AI quest generation.
 - Streaming gameplay.
 - Payment/Xu-backed hard quota reservation.

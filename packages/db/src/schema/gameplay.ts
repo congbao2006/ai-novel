@@ -3,6 +3,7 @@ import {
   boolean,
   bigint,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -23,6 +24,25 @@ import {
 } from "./enums.js";
 import { users } from "./identity.js";
 import { stories, storyCharacters } from "./stories.js";
+
+const vector = customType<{
+  data: number[];
+  driverData: string;
+}>({
+  dataType() {
+    return "vector";
+  },
+  toDriver(value) {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value) {
+    return value
+      .slice(1, -1)
+      .split(",")
+      .filter(Boolean)
+      .map((part) => Number.parseFloat(part));
+  }
+});
 
 export const gameSessions = pgTable(
   "game_sessions",
@@ -514,6 +534,44 @@ export const sessionMemories = pgTable(
   ]
 );
 
+export const memoryEmbeddings = pgTable(
+  "memory_embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    memoryId: uuid("memory_id")
+      .notNull()
+      .references(() => sessionMemories.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    dimensions: integer("dimensions").notNull(),
+    embedding: vector("embedding").notNull(),
+    contentHash: text("content_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("memory_embeddings_memory_provider_model_unique").on(
+      table.memoryId,
+      table.provider,
+      table.model
+    ),
+    index("memory_embeddings_memory_id_idx").on(table.memoryId),
+    index("memory_embeddings_provider_model_idx").on(
+      table.provider,
+      table.model
+    ),
+    check("memory_embeddings_dimensions_positive", sql`${table.dimensions} > 0`),
+    check("memory_embeddings_content_hash_non_empty", sql`${table.contentHash} <> ''`)
+  ]
+);
+
 export const gameSessionsRelations = relations(gameSessions, ({ one, many }) => ({
   user: one(users, {
     fields: [gameSessions.userId],
@@ -610,10 +668,18 @@ export const sessionSummariesRelations = relations(sessionSummaries, ({ one }) =
   })
 }));
 
-export const sessionMemoriesRelations = relations(sessionMemories, ({ one }) => ({
+export const sessionMemoriesRelations = relations(sessionMemories, ({ one, many }) => ({
   session: one(gameSessions, {
     fields: [sessionMemories.sessionId],
     references: [gameSessions.id]
+  }),
+  embeddings: many(memoryEmbeddings)
+}));
+
+export const memoryEmbeddingsRelations = relations(memoryEmbeddings, ({ one }) => ({
+  memory: one(sessionMemories, {
+    fields: [memoryEmbeddings.memoryId],
+    references: [sessionMemories.id]
   })
 }));
 
@@ -639,3 +705,5 @@ export type SessionSummary = typeof sessionSummaries.$inferSelect;
 export type NewSessionSummary = typeof sessionSummaries.$inferInsert;
 export type SessionMemory = typeof sessionMemories.$inferSelect;
 export type NewSessionMemory = typeof sessionMemories.$inferInsert;
+export type MemoryEmbedding = typeof memoryEmbeddings.$inferSelect;
+export type NewMemoryEmbedding = typeof memoryEmbeddings.$inferInsert;

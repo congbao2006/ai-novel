@@ -6,6 +6,7 @@ export type AIUsagePurpose =
   | "summary"
   | "npc"
   | "memory"
+  | "embedding"
   | "other";
 
 export type AIMessageRole = "system" | "developer" | "user" | "assistant";
@@ -143,4 +144,33 @@ export type AIUsageLedgerRecordInput = {
 
 export type AIUsageLedger = {
   recordUsage(input: AIUsageLedgerRecordInput): Promise<void>;
+};
+
+export type EmbeddingRequest = {
+  readonly requestId?: string;
+  readonly userId?: string;
+  readonly sessionId?: string;
+  readonly texts: readonly string[];
+  readonly model?: string;
+  readonly metadata?: Readonly<Record<string, string>>;
+};
+
+export type EmbeddingResult = {
+  readonly requestId: string | null;
+  readonly provider: LLMProviderId;
+  readonly model: string;
+  readonly embeddings: readonly (readonly number[])[];
+  readonly usage: TokenUsage;
+  readonly latencyMs: number;
+  readonly estimatedCostMicros?: number;
+};
+
+export type EmbeddingProvider = {
+  readonly id: LLMProviderId;
+  embed(request: EmbeddingRequest): Promise<EmbeddingResult>;
+};
+
+export type EmbeddingGatewayOptions = {
+  readonly timeoutMs?: number;
+  readonly maxRetries?: number;
 };

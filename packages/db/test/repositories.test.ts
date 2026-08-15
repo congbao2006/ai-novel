@@ -5,6 +5,7 @@ import {
   DrizzleGameStateRepository,
   DrizzleInventoryRepository,
   DrizzleMemoryRepository,
+  DrizzleSemanticMemoryRepository,
   DrizzleSessionSummaryRepository,
   StateVersionConflictError,
   ValidationError,
@@ -48,11 +49,27 @@ describe("repository layer", () => {
       "npcs",
       "quests",
       "relationships",
+      "semanticMemories",
       "sessionSummaries",
       "stories",
       "users",
       "worldEvents"
     ]);
+  });
+
+  it("rejects malformed embedding vectors before querying", async () => {
+    const repository = new DrizzleSemanticMemoryRepository({} as DbExecutor);
+
+    await expect(
+      repository.upsertEmbedding({
+        memoryId: "memory-1",
+        provider: "openai",
+        model: "embedding-model",
+        dimensions: 3,
+        embedding: [1, Number.NaN],
+        contentHash: "hash"
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("rejects invalid memory importance before querying", async () => {

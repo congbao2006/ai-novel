@@ -177,8 +177,10 @@ export class GameplayService {
     const stateSnapshot = toStateSnapshot(snapshot.state);
     const context = await (this.memoryContextBuilder
       ? this.memoryContextBuilder.buildForTurn({
+          userId: user.userId,
           sessionId: snapshot.session.id,
-          state: snapshot.state
+          state: snapshot.state,
+          action
         })
       : Promise.resolve({
           state: stateSnapshot,

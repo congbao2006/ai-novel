@@ -13,11 +13,13 @@ import {
 import type {
   GameMessageRecord,
   Repositories,
+  SessionMemoryRecord,
   SessionSummaryRecord,
   WorldEventRecord
 } from "@ai-novel/db";
 import { ConflictError } from "@ai-novel/db";
 import type { BudgetService } from "../ai/budget-service.js";
+import type { MemoryEmbeddingService } from "./memory-embedding-service.js";
 
 export type SummaryServiceOptions = {
   readonly intervalTurns: number;
@@ -42,7 +44,8 @@ export class SummaryService {
     private readonly repositories: Repositories,
     private readonly aiGateway: AIGateway,
     private readonly budgetService?: BudgetService,
-    private readonly options: SummaryServiceOptions = defaultOptions
+    private readonly options: SummaryServiceOptions = defaultOptions,
+    private readonly memoryEmbeddingService?: MemoryEmbeddingService
   ) {}
 
   async refreshIfDue(input: RefreshSummaryInput): Promise<void> {
@@ -97,11 +100,17 @@ export class SummaryService {
       throw error;
     }
 
-    await this.persistSummaryOutput({
+    const memories = await this.persistSummaryOutput({
       sessionId: input.sessionId,
       targetTurn: input.targetTurn,
       previousSummary,
       output
+    });
+
+    await this.memoryEmbeddingService?.embedMemoriesBestEffort({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      memories
     });
   }
 
@@ -110,7 +119,9 @@ export class SummaryService {
     readonly targetTurn: number;
     readonly previousSummary: SessionSummaryRecord | null;
     readonly output: SummaryOutput;
-  }): Promise<void> {
+  }): Promise<SessionMemoryRecord[]> {
+    const memories = [];
+
     if (input.previousSummary) {
       await this.repositories.sessionSummaries.updateWithVersion({
         sessionId: input.sessionId,
@@ -127,15 +138,23 @@ export class SummaryService {
     }
 
     for (const candidate of input.output.importantFacts) {
-      await this.upsertMemoryCandidate(input.sessionId, input.targetTurn, candidate);
+      memories.push(
+        await this.upsertMemoryCandidate(
+          input.sessionId,
+          input.targetTurn,
+          candidate
+        )
+      );
     }
+
+    return memories;
   }
 
   private async upsertMemoryCandidate(
     sessionId: string,
     turnNumber: number,
     candidate: MemoryCandidate
-  ): Promise<void> {
+  ): Promise<SessionMemoryRecord> {
     const normalizedContent = normalizeContent(candidate.content);
     const existing = candidate.key
       ? await this.repositories.memories.findByKey(sessionId, candidate.key)
@@ -144,7 +163,7 @@ export class SummaryService {
         ) ?? null;
 
     if (existing) {
-      await this.repositories.memories.updateMemory({
+      return this.repositories.memories.updateMemory({
         sessionId,
         memoryId: existing.id,
         content: candidate.content,
@@ -156,10 +175,9 @@ export class SummaryService {
           source: "summary"
         }
       });
-      return;
     }
 
-    await this.repositories.memories.createMemory({
+    return this.repositories.memories.createMemory({
       sessionId,
       memoryType: candidate.memoryType,
       subjectType: candidate.subjectType ?? null,

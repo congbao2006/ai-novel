@@ -10,6 +10,7 @@ import {
   gameSessions,
   gameStates,
   inventoryItems,
+  memoryEmbeddings,
   memoryTypeEnum,
   messageRoleEnum,
   npcs,
@@ -51,6 +52,7 @@ describe("db package", () => {
     expect(worldEvents).toBeDefined();
     expect(sessionSummaries).toBeDefined();
     expect(sessionMemories).toBeDefined();
+    expect(memoryEmbeddings).toBeDefined();
   });
 
   it("defines PostgreSQL enums from shared domain constants", () => {
@@ -92,6 +94,7 @@ describe("db package", () => {
       "summary",
       "npc",
       "memory",
+      "embedding",
       "other"
     ]);
     expect(aiUsageStatusEnum.enumValues).toEqual(["success", "failed"]);
