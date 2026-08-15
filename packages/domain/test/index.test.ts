@@ -6,7 +6,9 @@ import {
   questStatuses,
   runDeterministicTurn,
   sessionStatuses,
-  storyStatuses
+  storyStatuses,
+  validateAITurnProposal,
+  AITurnProposalValidationError
 } from "../src/index.js";
 
 describe("domain package", () => {
@@ -90,5 +92,123 @@ describe("domain package", () => {
     expect(result.command).toBe("fallback");
     expect(result.statePatch.location).toBeUndefined();
     expect(result.events).toEqual([]);
+  });
+
+  it("accepts a valid AI turn proposal and merges allowed state patches", () => {
+    const result = validateAITurnProposal(
+      {
+        narrative: "Bạn bước vào sân trong và nghe tiếng gió đổi hướng.",
+        proposedStatePatch: {
+          location: "Sân trong",
+          playerStats: { agility: 8 },
+          flags: { aiSceneTone: "tense" },
+          stateData: { aiLastActionSummary: "Người chơi tiến vào sân trong." }
+        },
+        proposedEvents: [
+          {
+            eventType: "movement",
+            title: "Tiến vào sân trong",
+            description: "Người chơi đổi vị trí sang sân trong.",
+            importance: 2
+          }
+        ]
+      },
+      context.state
+    );
+
+    expect(result.resultText).toContain("sân trong");
+    expect(result.statePatch.location).toBe("Sân trong");
+    expect(result.statePatch.playerStats).toMatchObject({ agility: 8 });
+    expect(result.statePatch.flags).toMatchObject({ aiSceneTone: "tense" });
+    expect(result.events[0]).toMatchObject({
+      eventType: "movement",
+      importance: 2,
+      payload: { source: "ai" }
+    });
+  });
+
+  it("rejects unsafe AI proposal shape and protected state fields", () => {
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: {},
+          proposedEvents: [],
+          userId: "attacker"
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: { version: 99 },
+          proposedEvents: []
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+  });
+
+  it("rejects invalid event and state patch values from AI", () => {
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: {},
+          proposedEvents: [
+            {
+              eventType: "movement",
+              title: "Bad",
+              description: "Bad",
+              importance: 6
+            }
+          ]
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: { playerStats: { newStat: 10 } },
+          proposedEvents: []
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: { playerStats: { agility: Number.NaN } },
+          proposedEvents: []
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+  });
+
+  it("rejects excessive AI-proposed events", () => {
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: {},
+          proposedEvents: Array.from({ length: 6 }, (_, index) => ({
+            eventType: "note",
+            title: `Event ${index}`,
+            description: "Too many events.",
+            importance: 1
+          }))
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
   });
 });

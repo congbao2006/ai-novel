@@ -12,7 +12,6 @@ Not implemented yet:
 
 - Payment, coin, or wallet tables.
 - AI usage ledger tables.
-- AI-generated gameplay writes.
 - Story editor/versioning tables.
 
 ## Entity Overview
@@ -350,6 +349,32 @@ Current deterministic commands:
 
 Session detail reads load at most 50 recent messages for the play page. Full transcript pagination remains the responsibility of future transcript/history endpoints.
 
+## AI Turn Proposal Transaction
+
+When `GAMEPLAY_ENGINE_MODE=ai`, the AI call is deliberately separated from the database transaction:
+
+```text
+GameplayService
+  -> load owned active session snapshot
+  -> load current game_states row and version
+  -> load bounded recent messages and important events
+  -> call AIGateway for AITurnProposal
+  -> validate proposal with domain allowlists
+  -> withTransaction
+      -> reload session and current game_states row
+      -> reject if version changed
+      -> append player game_messages row
+      -> update game_states where version = expectedVersion
+      -> append validated world_events rows
+      -> append assistant narrative game_messages row
+      -> increment game_sessions.turn_count
+      -> touch game_sessions.last_played_at
+```
+
+This avoids holding PostgreSQL locks or transaction resources while waiting for the external AI provider. If the state version changes after the AI response but before persistence, the proposal is discarded and the API returns HTTP 409. No player message, assistant message, event, turn count, or state change is partially committed.
+
+AI proposals cannot directly set IDs, owners, session IDs, timestamps, versions, turn counts, or arbitrary event payloads. The server validates state patches and assigns persistence metadata.
+
 ## AI Usage Ledger
 
 There is no `ai_usage_ledger` table yet. The AI gateway exposes an application-level ledger interface so future calls can persist provider/model usage without changing provider adapters.
@@ -367,7 +392,7 @@ Future ledger rows should capture:
 - status
 - created time
 
-This table should be added in a dedicated migration when AI gameplay or billing/accounting is in scope. The current OpenAI smoke path does not write usage to PostgreSQL.
+This table should be added in a dedicated migration when persistent usage accounting or budget enforcement is in scope. Current AI gameplay proposal calls receive usage metadata from `AIGateway`, but usage is not yet written to PostgreSQL.
 
 ## JSONB Strategy
 

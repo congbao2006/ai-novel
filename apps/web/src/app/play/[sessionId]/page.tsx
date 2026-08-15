@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  ApiRequestError,
   authRequest,
   type GameMessage,
   type GameplayTurnResponse,
@@ -74,7 +75,7 @@ export default function PlayShellPage() {
       );
       setAction("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      setError(formatPlayError(caught));
     } finally {
       setSubmitting(false);
     }
@@ -131,7 +132,7 @@ export default function PlayShellPage() {
 
             <div className="mt-6 muted-panel">
               <p className="text-sm leading-6 text-[var(--muted)]">
-                Engine deterministic đang bật. AI/LLM chưa được tích hợp.
+                Gameplay engine đang xử lý ở server. Streaming chưa được bật.
               </p>
             </div>
 
@@ -179,4 +180,12 @@ export default function PlayShellPage() {
       </section>
     </main>
   );
+}
+
+function formatPlayError(caught: unknown): string {
+  if (caught instanceof ApiRequestError && caught.statusCode === 409) {
+    return "Phiên chơi vừa được cập nhật ở nơi khác. Hãy tải lại.";
+  }
+
+  return caught instanceof Error ? caught.message : "Request failed.";
 }

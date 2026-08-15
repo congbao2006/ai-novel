@@ -27,9 +27,6 @@ const storyService = repositories ? new StoryService(repositories) : undefined;
 const sessionService = repositories
   ? new SessionService(repositories, database)
   : undefined;
-const gameplayService = repositories
-  ? new GameplayService(repositories, database)
-  : undefined;
 const aiGateway = createAIGateway({
   provider: config.ai.provider,
   ...(config.ai.openaiApiKey ? { openaiApiKey: config.ai.openaiApiKey } : {}),
@@ -38,6 +35,12 @@ const aiGateway = createAIGateway({
   maxRetries: config.ai.maxRetries,
   maxOutputTokens: config.ai.maxOutputTokens
 });
+const gameplayService = repositories
+  ? new GameplayService(repositories, database, undefined, {
+      engineMode: config.gameplay.engineMode,
+      ...(aiGateway ? { aiGateway } : {})
+    })
+  : undefined;
 const dependencies = {
   ...(repositories ? { repositories } : {}),
   ...(authService ? { authService } : {}),

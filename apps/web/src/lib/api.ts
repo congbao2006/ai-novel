@@ -80,6 +80,17 @@ export type GameplayTurnResponse = {
   readonly events: WorldEvent[];
 };
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly errorCode?: string
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export async function apiRequest<T>(
   path: string,
   init: RequestInit = {}
@@ -94,8 +105,10 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(
-      typeof body.message === "string" ? body.message : "Request failed."
+    throw new ApiRequestError(
+      typeof body.message === "string" ? body.message : "Request failed.",
+      response.status,
+      typeof body.error === "string" ? body.error : undefined
     );
   }
 
@@ -121,8 +134,10 @@ export async function authRequest<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(
-      typeof body.message === "string" ? body.message : "Request failed."
+    throw new ApiRequestError(
+      typeof body.message === "string" ? body.message : "Request failed.",
+      response.status,
+      typeof body.error === "string" ? body.error : undefined
     );
   }
 

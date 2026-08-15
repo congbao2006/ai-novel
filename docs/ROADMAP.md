@@ -219,7 +219,7 @@ Next step:
 
 ## Phase 4.5: AI Narrative + Structured Turn Proposal
 
-Status: pending.
+Status: completed.
 
 Goals:
 
@@ -228,6 +228,22 @@ Goals:
 - Validate AI-proposed state patches with domain rules.
 - Keep server-side deterministic persistence authority.
 - Continue tracking usage/cost.
+
+Completed:
+
+- Added strict provider-neutral `AITurnProposal` contract and JSON schema.
+- Added prompt/context builder with bounded recent messages and important world events.
+- Added prompt-injection defenses that treat player action as untrusted fictional input.
+- Added `GAMEPLAY_ENGINE_MODE=deterministic|ai`; deterministic remains the default.
+- Added AI turn flow that calls `AIGateway` outside the PostgreSQL transaction.
+- Added server-side proposal validation for narrative, location, existing numeric player stats, safe AI state keys, and bounded world events.
+- Added optimistic version re-check before persisting AI proposals.
+- Added optional `pnpm ai:turn-smoke` live structured proposal smoke test.
+- Kept deterministic gameplay tests and behavior intact.
+
+Next step:
+
+- Persistent AI Usage Ledger + Cost/Budget Enforcement.
 
 ## Phase 5: Story Creation Tools
 

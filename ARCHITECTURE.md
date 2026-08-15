@@ -62,7 +62,7 @@ Current application services:
 - `AuthService` owns registration, login, logout, password hashing, and session cookie identity.
 - `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
 - `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
-- `GameplayService` owns authenticated deterministic turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps.
+- `GameplayService` owns authenticated turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
 
 ### Domain Package
 
@@ -83,7 +83,7 @@ apps/api
   -> OpenAI Responses API
 ```
 
-Gameplay still uses the deterministic turn engine. OpenAI is available only through internal smoke paths until a future AI narrative proposal phase.
+Gameplay defaults to the deterministic turn engine. When `GAMEPLAY_ENGINE_MODE=ai`, gameplay calls `AIGateway` for a structured narrative proposal, then server-side validators decide what can be persisted.
 
 ### Database Package
 
@@ -143,6 +143,31 @@ Browser
 
 Player and assistant messages for the same action share the same `turnNumber`. This keeps one user action plus one deterministic result grouped as a single turn.
 
+The AI turn flow is similar, but the provider call is intentionally outside the database transaction:
+
+```text
+Browser
+  -> POST /sessions/:id/turns
+  -> requireUser
+  -> GameplayService
+      -> load session/state/story/context snapshot
+      -> build GenerationRequest with bounded context
+      -> AIGateway returns AITurnProposal
+      -> domain validator accepts only safe proposal fields
+  -> withTransaction
+      -> reload session and current GameState
+      -> reject if game_states.version changed
+      -> append player message
+      -> update GameState with expected version
+      -> append validated world events
+      -> append assistant narrative message
+      -> increment turn count
+      -> touch lastPlayedAt
+  -> turn response DTO
+```
+
+AI is a proposer, not the authority. It cannot supply database IDs, owners, versions, event timestamps, or arbitrary JSON patches. The server assigns those values and rejects invalid proposals.
+
 ## Game State Rule
 
 The LLM never directly updates the database.
@@ -152,10 +177,10 @@ Expected future flow:
 1. Player sends an action to the API.
 2. API loads the current session state.
 3. Domain layer builds a controlled state snapshot.
-4. Current deterministic engine parses simple commands and returns a validated patch plus optional events.
-5. Future AI engine may prepare a provider-neutral generation request after budget checks.
-6. Provider adapter returns candidate narrative and proposed state changes.
-7. Domain layer validates and converts proposed changes into allowed events.
+4. Deterministic mode parses simple commands and returns a validated patch plus optional events.
+5. AI mode builds a provider-neutral generation request after loading bounded context.
+6. Provider adapter returns candidate narrative and proposed state changes as structured output.
+7. Domain layer validates and converts proposed changes into allowed patches/events.
 8. API persists events and derived state through repositories in a transaction.
 9. API returns updated narrative/state view to the frontend.
 
@@ -205,6 +230,8 @@ The current gateway captures provider usage when available and estimates cost th
 - `game_states.version` provides optimistic concurrency. A stale turn receives HTTP 409 rather than being silently retried.
 - `OPENAI_API_KEY` is server-only and must never be exposed through frontend config, logs, or API responses.
 - Internal AI smoke endpoints are disabled in production unless explicitly gated by server config.
+- `GAMEPLAY_ENGINE_MODE=ai` requires a configured AI provider; the default local mode is deterministic.
+- AI proposals are validated with allowlists for state fields, bounded text, finite numbers, and event limits before persistence.
 
 ## Authentication
 

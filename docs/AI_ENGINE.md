@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The AI engine is a provider-neutral orchestration layer for AI-assisted narrative generation. It now has a real OpenAI provider integration, but gameplay turns still use the deterministic engine.
+The AI engine is a provider-neutral orchestration layer for AI-assisted narrative generation. It now has a real OpenAI provider integration and can produce structured gameplay turn proposals when `GAMEPLAY_ENGINE_MODE=ai`.
 
 ## Current Boundary
 
@@ -47,8 +47,26 @@ The current smoke paths are:
 
 - `POST /internal/ai/smoke` for development/internal HTTP testing.
 - `pnpm ai:smoke` for optional CLI live testing.
+- `pnpm ai:turn-smoke` for optional live structured turn proposal testing without database writes.
 
-Neither path touches gameplay sessions or game state.
+None of the smoke paths mutate gameplay sessions or game state.
+
+## AI Gameplay Proposal Flow
+
+AI gameplay mode keeps the server authoritative:
+
+```text
+Player action
+  -> GameplayService loads bounded session snapshot
+  -> StoryTurnPromptBuilder builds provider-neutral GenerationRequest
+  -> AIGateway calls the configured provider
+  -> provider returns AITurnProposal as structured output
+  -> domain validator normalizes allowed proposal fields
+  -> GameplayService re-checks game_states.version
+  -> one transaction persists messages, state patch, events, turn count, lastPlayedAt
+```
+
+The OpenAI call happens before the PostgreSQL transaction starts. This avoids holding a database transaction open while waiting on the network. If another turn changes `game_states.version` while the AI call is running, the service returns HTTP 409 and discards the stale proposal.
 
 ## OpenAI Provider
 
@@ -94,17 +112,58 @@ Model names must come from config or policy. They must not be hardcoded in gamep
 
 Structured output is supported at gateway/provider contract level through `StructuredOutputSchema`.
 
-Future gameplay AI can request a schema like:
+Gameplay AI requests the provider-neutral `AITurnProposal` schema:
 
 ```json
 {
   "narrative": "...",
-  "statePatch": {},
-  "events": []
+  "proposedStatePatch": {},
+  "proposedEvents": []
 }
 ```
 
-This step does not use structured output to update `game_states`. Any future structured candidate remains untrusted until domain validators accept it.
+The schema is strict:
+
+- `narrative` is required and bounded.
+- `proposedStatePatch` is required but may be `{}`.
+- `proposedEvents` is required but may be `[]`.
+- Unknown top-level fields and event fields are rejected.
+- Event importance must be an integer from `1..5`.
+
+The structured proposal remains untrusted until domain validators accept it.
+
+## Server Validation Policy
+
+AI is a proposer, not the authority.
+
+Allowed proposal effects are intentionally narrow:
+
+- `location`: non-empty text with length/control-character checks.
+- `playerStats`: only existing numeric stat keys may be updated.
+- `flags`: only safe AI-owned keys such as `aiSceneTone`.
+- `stateData`: only safe AI-owned keys such as `aiLastActionSummary` and `aiSceneSummary`.
+- `proposedEvents`: at most five validated events; IDs, timestamps, session IDs, and turn numbers are assigned by the server.
+
+Rejected fields include IDs, `userId`, `sessionId`, `version`, `turnCount`, auth fields, timestamps, unknown state keys, non-finite numbers, nested arbitrary JSON, and oversized text.
+
+Narrative is user-facing prose only. It is not the source of truth for state. If narrative says a stat changed but the validated structured patch does not include that change, the stat does not change.
+
+## Prompt And Context Strategy
+
+The prompt builder separates:
+
+- system/developer instructions
+- world context from server-side story fields
+- player character
+- current `game_states` snapshot
+- bounded recent transcript messages
+- recent important world events
+- untrusted player action
+- output contract
+
+Player action is explicitly labeled as untrusted fictional input. It must not be treated as system/developer instruction, and the model is told not to reveal internal prompts or alter the output schema.
+
+Context is bounded to recent messages and important events. Semantic/vector memory is still future work.
 
 ## Error Model
 
@@ -129,7 +188,7 @@ The API maps these to safe HTTP responses without leaking API keys, cookies, or 
 - Authentication/configuration/invalid response errors are not retried.
 - Backoff is bounded exponential delay with light jitter.
 
-Retries are not infinite, and the gateway does not retry gameplay turns.
+Retries are not infinite. GameplayService does not retry a whole turn after a stale state conflict because that could apply the player action twice.
 
 ## Token Accounting
 
@@ -172,7 +231,7 @@ There is no AI usage ledger table yet. The gateway exposes an `AIUsageLedger` in
 - status
 - creation time
 
-Adding the database ledger remains future work and should be introduced with a dedicated migration when usage billing/accounting is in scope.
+Adding the database ledger remains future work and should be introduced with a dedicated migration when usage billing/accounting is in scope. GameplayService receives usage metadata through the `GenerationResult`; wiring it to persistent cost/budget enforcement is the next dedicated phase.
 
 ## Secrets Strategy
 
@@ -185,10 +244,11 @@ Server-only environment variables:
 - `AI_MAX_RETRIES`
 - `AI_MAX_OUTPUT_TOKENS`
 - `AI_INTERNAL_SMOKE_ENABLED`
+- `GAMEPLAY_ENGINE_MODE`
 
 `OPENAI_API_KEY` is never exposed through frontend config, JSON responses, logs, or `NEXT_PUBLIC_*`.
 
-Production startup fails clearly when `AI_PROVIDER=openai` but required OpenAI config is missing.
+Production startup fails clearly when `AI_PROVIDER=openai` but required OpenAI config is missing. `GAMEPLAY_ENGINE_MODE=ai` requires a configured AI provider. The default mode remains `deterministic` for local development.
 
 ## Observability
 
@@ -211,9 +271,8 @@ Do not log:
 
 ## Current Non-Goals
 
-- AI-generated gameplay response.
-- AI state patch persistence.
 - NPC AI behavior.
 - Semantic memory or vector search.
 - AI quest generation.
 - Streaming gameplay.
+- AI usage ledger persistence and budget enforcement.

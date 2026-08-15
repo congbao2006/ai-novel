@@ -13,6 +13,7 @@
     "test": "pnpm -r --if-present test",
     "test:integration": "pnpm -r --if-present test:integration",
     "ai:smoke": "pnpm --filter @ai-novel/api ai:smoke",
+    "ai:turn-smoke": "pnpm --filter @ai-novel/api ai:turn-smoke",
     "check": "pnpm check:structure && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "check:structure": "node scripts/check-structure.mjs"
   },

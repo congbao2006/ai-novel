@@ -1,16 +1,27 @@
 import {
+  AITurnProposalValidationError,
   maxPlayerActionLength,
   runDeterministicTurn,
+  validateAITurnProposal,
+  type AITurnProposal,
   type GameStateSnapshot,
+  type GeneratedWorldEvent,
   type StatePatch
 } from "@ai-novel/domain";
+import {
+  AIInvalidResponseError,
+  type AIGateway,
+  type GenerationResult
+} from "@ai-novel/ai-engine";
 import type {
   DatabaseClient,
+  GameMessageRecord,
   GameStateRecord,
   RepositoryContext,
   Repositories,
   StoryCharacterRecord,
-  StoryRecord
+  StoryRecord,
+  WorldEventRecord
 } from "@ai-novel/db";
 import { StateVersionConflictError, withTransaction } from "@ai-novel/db";
 import {
@@ -26,20 +37,33 @@ import {
   toWorldEventDto,
   type GameplayTurnResponseDto
 } from "./dto.js";
+import { buildAITurnGenerationRequest } from "./ai-turn-prompt.js";
 import type { TransactionRunner } from "./service.js";
 
 export type SubmitTurnInputDto = {
   readonly action: string;
 };
 
+export type GameplayEngineMode = "deterministic" | "ai";
+
+export type GameplayServiceOptions = {
+  readonly engineMode?: GameplayEngineMode;
+  readonly aiGateway?: AIGateway;
+};
+
 export class GameplayService {
   private readonly runInTransaction: TransactionRunner;
+  private readonly engineMode: GameplayEngineMode;
+  private readonly aiGateway: AIGateway | undefined;
 
   constructor(
     private readonly repositories: Repositories,
     database?: DatabaseClient,
-    transactionRunner?: TransactionRunner
+    transactionRunner?: TransactionRunner,
+    options: GameplayServiceOptions = {}
   ) {
+    this.engineMode = options.engineMode ?? "deterministic";
+    this.aiGateway = options.aiGateway;
     this.runInTransaction =
       transactionRunner ??
       (database
@@ -58,30 +82,23 @@ export class GameplayService {
   ): Promise<GameplayTurnResponseDto> {
     const action = validatePlayerAction(input.action);
 
+    if (this.engineMode === "ai") {
+      return this.submitAITurn(user, sessionId, action);
+    }
+
+    return this.submitDeterministicTurn(user, sessionId, action);
+  }
+
+  private async submitDeterministicTurn(
+    user: CurrentUser,
+    sessionId: string,
+    action: string
+  ): Promise<GameplayTurnResponseDto> {
     try {
       return await this.runInTransaction(async (context) => {
-        const session = await context.repositories.gameSessions.getById(sessionId);
+        const { session, state, story, character } =
+          await loadOwnedActiveTurnSnapshot(context, user, sessionId);
 
-        if (!session || session.userId !== user.userId) {
-          throw new ResourceNotFoundError("Game session was not found.");
-        }
-
-        if (session.status !== "active") {
-          throw new BadRequestError("Only active sessions can receive turns.");
-        }
-
-        const state = await context.repositories.gameStates.getCurrentState(
-          session.id
-        );
-
-        if (!state) {
-          throw new ResourceNotFoundError("Game state was not found.");
-        }
-
-        const { story, character } = await loadTurnReferences(context, {
-          storyId: session.storyId,
-          selectedCharacterId: session.selectedCharacterId
-        });
         const previousLastTurn =
           await context.repositories.gameMessages.getLastTurnNumber(session.id);
         const turnNumber = (previousLastTurn ?? 0) + 1;
@@ -113,45 +130,17 @@ export class GameplayService {
           }
         );
         const statePatch = validateStatePatch(engineResult.statePatch);
-        const updatedState =
-          await context.repositories.gameStates.updateStateWithVersion({
-            sessionId: session.id,
-            expectedVersion: state.version,
-            ...statePatch
-          });
-        const events = [];
 
-        for (const event of engineResult.events) {
-          events.push(
-            await context.repositories.worldEvents.append({
-              sessionId: session.id,
-              eventType: event.eventType,
-              title: event.title,
-              description: event.description,
-              importance: event.importance,
-              payload: event.payload,
-              turnNumber
-            })
-          );
-        }
-
-        const resultMessage = await context.repositories.gameMessages.append({
+        return persistTurn(context, {
           sessionId: session.id,
-          role: "assistant",
-          content: engineResult.resultText,
-          turnNumber
-        });
-
-        await context.repositories.gameSessions.incrementTurnCount(session.id);
-        await context.repositories.gameSessions.touchLastPlayedAt(session.id);
-
-        return {
+          expectedVersion: state.version,
           turnNumber,
-          playerMessage: toGameMessageDto(playerMessage),
-          resultMessage: toGameMessageDto(resultMessage),
-          state: toGameStateDto(updatedState),
-          events: events.map(toWorldEventDto)
-        };
+          action,
+          resultText: engineResult.resultText,
+          statePatch,
+          events: engineResult.events,
+          preAppendedPlayerMessage: playerMessage
+        });
       });
     } catch (error) {
       if (error instanceof StateVersionConflictError) {
@@ -160,6 +149,120 @@ export class GameplayService {
 
       throw error;
     }
+  }
+
+  private async submitAITurn(
+    user: CurrentUser,
+    sessionId: string,
+    action: string
+  ): Promise<GameplayTurnResponseDto> {
+    if (!this.aiGateway) {
+      throw new ServiceUnavailableError("AI gameplay mode requires an AI gateway.");
+    }
+
+    const snapshot = await this.loadAITurnSnapshot(user, sessionId);
+    const expectedVersion = snapshot.state.version;
+    const stateSnapshot = toStateSnapshot(snapshot.state);
+    const request = buildAITurnGenerationRequest({
+      userId: user.userId,
+      sessionId: snapshot.session.id,
+      story: snapshot.story,
+      character: snapshot.character,
+      state: stateSnapshot,
+      recentMessages: snapshot.recentMessages,
+      recentImportantEvents: snapshot.recentImportantEvents,
+      action
+    });
+    const result = await this.aiGateway.generate<AITurnProposal>(request);
+    const proposal = getStructuredProposal(result);
+    const validatedProposal = validateProposalForCurrentState(
+      proposal,
+      stateSnapshot
+    );
+
+    try {
+      return await this.runInTransaction(async (context) => {
+        const { session, state } = await loadOwnedActiveTurnSnapshot(
+          context,
+          user,
+          sessionId
+        );
+
+        if (state.version !== expectedVersion) {
+          throw new ConflictApplicationError(
+            "Game state changed before this AI turn was saved."
+          );
+        }
+
+        const previousLastTurn =
+          await context.repositories.gameMessages.getLastTurnNumber(session.id);
+        const turnNumber = (previousLastTurn ?? 0) + 1;
+
+        return persistTurn(context, {
+          sessionId: session.id,
+          expectedVersion,
+          turnNumber,
+          action,
+          resultText: validatedProposal.resultText,
+          statePatch: validatedProposal.statePatch,
+          events: validatedProposal.events
+        });
+      });
+    } catch (error) {
+      if (error instanceof StateVersionConflictError) {
+        throw new ConflictApplicationError(
+          "Game state changed before this AI turn was saved."
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  private async loadAITurnSnapshot(
+    user: CurrentUser,
+    sessionId: string
+  ): Promise<{
+    readonly session: Awaited<ReturnType<Repositories["gameSessions"]["getById"]>> & {};
+    readonly state: GameStateRecord;
+    readonly story: StoryRecord;
+    readonly character: StoryCharacterRecord | null;
+    readonly recentMessages: GameMessageRecord[];
+    readonly recentImportantEvents: WorldEventRecord[];
+  }> {
+    const session = await this.repositories.gameSessions.getById(sessionId);
+
+    if (!session || session.userId !== user.userId) {
+      throw new ResourceNotFoundError("Game session was not found.");
+    }
+
+    if (session.status !== "active") {
+      throw new BadRequestError("Only active sessions can receive turns.");
+    }
+
+    const state = await this.repositories.gameStates.getCurrentState(session.id);
+
+    if (!state) {
+      throw new ResourceNotFoundError("Game state was not found.");
+    }
+
+    const { story, character } = await loadTurnReferences(this.repositories, {
+      storyId: session.storyId,
+      selectedCharacterId: session.selectedCharacterId
+    });
+    const [recentMessages, recentImportantEvents] = await Promise.all([
+      this.repositories.gameMessages.getRecentMessages(session.id, 20),
+      this.repositories.worldEvents.getImportantEvents(session.id, 3, 10)
+    ]);
+
+    return {
+      session,
+      state,
+      story,
+      character,
+      recentMessages: recentMessages as GameMessageRecord[],
+      recentImportantEvents: recentImportantEvents as WorldEventRecord[]
+    };
   }
 }
 
@@ -180,7 +283,7 @@ function validatePlayerAction(action: string): string {
 }
 
 async function loadTurnReferences(
-  context: RepositoryContext,
+  source: RepositoryContext | Repositories,
   input: {
     readonly storyId: string;
     readonly selectedCharacterId: string | null;
@@ -189,20 +292,118 @@ async function loadTurnReferences(
   readonly story: StoryRecord;
   readonly character: StoryCharacterRecord | null;
 }> {
-  const story = await context.repositories.stories.getById(input.storyId);
+  const repositories = "repositories" in source ? source.repositories : source;
+  const story = await repositories.stories.getById(input.storyId);
 
   if (!story) {
     throw new ResourceNotFoundError("Story was not found.");
   }
 
   const character = input.selectedCharacterId
-    ? await context.repositories.stories.getCharacterForStory(
+    ? await repositories.stories.getCharacterForStory(
         story.id,
         input.selectedCharacterId
       )
     : null;
 
   return { story, character };
+}
+
+async function loadOwnedActiveTurnSnapshot(
+  context: RepositoryContext,
+  user: CurrentUser,
+  sessionId: string
+): Promise<{
+  readonly session: NonNullable<
+    Awaited<ReturnType<Repositories["gameSessions"]["getById"]>>
+  >;
+  readonly state: GameStateRecord;
+  readonly story: StoryRecord;
+  readonly character: StoryCharacterRecord | null;
+}> {
+  const session = await context.repositories.gameSessions.getById(sessionId);
+
+  if (!session || session.userId !== user.userId) {
+    throw new ResourceNotFoundError("Game session was not found.");
+  }
+
+  if (session.status !== "active") {
+    throw new BadRequestError("Only active sessions can receive turns.");
+  }
+
+  const state = await context.repositories.gameStates.getCurrentState(session.id);
+
+  if (!state) {
+    throw new ResourceNotFoundError("Game state was not found.");
+  }
+
+  const { story, character } = await loadTurnReferences(context, {
+    storyId: session.storyId,
+    selectedCharacterId: session.selectedCharacterId
+  });
+
+  return { session, state, story, character };
+}
+
+async function persistTurn(
+  context: RepositoryContext,
+  input: {
+    readonly sessionId: string;
+    readonly expectedVersion: number;
+    readonly turnNumber: number;
+    readonly action: string;
+    readonly resultText: string;
+    readonly statePatch: StatePatch;
+    readonly events: readonly GeneratedWorldEvent[];
+    readonly preAppendedPlayerMessage?: GameMessageRecord;
+  }
+): Promise<GameplayTurnResponseDto> {
+  const playerMessage =
+    input.preAppendedPlayerMessage ??
+    (await context.repositories.gameMessages.append({
+      sessionId: input.sessionId,
+      role: "player",
+      content: input.action,
+      turnNumber: input.turnNumber
+    }));
+  const updatedState = await context.repositories.gameStates.updateStateWithVersion({
+    sessionId: input.sessionId,
+    expectedVersion: input.expectedVersion,
+    ...input.statePatch
+  });
+  const events = [];
+
+  for (const event of input.events) {
+    events.push(
+      await context.repositories.worldEvents.append({
+        sessionId: input.sessionId,
+        eventType: event.eventType,
+        title: event.title,
+        description: event.description,
+        importance: event.importance,
+        payload: event.payload,
+        turnNumber: input.turnNumber
+      })
+    );
+  }
+
+  const resultMessage = await context.repositories.gameMessages.append({
+    sessionId: input.sessionId,
+    role: "assistant",
+    content: input.resultText,
+    turnNumber: input.turnNumber
+  });
+
+  await context.repositories.gameSessions.incrementTurnCount(input.sessionId);
+  await context.repositories.gameSessions.touchLastPlayedAt(input.sessionId);
+
+  return {
+    turnNumber: input.turnNumber,
+    playerMessage: toGameMessageDto(playerMessage),
+    resultMessage: toGameMessageDto(resultMessage),
+    state: toGameStateDto(updatedState),
+    events: events.map(toWorldEventDto)
+  };
 }
 
 function toStateSnapshot(state: GameStateRecord): GameStateSnapshot {
@@ -246,6 +447,31 @@ function validateStatePatch(patch: StatePatch): StatePatch {
   }
 
   return validated;
+}
+
+function getStructuredProposal(
+  result: GenerationResult<AITurnProposal>
+): AITurnProposal {
+  if (!result.structuredOutput) {
+    throw new AIInvalidResponseError("AI response did not include a turn proposal.");
+  }
+
+  return result.structuredOutput;
+}
+
+function validateProposalForCurrentState(
+  proposal: AITurnProposal,
+  state: GameStateSnapshot
+) {
+  try {
+    return validateAITurnProposal(proposal, state);
+  } catch (error) {
+    if (error instanceof AITurnProposalValidationError) {
+      throw new AIInvalidResponseError(error.message, error);
+    }
+
+    throw error;
+  }
 }
 
 function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {

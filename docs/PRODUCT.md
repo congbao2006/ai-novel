@@ -31,16 +31,16 @@ In scope:
 - Story detail pages with public character templates.
 - Authenticated session creation and resume.
 - Deterministic gameplay turns for simple typed commands.
-- Provider-neutral AI gateway with OpenAI smoke testing, not yet used by gameplay.
+- Provider-neutral AI gateway with OpenAI smoke testing.
+- Optional AI narrative turn proposal mode guarded by server-side validation.
 
 Out of scope:
 
-- AI-assisted gameplay implementation.
+- Autonomous NPC AI, memory retrieval, and AI-generated quest gameplay.
 - Payment or coin system implementation.
-- Live AI provider integration.
 - Admin dashboard implementation.
 - Story creation implementation.
-- NPC behavior, memory retrieval, and runtime quest generation.
+- NPC behavior and runtime quest generation.
 
 ## Core Product Concepts
 
@@ -66,7 +66,9 @@ The current MVP can create a session from a published story and selected charact
 
 One player action plus the system response generated from current state, story rules, and AI assistance.
 
-Current turn support is deterministic only. Supported commands include observe, rest, move, and status in simple Vietnamese/English forms. Unknown actions are recorded and receive a safe deterministic fallback without dangerous state changes.
+Current turn support defaults to deterministic mode. Supported deterministic commands include observe, rest, move, and status in simple Vietnamese/English forms. Unknown actions are recorded and receive a safe deterministic fallback without dangerous state changes.
+
+When `GAMEPLAY_ENGINE_MODE=ai` is configured, a turn can ask the AI gateway for a narrative and structured proposal. The proposal is not trusted: the server validates allowed state fields and world events before anything is persisted. Deterministic mode remains the development/fallback path.
 
 ### Save
 

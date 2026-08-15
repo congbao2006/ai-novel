@@ -21,6 +21,9 @@ const serverConfigSchema = z.object({
     maxRetries: z.coerce.number().int().min(0).max(5).default(2),
     maxOutputTokens: z.coerce.number().int().positive().default(256),
     internalSmokeEnabled: z.boolean().default(false)
+  }),
+  gameplay: z.object({
+    engineMode: z.enum(["deterministic", "ai"]).default("deterministic")
   })
 }).superRefine((config, context) => {
   if (config.ai.provider === "openai") {
@@ -39,6 +42,15 @@ const serverConfigSchema = z.object({
         message: "OPENAI_MODEL is required when AI_PROVIDER=openai."
       });
     }
+  }
+
+  if (config.gameplay.engineMode === "ai" && config.ai.provider === "disabled") {
+    context.addIssue({
+      code: "custom",
+      path: ["gameplay", "engineMode"],
+      message:
+        "GAMEPLAY_ENGINE_MODE=ai requires AI_PROVIDER to be configured."
+    });
   }
 });
 
@@ -69,6 +81,9 @@ export function getServerConfig(
       maxRetries: env.AI_MAX_RETRIES,
       maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
       internalSmokeEnabled: parseBooleanEnv(env.AI_INTERNAL_SMOKE_ENABLED)
+    },
+    gameplay: {
+      engineMode: env.GAMEPLAY_ENGINE_MODE
     }
   });
 
