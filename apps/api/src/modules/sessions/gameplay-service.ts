@@ -19,6 +19,7 @@ import type {
   GameStateRecord,
   RepositoryContext,
   Repositories,
+  SessionMemoryRecord,
   StoryCharacterRecord,
   StoryRecord
 } from "@ai-novel/db";
@@ -40,6 +41,10 @@ import {
 import { buildAITurnGenerationRequest } from "./ai-turn-prompt.js";
 import { toStateSnapshot } from "./memory-context-builder.js";
 import type { MemoryContextBuilder } from "./memory-context-builder.js";
+import type {
+  NPCReactionService,
+  PersistableNPCReaction
+} from "./npc-reaction-service.js";
 import type { SummaryService } from "./summary-service.js";
 import type { TransactionRunner } from "./service.js";
 
@@ -55,6 +60,12 @@ export type GameplayServiceOptions = {
   readonly budgetService?: BudgetService;
   readonly memoryContextBuilder?: MemoryContextBuilder;
   readonly summaryService?: SummaryService;
+  readonly npcReactionService?: NPCReactionService;
+};
+
+type PersistedTurnResult = {
+  readonly response: GameplayTurnResponseDto;
+  readonly npcMemories: readonly SessionMemoryRecord[];
 };
 
 export class GameplayService {
@@ -64,6 +75,7 @@ export class GameplayService {
   private readonly budgetService: BudgetService | undefined;
   private readonly memoryContextBuilder: MemoryContextBuilder | undefined;
   private readonly summaryService: SummaryService | undefined;
+  private readonly npcReactionService: NPCReactionService | undefined;
 
   constructor(
     private readonly repositories: Repositories,
@@ -76,6 +88,7 @@ export class GameplayService {
     this.budgetService = options.budgetService;
     this.memoryContextBuilder = options.memoryContextBuilder;
     this.summaryService = options.summaryService;
+    this.npcReactionService = options.npcReactionService;
     this.runInTransaction =
       transactionRunner ??
       (database
@@ -143,7 +156,7 @@ export class GameplayService {
         );
         const statePatch = validateStatePatch(engineResult.statePatch);
 
-        return persistTurn(context, {
+        const persisted = await persistTurn(context, {
           sessionId: session.id,
           expectedVersion: state.version,
           turnNumber,
@@ -153,6 +166,8 @@ export class GameplayService {
           events: engineResult.events,
           preAppendedPlayerMessage: playerMessage
         });
+
+        return persisted.response;
       });
     } catch (error) {
       if (error instanceof StateVersionConflictError) {
@@ -216,9 +231,19 @@ export class GameplayService {
       proposal,
       stateSnapshot
     );
+    const previousLastTurn =
+      await this.repositories.gameMessages.getLastTurnNumber(snapshot.session.id);
+    const turnNumber = (previousLastTurn ?? 0) + 1;
+    const npcReactions = await this.npcReactionService?.generateReactions({
+      userId: user.userId,
+      sessionId: snapshot.session.id,
+      state: snapshot.state,
+      action,
+      turnNumber
+    });
 
     try {
-      const turnResponse = await this.runInTransaction(async (transactionContext) => {
+      const persisted = await this.runInTransaction(async (transactionContext) => {
         const { session, state } = await loadOwnedActiveTurnSnapshot(
           transactionContext,
           user,
@@ -231,24 +256,32 @@ export class GameplayService {
           );
         }
 
-        const previousLastTurn =
-          await transactionContext.repositories.gameMessages.getLastTurnNumber(session.id);
-        const turnNumber = (previousLastTurn ?? 0) + 1;
-
         return persistTurn(transactionContext, {
           sessionId: session.id,
           expectedVersion,
           turnNumber,
           action,
-          resultText: validatedProposal.resultText,
+          resultText: composeResultText(
+            validatedProposal.resultText,
+            npcReactions?.dialogueBlocks ?? []
+          ),
           statePatch: validatedProposal.statePatch,
-          events: validatedProposal.events
+          events: [
+            ...validatedProposal.events,
+            ...(npcReactions?.events ?? [])
+          ],
+          npcReactions: npcReactions?.reactions ?? []
         });
       });
 
-      await this.refreshSummaryAfterTurn(user, sessionId, turnResponse.turnNumber);
+      await this.npcReactionService?.embedMemoriesBestEffort({
+        userId: user.userId,
+        sessionId,
+        memories: persisted.npcMemories
+      });
+      await this.refreshSummaryAfterTurn(user, sessionId, persisted.response.turnNumber);
 
-      return turnResponse;
+      return persisted.response;
     } catch (error) {
       if (error instanceof StateVersionConflictError) {
         throw new ConflictApplicationError(
@@ -405,8 +438,9 @@ async function persistTurn(
     readonly statePatch: StatePatch;
     readonly events: readonly GeneratedWorldEvent[];
     readonly preAppendedPlayerMessage?: GameMessageRecord;
+    readonly npcReactions?: readonly PersistableNPCReaction[];
   }
-): Promise<GameplayTurnResponseDto> {
+): Promise<PersistedTurnResult> {
   const playerMessage =
     input.preAppendedPlayerMessage ??
     (await context.repositories.gameMessages.append({
@@ -435,6 +469,11 @@ async function persistTurn(
       })
     );
   }
+  const npcMemories = await persistNPCReactions(context, {
+    sessionId: input.sessionId,
+    turnNumber: input.turnNumber,
+    reactions: input.npcReactions ?? []
+  });
 
   const resultMessage = await context.repositories.gameMessages.append({
     sessionId: input.sessionId,
@@ -447,12 +486,144 @@ async function persistTurn(
   await context.repositories.gameSessions.touchLastPlayedAt(input.sessionId);
 
   return {
-    turnNumber: input.turnNumber,
-    playerMessage: toGameMessageDto(playerMessage),
-    resultMessage: toGameMessageDto(resultMessage),
-    state: toGameStateDto(updatedState),
-    events: events.map(toWorldEventDto)
+    response: {
+      turnNumber: input.turnNumber,
+      playerMessage: toGameMessageDto(playerMessage),
+      resultMessage: toGameMessageDto(resultMessage),
+      state: toGameStateDto(updatedState),
+      events: events.map(toWorldEventDto)
+    },
+    npcMemories
   };
+}
+
+async function persistNPCReactions(
+  context: RepositoryContext,
+  input: {
+    readonly sessionId: string;
+    readonly turnNumber: number;
+    readonly reactions: readonly PersistableNPCReaction[];
+  }
+): Promise<SessionMemoryRecord[]> {
+  const memories: SessionMemoryRecord[] = [];
+
+  for (const reaction of input.reactions) {
+    const npc = await context.repositories.npcs.getByIdForSession(
+      input.sessionId,
+      reaction.npcId
+    );
+
+    if (!npc) {
+      continue;
+    }
+
+    if (Object.keys(reaction.statePatch).length > 0) {
+      await context.repositories.npcs.updateRuntimeState({
+        sessionId: input.sessionId,
+        npcId: reaction.npcId,
+        currentState: {
+          ...copyJsonObject(npc.currentState),
+          ...copyJsonObject(reaction.statePatch),
+          lastInteractionTurn: input.turnNumber
+        }
+      });
+    }
+
+    for (const delta of reaction.relationshipDeltas) {
+      await applyRelationshipDelta(context, input.sessionId, reaction.npcId, delta);
+    }
+
+    for (const candidate of reaction.memoryCandidates) {
+      const key = candidate.key ? `npc:${reaction.npcId}:${candidate.key}` : null;
+      const existing = key
+        ? await context.repositories.memories.findByKey(input.sessionId, key)
+        : null;
+
+      if (existing) {
+        memories.push(
+          await context.repositories.memories.updateMemory({
+            sessionId: input.sessionId,
+            memoryId: existing.id,
+            content: candidate.content,
+            importance: Math.max(existing.importance, candidate.importance),
+            lastConfirmedTurn: input.turnNumber,
+            active: true,
+            metadata: {
+              ...existing.metadata,
+              source: "npc_ai"
+            }
+          })
+        );
+        continue;
+      }
+
+      memories.push(
+        await context.repositories.memories.createMemory({
+          sessionId: input.sessionId,
+          memoryType: candidate.memoryType,
+          subjectType: "npc",
+          subjectId: reaction.npcId,
+          key,
+          content: candidate.content,
+          importance: candidate.importance,
+          firstObservedTurn: input.turnNumber,
+          lastConfirmedTurn: input.turnNumber,
+          metadata: {
+            source: "npc_ai"
+          }
+        })
+      );
+    }
+  }
+
+  return memories;
+}
+
+async function applyRelationshipDelta(
+  context: RepositoryContext,
+  sessionId: string,
+  npcId: string,
+  delta: PersistableNPCReaction["relationshipDeltas"][number]
+): Promise<void> {
+  const target =
+    delta.targetType === "player"
+      ? { type: "player" as const, id: null }
+      : { type: "npc" as const, id: delta.targetId };
+
+  if (target.type === "npc") {
+    const targetNpc = await context.repositories.npcs.getByIdForSession(
+      sessionId,
+      target.id ?? ""
+    );
+
+    if (!targetNpc) {
+      return;
+    }
+  }
+
+  const source = { type: "npc" as const, id: npcId };
+  const existing = await context.repositories.relationships.getRelationshipEdge(
+    sessionId,
+    source,
+    target
+  );
+
+  await context.repositories.relationships.upsertRelationship({
+    sessionId,
+    source,
+    target,
+    affinity: clampRelationship(
+      (existing?.affinity ?? 0) + delta.affinityDelta,
+      -100,
+      100
+    ),
+    trust: clampRelationship((existing?.trust ?? 0) + delta.trustDelta, -100, 100),
+    fear: clampRelationship((existing?.fear ?? 0) + delta.fearDelta, 0, 100),
+    metadata: {
+      ...(existing?.metadata ?? {}),
+      source: "npc_ai"
+    }
+  });
 }
 
 function validateStatePatch(patch: StatePatch): StatePatch {
@@ -485,6 +656,21 @@ function validateStatePatch(patch: StatePatch): StatePatch {
   }
 
   return validated;
+}
+
+function composeResultText(
+  mainNarrative: string,
+  npcDialogueBlocks: readonly string[]
+): string {
+  if (npcDialogueBlocks.length === 0) {
+    return mainNarrative;
+  }
+
+  return [mainNarrative, ...npcDialogueBlocks].join("\n\n");
+}
+
+function clampRelationship(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, Math.trunc(value)));
 }
 
 function getStructuredProposal(

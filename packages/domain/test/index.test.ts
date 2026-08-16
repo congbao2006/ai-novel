@@ -12,7 +12,9 @@ import {
   storyStatuses,
   validateSummaryOutput,
   validateAITurnProposal,
+  validateNPCReactionProposal,
   AITurnProposalValidationError,
+  NPCReactionProposalValidationError,
   SummaryOutputValidationError
 } from "../src/index.js";
 
@@ -285,5 +287,112 @@ describe("domain package", () => {
         ]
       })
     ).toThrow(SummaryOutputValidationError);
+  });
+
+  it("validates an NPC reaction proposal with narrow server-owned effects", () => {
+    const proposal = validateNPCReactionProposal(
+      {
+        dialogue: "Ta nhớ chuyện ở bến sông.",
+        action: {
+          type: "speak",
+          description: "Lý Thanh answers cautiously."
+        },
+        statePatch: {
+          mood: "cautious"
+        },
+        relationshipDeltas: [
+          {
+            targetType: "player",
+            targetId: null,
+            affinityDelta: 2,
+            trustDelta: 1,
+            fearDelta: -1
+          }
+        ],
+        memoryCandidates: [
+          {
+            key: "ly-thanh.saved-at-river",
+            content: "Lý Thanh confirmed the player once saved her near the river.",
+            importance: 4,
+            memoryType: "npc"
+          }
+        ],
+        events: [
+          {
+            eventType: "npc_dialogue",
+            title: "Lý Thanh nhớ chuyện cũ",
+            description: "Lý Thanh nhắc lại chuyện được cứu ở bến sông.",
+            importance: 3
+          }
+        ]
+      },
+      {
+        npcId: "npc-1",
+        validNpcIds: new Set(["npc-1", "npc-2"])
+      }
+    );
+
+    expect(proposal.dialogue).toContain("bến sông");
+    expect(proposal.statePatch).toEqual({ mood: "cautious" });
+    expect(proposal.relationshipDeltas[0]?.trustDelta).toBe(1);
+    expect(proposal.memoryCandidates[0]?.memoryType).toBe("npc");
+    expect(proposal.events[0]?.payload).toEqual({ source: "npc_ai" });
+  });
+
+  it("rejects unsafe NPC reaction proposals", () => {
+    expect(() =>
+      validateNPCReactionProposal(
+        {
+          dialogue: null,
+          action: {
+            type: "execute_sql",
+            description: "bad"
+          },
+          statePatch: {},
+          relationshipDeltas: [],
+          memoryCandidates: [],
+          events: []
+        },
+        { npcId: "npc-1" }
+      )
+    ).toThrow(NPCReactionProposalValidationError);
+
+    expect(() =>
+      validateNPCReactionProposal(
+        {
+          dialogue: null,
+          action: null,
+          statePatch: {
+            alive: false
+          },
+          relationshipDeltas: [],
+          memoryCandidates: [],
+          events: []
+        },
+        { npcId: "npc-1" }
+      )
+    ).toThrow(NPCReactionProposalValidationError);
+
+    expect(() =>
+      validateNPCReactionProposal(
+        {
+          dialogue: null,
+          action: null,
+          statePatch: {},
+          relationshipDeltas: [
+            {
+              targetType: "player",
+              targetId: null,
+              affinityDelta: 21,
+              trustDelta: 0,
+              fearDelta: 0
+            }
+          ],
+          memoryCandidates: [],
+          events: []
+        },
+        { npcId: "npc-1" }
+      )
+    ).toThrow(NPCReactionProposalValidationError);
   });
 });

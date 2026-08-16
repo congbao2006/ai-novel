@@ -215,6 +215,33 @@ semanticScore * 0.65
 
 If semantic retrieval fails, is disabled, or returns only low-score results, deterministic important-memory selection continues to work.
 
+## NPC Runtime Reactions
+
+NPC runtime intelligence is integrated only into AI gameplay mode and only during player-submitted turns.
+
+```text
+Main AI turn proposal
+  -> select relevant NPCs
+  -> build NPC-specific knowledge context
+  -> AIGateway purpose=npc
+  -> NPCReactionProposal
+  -> server validation
+  -> gameplay transaction persists allowed effects
+```
+
+The NPC reaction schema is separate from `AITurnProposal`. It can propose:
+
+- short dialogue
+- one allowlisted semantic intent such as `speak`, `observe`, `move`, `refuse`, `assist`, `threaten`, `flee`, `attack_intent`, `give_item_intent`, or `custom_narrative`
+- NPC-owned state keys such as mood, stance, current goal, attention, and location
+- relationship deltas, not absolute relationship replacement
+- bounded NPC memory candidates
+- bounded world events
+
+Server validation rejects unknown action types, protected fields, `alive=false`, player/session/user patches, excessive relationship deltas, invalid targets, excessive events, and oversized text.
+
+NPC calls use `purpose=npc`, so they pass through the same gateway, usage ledger, pricing, and budget precheck path as gameplay and summary calls. Deterministic gameplay mode makes zero NPC AI calls.
+
 ## Rolling Summary
 
 `SummaryService` refreshes one persisted rolling summary per session after `AI_SUMMARY_INTERVAL_TURNS` unsummarized turns. It calls `AIGateway` with purpose `summary`, validates strict structured output, updates `session_summaries`, and extracts bounded important memory candidates into `session_memories`.
@@ -356,6 +383,7 @@ Server-only environment variables:
 - `AI_MAX_OUTPUT_TOKENS`
 - `AI_INTERNAL_SMOKE_ENABLED`
 - `GAMEPLAY_ENGINE_MODE`
+- `AI_MAX_NPC_REACTIONS_PER_TURN`
 - `AI_MODEL_PRICING_JSON`
 - `AI_USER_DAILY_BUDGET_MICROS`
 - `AI_USER_MONTHLY_BUDGET_MICROS`
@@ -395,7 +423,7 @@ Do not log:
 
 ## Current Non-Goals
 
-- NPC AI behavior.
+- Autonomous NPC turns or background world simulation.
 - AI quest generation.
 - Streaming gameplay.
 - Payment/Xu-backed hard quota reservation.

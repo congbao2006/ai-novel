@@ -69,6 +69,8 @@ Current application services:
 - `SummaryService` owns rolling summary refresh and important memory extraction when configured turn thresholds are reached.
 - `MemoryEmbeddingService` owns embedding generation/backfill for persistent memories without making repositories call external providers.
 - `SemanticMemoryService` owns query embedding and hybrid semantic/importance/recency ranking for memory retrieval.
+- `NPCInitializationService` clones story character templates into session-owned runtime NPC rows when a session starts.
+- `NPCReactionService` selects relevant runtime NPCs during AI gameplay turns, builds NPC-specific knowledge context, calls an NPC reaction engine, and persists only server-validated NPC state/relationship/memory effects.
 
 ### Domain Package
 
@@ -208,6 +210,20 @@ Authoritative GameState
 
 `game_states` remains the source of truth. Summaries and memories help the AI reason about long-running context, but they do not override current state or mutate state directly.
 
+NPC runtime intelligence follows the same authority rule:
+
+```text
+NPC template
+  -> session-owned NPC runtime
+  -> NPC profile + relationship + NPC memory + current scene + player action
+  -> NPCKnowledgeBuilder
+  -> AINPCReactionEngine
+  -> server validator
+  -> gameplay transaction persists allowed NPC state, relationship deltas, memories, and events
+```
+
+NPC AI is a proposer, not the authority. It does not run outside player turns, does not write the database, and does not receive another NPC's secrets, full session memory, full world prompt, auth data, or cross-session memories. Runtime NPC memories reuse `session_memories` with `subject_type = npc` and `subject_id = <npc id>`.
+
 Semantic memory retrieval is hybrid:
 
 ```text
@@ -307,6 +323,7 @@ Embedding calls use purpose `embedding` in the same usage ledger. Runtime semant
 - Usage records never store API keys, cookies, emails, full prompts, or full AI output.
 - Budget enforcement is server-side; frontend state cannot raise or bypass AI budgets.
 - Memory and summary records never become authority over `game_states`; prompt builders explicitly tell the AI to prefer current state over stale memory.
+- NPC reactions are bounded by `AI_MAX_NPC_REACTIONS_PER_TURN`; NPC prompts receive only NPC-scoped knowledge and validated reaction proposals cannot patch player/auth/session state.
 
 ## Authentication
 

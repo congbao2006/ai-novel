@@ -169,6 +169,12 @@ Important columns:
 - `created_at`
 - `updated_at`
 
+The current schema is sufficient for the NPC runtime intelligence foundation, so no migration was added for this step. `personality`, `goals`, and `secrets` hold runtime NPC identity, while `current_state` stores safe server-owned runtime fields such as location, mood, stance, current goal, attention, and last interaction turn.
+
+When a session starts, the application can clone non-selected story character templates into session-owned NPC rows. Because `story_characters` does not yet distinguish playable templates from NPC templates, the current policy clones every non-selected character template. A future story-authoring schema should add an explicit template role instead of inferring it.
+
+NPC secrets are never returned to browser DTOs and are not written into messages, world events, or usage records by default.
+
 ### `relationships`
 
 Stores runtime relationship edges. It supports `player -> npc`, `npc -> player`, and `npc -> npc`.
@@ -188,6 +194,8 @@ Important columns:
 - `updated_at`
 
 `source_type` and `target_type` use `entity_type`: `player`, `npc`. When an endpoint is `player`, its ID is `NULL`; when it is `npc`, its ID must be present. Range checks keep `affinity` and `trust` between `-100..100`, and `fear` between `0..100`.
+
+NPC reaction proposals can suggest relationship deltas only. The application validates the target, clamps values to table ranges, and persists the resulting edge through `RelationshipRepository.upsertRelationship`.
 
 ### `inventory_items`
 

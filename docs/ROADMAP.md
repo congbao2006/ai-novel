@@ -329,6 +329,33 @@ Next step:
 
 - NPC Runtime Intelligence Foundation.
 
+## Phase 4.9: NPC Runtime Intelligence Foundation
+
+Status: completed.
+
+Goals:
+
+- Give each game session its own runtime NPC identities.
+- Keep NPC secrets and knowledge boundaries server-side.
+- Allow NPCs to react during AI gameplay turns when selected by the turn flow.
+- Reuse relationship and memory foundations without adding autonomous background simulation.
+- Keep NPC AI as a proposer, with server validation and persistence authority.
+
+Completed:
+
+- Added `NPCInitializationService` to clone non-selected story character templates into session-owned runtime NPC rows during session creation.
+- Added provider-neutral NPC domain contracts and strict `NPCReactionProposal` validation.
+- Added `NPCParticipationSelector` with deterministic name/location selection and a configurable reaction cap.
+- Added `NPCKnowledgeBuilder` to assemble NPC-specific context from own profile, own secrets, relationship edge, bounded memories, bounded recent dialogue, relevant events, current scene, and player action.
+- Added `AINPCReactionEngine` and `NPCReactionService` so NPC calls go through `AIGateway` with `purpose=npc`.
+- Persisted validated NPC state patches, relationship deltas, memory candidates, and NPC events inside the gameplay turn transaction.
+- Kept NPC memory embedding best-effort after commit.
+- Kept deterministic gameplay mode free of NPC AI calls.
+
+Next step:
+
+- Quest/Consequence Engine Expansion. This should turn validated player/NPC outcomes into more explicit quest, inventory, relationship, and world consequence rules before adding broader world/faction simulation.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

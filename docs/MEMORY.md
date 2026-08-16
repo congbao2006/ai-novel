@@ -229,6 +229,31 @@ Semantic vector search is scoped by `session_id` inside `SemanticMemoryRepositor
 
 The query joins `memory_embeddings` to `session_memories` and filters the session before returning results. The application does not perform a global vector search and then filter another user's memories afterward.
 
+## NPC Memory Context
+
+NPC runtime reactions reuse the same persistent memory foundation instead of adding a second vector store.
+
+NPC-specific memories are stored as `session_memories` rows with:
+
+- `memory_type = npc` when the fact is NPC-specific
+- `subject_type = npc`
+- `subject_id = <runtime npc id>`
+
+`NPCKnowledgeBuilder` builds a smaller context than the main turn context:
+
+- the NPC's own profile, current runtime state, goals, and secrets
+- relationship edge from that NPC to the player
+- active memories for that NPC, plus bounded relevant relationship/event memories
+- bounded recent messages that mention the NPC
+- bounded important world events the NPC plausibly observed or would know
+- the current scene/location and player action
+
+The NPC does not automatically receive another NPC's secrets, full session memory, full world prompt, auth data, emails, or cross-session memories.
+
+Semantic retrieval may supplement NPC memory selection by embedding a short query that includes NPC identity and the player action, then filtering/merging through the same session-scoped memory architecture. If semantic retrieval is disabled or unavailable, deterministic NPC memory selection continues to work.
+
+NPC memory is still context, not authority. `game_states` and validated runtime tables remain the source of truth.
+
 ## Summary Output Contract
 
 Summary refresh uses structured output:
@@ -351,7 +376,7 @@ Backfill can generate rows for the new provider/model. Old rows remain until a f
 
 ## Current Non-Goals
 
-- Autonomous NPC memory behavior.
+- Autonomous background NPC memory behavior.
 - AI-generated quest memory automation.
 - Full transcript semantic search.
 - Background worker infrastructure.

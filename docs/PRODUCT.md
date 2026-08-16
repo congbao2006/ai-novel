@@ -36,15 +36,16 @@ In scope:
 - Persistent AI usage ledger and server-side cost budget enforcement.
 - Memory foundation for AI gameplay context using current state, bounded recent messages, rolling summaries, important memories, and important world events.
 - Semantic memory retrieval for persistent memories using deterministic filtering, embeddings, importance, and recency.
+- NPC runtime intelligence foundation for session-owned NPC identity, bounded NPC knowledge context, and optional AI-driven NPC reactions during player turns.
 
 Out of scope:
 
-- Autonomous NPC AI and AI-generated quest gameplay.
+- Autonomous/background NPC turns and AI-generated quest gameplay.
 - Payment or coin system implementation.
 - User-visible token/cost dashboard.
 - Admin dashboard implementation.
 - Story creation implementation.
-- NPC behavior and runtime quest generation.
+- Autonomous NPC world simulation and runtime quest generation.
 
 ## Core Product Concepts
 
@@ -79,6 +80,12 @@ AI gameplay calls are usage-accounted server-side. The product can enforce confi
 AI gameplay context now includes persistent memory layers so long sessions do not require sending the entire transcript. Rolling summaries and important memories help the AI understand history, but they are not the source of truth and cannot override `game_states`.
 
 When semantic memory is enabled, old persistent memories can be retrieved by meaning rather than only by recency or importance. This applies only to `session_memories`, not the full message history.
+
+### NPC
+
+NPCs are session-owned runtime identities cloned from story templates when a session starts. Each runtime NPC can have its own personality, goals, secrets, relationship edges, current state, and scoped memories.
+
+NPC AI reactions are optional parts of player turns in AI gameplay mode. They do not run autonomously, do not write the database, and cannot override authoritative state. The server selects relevant NPCs, builds a knowledge-limited context for each NPC, validates the AI's proposed dialogue/intent/relationship/memory effects, and persists only allowed changes.
 
 ### Save
 

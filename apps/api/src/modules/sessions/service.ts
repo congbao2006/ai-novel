@@ -16,6 +16,7 @@ import {
 } from "../../errors.js";
 import type { CurrentUser } from "../auth/dto.js";
 import { buildInitialGameState } from "./initial-state.js";
+import type { NPCInitializationService } from "./npc-initialization-service.js";
 import {
   toGameMessageDto,
   toGameStateDto,
@@ -40,7 +41,8 @@ export class SessionService {
   constructor(
     private readonly repositories: Repositories,
     database?: DatabaseClient,
-    transactionRunner?: TransactionRunner
+    transactionRunner?: TransactionRunner,
+    private readonly npcInitializationService?: NPCInitializationService
   ) {
     this.runInTransaction =
       transactionRunner ??
@@ -78,6 +80,12 @@ export class SessionService {
       await context.repositories.gameStates.createInitialState(
         buildInitialGameState(createdSession.id, story, character)
       );
+      await this.npcInitializationService?.initializeForSession({
+        context,
+        sessionId: createdSession.id,
+        story,
+        selectedCharacterId: character.id
+      });
 
       return createdSession;
     });

@@ -13,6 +13,11 @@ import { GameplayService } from "./modules/sessions/gameplay-service.js";
 import { MemoryEmbeddingService } from "./modules/sessions/memory-embedding-service.js";
 import { MemoryContextBuilder } from "./modules/sessions/memory-context-builder.js";
 import { SemanticMemoryService } from "./modules/sessions/semantic-memory-service.js";
+import { NPCKnowledgeBuilder } from "./modules/sessions/npc-knowledge-builder.js";
+import { NPCInitializationService } from "./modules/sessions/npc-initialization-service.js";
+import { NPCParticipationSelector } from "./modules/sessions/npc-participation-selector.js";
+import { AINPCReactionEngine } from "./modules/sessions/npc-reaction-engine.js";
+import { NPCReactionService } from "./modules/sessions/npc-reaction-service.js";
 import { SessionService } from "./modules/sessions/service.js";
 import { SummaryService } from "./modules/sessions/summary-service.js";
 import { StoryService } from "./modules/stories/service.js";
@@ -30,8 +35,16 @@ const authService = repositories
     })
   : undefined;
 const storyService = repositories ? new StoryService(repositories) : undefined;
+const npcInitializationService = repositories
+  ? new NPCInitializationService()
+  : undefined;
 const sessionService = repositories
-  ? new SessionService(repositories, database)
+  ? new SessionService(
+      repositories,
+      database,
+      undefined,
+      npcInitializationService
+    )
   : undefined;
 const aiUsageLedger = repositories
   ? new RepositoryAIUsageLedger(repositories.aiUsage)
@@ -123,13 +136,32 @@ const summaryService =
         maxSourceEvents: Math.max(config.memory.contextMaxWorldEvents * 4, 20)
       }, memoryEmbeddingService)
     : undefined;
+const npcReactionService =
+  repositories && aiGateway && config.gameplay.engineMode === "ai"
+    ? new NPCReactionService(
+        repositories,
+        new NPCParticipationSelector({
+          maxReactionsPerTurn: config.gameplay.maxNpcReactionsPerTurn
+        }),
+        new NPCKnowledgeBuilder(repositories, {
+          maxMemories: config.memory.contextMaxMemories,
+          maxRecentMessages: config.memory.contextMaxRecentMessages,
+          maxWorldEvents: config.memory.contextMaxWorldEvents,
+          ...(semanticMemoryService ? { semanticMemoryService } : {})
+        }),
+        new AINPCReactionEngine(aiGateway),
+        budgetService,
+        memoryEmbeddingService
+      )
+    : undefined;
 const gameplayService = repositories
   ? new GameplayService(repositories, database, undefined, {
       engineMode: config.gameplay.engineMode,
       ...(aiGateway ? { aiGateway } : {}),
       ...(budgetService ? { budgetService } : {}),
       ...(memoryContextBuilder ? { memoryContextBuilder } : {}),
-      ...(summaryService ? { summaryService } : {})
+      ...(summaryService ? { summaryService } : {}),
+      ...(npcReactionService ? { npcReactionService } : {})
     })
   : undefined;
 const dependencies = {

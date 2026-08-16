@@ -19,8 +19,11 @@ import type {
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
+  NpcRecord,
   Repositories,
   RepositoryContext,
+  RelationshipRecord,
+  SessionMemoryRecord,
   StoryCharacterRecord,
   StoryRecord,
   WorldEventRecord
@@ -37,6 +40,7 @@ import type { AuthService } from "../src/modules/auth/service.js";
 import { BudgetService } from "../src/modules/ai/budget-service.js";
 import { GameplayService } from "../src/modules/sessions/gameplay-service.js";
 import { buildAITurnGenerationRequest } from "../src/modules/sessions/ai-turn-prompt.js";
+import type { NPCReactionService } from "../src/modules/sessions/npc-reaction-service.js";
 
 const user = {
   userId: "11111111-1111-4111-8111-111111111111",
@@ -110,6 +114,24 @@ function createFixture(options: {
   ];
   const messages: GameMessageRecord[] = [];
   const events: WorldEventRecord[] = [];
+  const npcs: NpcRecord[] = [
+    {
+      id: "npc-1",
+      sessionId: sessions[0]!.id,
+      templateCharacterId: null,
+      name: "Lý Thanh",
+      description: "A cautious ally.",
+      personality: {},
+      goals: [],
+      secrets: { privateGoal: "hide the map" },
+      currentState: { location: "Điểm khởi đầu", mood: "neutral" },
+      alive: true,
+      createdAt: new Date("2026-01-02T00:00:00Z"),
+      updatedAt: new Date("2026-01-02T00:00:00Z")
+    }
+  ];
+  const relationships: RelationshipRecord[] = [];
+  const memories: SessionMemoryRecord[] = [];
   let messageIndex = 0;
   let eventIndex = 0;
 
@@ -249,6 +271,117 @@ function createFixture(options: {
           .filter((event) => event.importance >= 3)
           .reverse();
       }
+    },
+    npcs: {
+      async listBySession(sessionId: string) {
+        return npcs.filter((npc) => npc.sessionId === sessionId);
+      },
+      async getByIdForSession(sessionId: string, npcId: string) {
+        return npcs.find((npc) => npc.sessionId === sessionId && npc.id === npcId) ?? null;
+      },
+      async updateRuntimeState(input: Parameters<Repositories["npcs"]["updateRuntimeState"]>[0]) {
+        const npc = npcs.find(
+          (item) => item.sessionId === input.sessionId && item.id === input.npcId
+        );
+
+        if (!npc) {
+          throw new Error("missing npc");
+        }
+
+        Object.assign(npc, {
+          currentState: input.currentState ?? npc.currentState,
+          updatedAt: new Date("2026-01-02T00:03:00Z")
+        });
+        return npc;
+      }
+    },
+    relationships: {
+      async getRelationshipEdge(
+        sessionId: string,
+        source: Parameters<Repositories["relationships"]["getRelationshipEdge"]>[1],
+        target: Parameters<Repositories["relationships"]["getRelationshipEdge"]>[2]
+      ) {
+        return (
+          relationships.find(
+            (relationship) =>
+              relationship.sessionId === sessionId &&
+              relationship.sourceType === source.type &&
+              relationship.sourceId === (source.id ?? null) &&
+              relationship.targetType === target.type &&
+              relationship.targetId === (target.id ?? null)
+          ) ?? null
+        );
+      },
+      async upsertRelationship(input: Parameters<Repositories["relationships"]["upsertRelationship"]>[0]) {
+        const existing = await this.getRelationshipEdge(
+          input.sessionId,
+          input.source,
+          input.target
+        );
+
+        if (existing) {
+          Object.assign(existing, {
+            affinity: input.affinity ?? existing.affinity,
+            trust: input.trust ?? existing.trust,
+            fear: input.fear ?? existing.fear,
+            metadata: input.metadata ?? existing.metadata
+          });
+          return existing;
+        }
+
+        const relationship = {
+          id: `relationship-${relationships.length + 1}`,
+          sessionId: input.sessionId,
+          sourceType: input.source.type,
+          sourceId: input.source.id ?? null,
+          targetType: input.target.type,
+          targetId: input.target.id ?? null,
+          affinity: input.affinity ?? 0,
+          trust: input.trust ?? 0,
+          fear: input.fear ?? 0,
+          metadata: input.metadata ?? {},
+          updatedAt: new Date("2026-01-02T00:03:00Z")
+        } as RelationshipRecord;
+        relationships.push(relationship);
+        return relationship;
+      }
+    },
+    memories: {
+      async createMemory(input: Parameters<Repositories["memories"]["createMemory"]>[0]) {
+        const memory = {
+          id: `memory-${memories.length + 1}`,
+          active: true,
+          createdAt: new Date("2026-01-02T00:03:00Z"),
+          updatedAt: new Date("2026-01-02T00:03:00Z"),
+          ...input
+        } as SessionMemoryRecord;
+        memories.push(memory);
+        return memory;
+      },
+      async findByKey(sessionId: string, key: string) {
+        return memories.find((memory) => memory.sessionId === sessionId && memory.key === key) ?? null;
+      },
+      async updateMemory(input: Parameters<Repositories["memories"]["updateMemory"]>[0]) {
+        const memory = memories.find(
+          (item) => item.sessionId === input.sessionId && item.id === input.memoryId
+        );
+
+        if (!memory) {
+          throw new Error("missing memory");
+        }
+
+        Object.assign(memory, {
+          content: input.content ?? memory.content,
+          importance: input.importance ?? memory.importance,
+          lastConfirmedTurn:
+            input.lastConfirmedTurn === undefined
+              ? memory.lastConfirmedTurn
+              : input.lastConfirmedTurn,
+          active: input.active ?? memory.active,
+          metadata: input.metadata ?? memory.metadata
+        });
+        return memory;
+      }
     }
   } as unknown as Repositories;
 
@@ -271,7 +404,17 @@ function createFixture(options: {
     }
   };
 
-  return { repositories, transactionRunner, sessions, states, messages, events };
+  return {
+    repositories,
+    transactionRunner,
+    sessions,
+    states,
+    messages,
+    events,
+    npcs,
+    relationships,
+    memories
+  };
 }
 
 function createFakeAuthService(authenticatedUser = user): AuthService {
@@ -498,6 +641,104 @@ describe("GameplayService", () => {
     expect(events[0]?.payload).toEqual({ source: "ai" });
     expect(sessions[0]?.turnCount).toBe(1);
     expect(states[0]?.version).toBe(2);
+  });
+
+  it("persists optional NPC reactions in the same AI turn transaction", async () => {
+    const {
+      repositories,
+      transactionRunner,
+      messages,
+      events,
+      npcs,
+      relationships,
+      memories
+    } = createFixture();
+    const aiGateway = createFakeAIGateway(async () => ({
+      requestId: "ai-request-npc-main",
+      provider: "openai",
+      model: "test-model",
+      text: "",
+      narrativeText: "Bạn gọi Lý Thanh lại gần.",
+      structuredOutput: {
+        narrative: "Bạn gọi Lý Thanh lại gần.",
+        proposedStatePatch: {},
+        proposedEvents: []
+      },
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      finishReason: "stop",
+      latencyMs: 5
+    }));
+    const npcReactionService = {
+      async generateReactions() {
+        return {
+          reactions: [
+            {
+              npcId: "npc-1",
+              statePatch: { mood: "trusting" },
+              relationshipDeltas: [
+                {
+                  targetType: "player",
+                  targetId: null,
+                  affinityDelta: 3,
+                  trustDelta: 2,
+                  fearDelta: 0
+                }
+              ],
+              memoryCandidates: [
+                {
+                  memoryType: "npc",
+                  key: "river.reply",
+                  content: "Lý Thanh chose to trust the player at the river.",
+                  importance: 4
+                }
+              ]
+            }
+          ],
+          dialogueBlocks: ["Lý Thanh: Ta tin ngươi lần này."],
+          events: [
+            {
+              eventType: "npc_reaction",
+              title: "Lý Thanh đáp lời",
+              description: "Lý Thanh đáp lại lời gọi của người chơi.",
+              importance: 3,
+              payload: { source: "npc_ai", npcId: "npc-1" }
+            }
+          ]
+        };
+      },
+      async embedMemoriesBestEffort() {}
+    } as unknown as NPCReactionService;
+    const service = new GameplayService(
+      repositories,
+      undefined,
+      transactionRunner,
+      { engineMode: "ai", aiGateway, npcReactionService }
+    );
+
+    const result = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      { action: "Tôi gọi Lý Thanh." }
+    );
+
+    expect(result.resultMessage.content).toContain("Lý Thanh: Ta tin");
+    expect(messages).toHaveLength(2);
+    expect(events[0]).toMatchObject({ eventType: "npc_reaction" });
+    expect(npcs[0]?.currentState).toMatchObject({
+      mood: "trusting",
+      lastInteractionTurn: 1
+    });
+    expect(relationships[0]).toMatchObject({
+      sourceType: "npc",
+      targetType: "player",
+      affinity: 3,
+      trust: 2
+    });
+    expect(memories[0]).toMatchObject({
+      subjectType: "npc",
+      subjectId: "npc-1",
+      key: "npc:npc-1:river.reply"
+    });
   });
 
   it("keeps database untouched when AI times out or returns invalid output", async () => {

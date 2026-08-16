@@ -48,7 +48,8 @@ const serverConfigSchema = z.object({
     semanticMinScore: z.coerce.number().min(0).max(1).default(0.72)
   }),
   gameplay: z.object({
-    engineMode: z.enum(["deterministic", "ai"]).default("deterministic")
+    engineMode: z.enum(["deterministic", "ai"]).default("deterministic"),
+    maxNpcReactionsPerTurn: z.coerce.number().int().min(0).max(5).default(2)
   })
 }).superRefine((config, context) => {
   if (config.ai.provider === "openai") {
@@ -195,7 +196,8 @@ export function getServerConfig(
       semanticMinScore: env.MEMORY_SEMANTIC_MIN_SCORE
     },
     gameplay: {
-      engineMode: env.GAMEPLAY_ENGINE_MODE
+      engineMode: env.GAMEPLAY_ENGINE_MODE,
+      maxNpcReactionsPerTurn: env.AI_MAX_NPC_REACTIONS_PER_TURN
     }
   });
 

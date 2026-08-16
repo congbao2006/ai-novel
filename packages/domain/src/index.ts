@@ -206,6 +206,99 @@ export type SummaryOutput = {
   readonly importantFacts: readonly MemoryCandidate[];
 };
 
+export const npcActionTypes = [
+  "speak",
+  "observe",
+  "move",
+  "refuse",
+  "assist",
+  "threaten",
+  "flee",
+  "attack_intent",
+  "give_item_intent",
+  "custom_narrative"
+] as const;
+export type NPCActionType = (typeof npcActionTypes)[number];
+
+export type NPCRuntimeProfile = {
+  readonly id: EntityId;
+  readonly sessionId: SessionId;
+  readonly templateCharacterId: CharacterId | null;
+  readonly name: string;
+  readonly description: string;
+  readonly personality: Record<string, unknown>;
+  readonly goals: readonly unknown[];
+  readonly secrets: Record<string, unknown>;
+  readonly currentState: Record<string, unknown>;
+  readonly alive: boolean;
+};
+
+export type NPCRelationshipContext = {
+  readonly sourceType: EntityType;
+  readonly sourceId: EntityId | null;
+  readonly targetType: EntityType;
+  readonly targetId: EntityId | null;
+  readonly affinity: number;
+  readonly trust: number;
+  readonly fear: number;
+};
+
+export type NPCKnowledgeFact = {
+  readonly memoryType: MemoryType;
+  readonly content: string;
+  readonly importance: number;
+  readonly lastConfirmedTurn: number | null;
+};
+
+export type NPCDecisionContext = {
+  readonly npc: NPCRuntimeProfile;
+  readonly currentState: Pick<GameStateSnapshot, "location" | "worldTime" | "flags" | "stateData">;
+  readonly relationshipWithPlayer: NPCRelationshipContext | null;
+  readonly memories: readonly NPCKnowledgeFact[];
+  readonly recentMessages: readonly MemoryContextMessage[];
+  readonly worldEvents: readonly MemoryContextWorldEvent[];
+  readonly playerAction: string;
+  readonly turnNumber: number;
+};
+
+export type NPCActionProposal = {
+  readonly type: NPCActionType;
+  readonly description: string;
+};
+
+export type NPCRelationshipDeltaProposal = {
+  readonly targetType: EntityType;
+  readonly targetId: EntityId | null;
+  readonly affinityDelta: number;
+  readonly trustDelta: number;
+  readonly fearDelta: number;
+};
+
+export type NPCReactionEventProposal = {
+  readonly eventType: string;
+  readonly title: string;
+  readonly description: string;
+  readonly importance: number;
+};
+
+export type NPCReactionProposal = {
+  readonly dialogue: string | null;
+  readonly action: NPCActionProposal | null;
+  readonly statePatch: Record<string, unknown>;
+  readonly relationshipDeltas: readonly NPCRelationshipDeltaProposal[];
+  readonly memoryCandidates: readonly MemoryCandidate[];
+  readonly events: readonly NPCReactionEventProposal[];
+};
+
+export type ValidatedNPCReactionProposal = {
+  readonly dialogue: string | null;
+  readonly action: NPCActionProposal | null;
+  readonly statePatch: Record<string, unknown>;
+  readonly relationshipDeltas: readonly NPCRelationshipDeltaProposal[];
+  readonly memoryCandidates: readonly MemoryCandidate[];
+  readonly events: readonly GeneratedWorldEvent[];
+};
+
 export class AITurnProposalValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -217,6 +310,13 @@ export class SummaryOutputValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "SummaryOutputValidationError";
+  }
+}
+
+export class NPCReactionProposalValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NPCReactionProposalValidationError";
   }
 }
 
@@ -236,6 +336,17 @@ export const summaryOutputLimits = {
   importantFactsMaxCount: 10,
   memoryContentMaxLength: 1000,
   memoryKeyMaxLength: 120
+} as const;
+
+export const npcReactionProposalLimits = {
+  dialogueMaxLength: 1200,
+  actionDescriptionMaxLength: 500,
+  statePatchMaxKeys: 5,
+  statePatchStringMaxLength: 240,
+  relationshipDeltaMaxCount: 5,
+  relationshipDeltaMaxAbs: 20,
+  eventMaxCount: 3,
+  memoryCandidateMaxCount: 3
 } as const;
 
 export const summaryOutputJsonSchema = {
@@ -365,6 +476,138 @@ export const aiTurnProposalJsonSchema = {
   }
 } as const;
 
+export const npcReactionProposalJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "dialogue",
+    "action",
+    "statePatch",
+    "relationshipDeltas",
+    "memoryCandidates",
+    "events"
+  ],
+  properties: {
+    dialogue: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          maxLength: npcReactionProposalLimits.dialogueMaxLength
+        },
+        { type: "null" }
+      ]
+    },
+    action: {
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["type", "description"],
+          properties: {
+            type: { type: "string", enum: npcActionTypes },
+            description: {
+              type: "string",
+              minLength: 1,
+              maxLength: npcReactionProposalLimits.actionDescriptionMaxLength
+            }
+          }
+        },
+        { type: "null" }
+      ]
+    },
+    statePatch: {
+      type: "object",
+      additionalProperties: {
+        anyOf: [
+          {
+            type: "string",
+            maxLength: npcReactionProposalLimits.statePatchStringMaxLength
+          },
+          { type: "number" },
+          { type: "boolean" },
+          { type: "null" }
+        ]
+      }
+    },
+    relationshipDeltas: {
+      type: "array",
+      maxItems: npcReactionProposalLimits.relationshipDeltaMaxCount,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "targetType",
+          "targetId",
+          "affinityDelta",
+          "trustDelta",
+          "fearDelta"
+        ],
+        properties: {
+          targetType: { type: "string", enum: entityTypes },
+          targetId: {
+            anyOf: [{ type: "string" }, { type: "null" }]
+          },
+          affinityDelta: { type: "number" },
+          trustDelta: { type: "number" },
+          fearDelta: { type: "number" }
+        }
+      }
+    },
+    memoryCandidates: {
+      type: "array",
+      maxItems: npcReactionProposalLimits.memoryCandidateMaxCount,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "content", "importance", "memoryType"],
+        properties: {
+          key: {
+            anyOf: [
+              { type: "string", maxLength: summaryOutputLimits.memoryKeyMaxLength },
+              { type: "null" }
+            ]
+          },
+          content: {
+            type: "string",
+            minLength: 1,
+            maxLength: summaryOutputLimits.memoryContentMaxLength
+          },
+          importance: { type: "integer", minimum: 1, maximum: 5 },
+          memoryType: { type: "string", enum: memoryTypes }
+        }
+      }
+    },
+    events: {
+      type: "array",
+      maxItems: npcReactionProposalLimits.eventMaxCount,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["eventType", "title", "description", "importance"],
+        properties: {
+          eventType: {
+            type: "string",
+            minLength: 1,
+            maxLength: aiTurnProposalLimits.eventTypeMaxLength
+          },
+          title: {
+            type: "string",
+            minLength: 1,
+            maxLength: aiTurnProposalLimits.eventTitleMaxLength
+          },
+          description: {
+            type: "string",
+            minLength: 1,
+            maxLength: aiTurnProposalLimits.eventDescriptionMaxLength
+          },
+          importance: { type: "integer", minimum: 1, maximum: 5 }
+        }
+      }
+    }
+  }
+} as const;
+
 const forbiddenStatePatchKeys = new Set([
   "id",
   "sessionId",
@@ -435,6 +678,40 @@ export function validateSummaryOutput(output: unknown): SummaryOutput {
   };
 }
 
+export function validateNPCReactionProposal(
+  proposal: unknown,
+  options: {
+    readonly npcId: string;
+    readonly validNpcIds?: ReadonlySet<string>;
+  }
+): ValidatedNPCReactionProposal {
+  const record = expectNPCRecord(proposal, "NPC reaction proposal");
+  assertOnlyNPCKeys(record, [
+    "dialogue",
+    "action",
+    "statePatch",
+    "relationshipDeltas",
+    "memoryCandidates",
+    "events"
+  ]);
+
+  return {
+    dialogue: validateNPCOptionalText(
+      record.dialogue,
+      "dialogue",
+      npcReactionProposalLimits.dialogueMaxLength
+    ),
+    action: validateNPCAction(record.action),
+    statePatch: validateNPCStatePatch(record.statePatch),
+    relationshipDeltas: validateNPCRelationshipDeltas(
+      record.relationshipDeltas,
+      options
+    ),
+    memoryCandidates: validateNPCMemoryCandidates(record.memoryCandidates),
+    events: validateNPCEvents(record.events)
+  };
+}
+
 function validateMemoryCandidate(value: unknown, index: number): MemoryCandidate {
   const record = expectRecordWithError(value, `importantFacts[${index}]`);
   assertOnlyKeysWithError(record, ["key", "content", "importance", "memoryType"]);
@@ -474,6 +751,237 @@ function validateMemoryCandidate(value: unknown, index: number): MemoryCandidate
     ),
     importance: importance as number
   };
+}
+
+function validateNPCAction(value: unknown): NPCActionProposal | null {
+  if (value === null) {
+    return null;
+  }
+
+  const record = expectNPCRecord(value, "action");
+  assertOnlyNPCKeys(record, ["type", "description"]);
+
+  if (!npcActionTypes.includes(record.type as NPCActionType)) {
+    throw new NPCReactionProposalValidationError("NPC action type is invalid.");
+  }
+
+  return {
+    type: record.type as NPCActionType,
+    description: validateNPCText(
+      record.description,
+      "action.description",
+      npcReactionProposalLimits.actionDescriptionMaxLength
+    )
+  };
+}
+
+function validateNPCStatePatch(value: unknown): Record<string, unknown> {
+  const record = expectNPCRecord(value, "statePatch");
+  const allowedKeys = new Set(["mood", "stance", "currentGoal", "attention", "location"]);
+
+  if (Object.keys(record).length > npcReactionProposalLimits.statePatchMaxKeys) {
+    throw new NPCReactionProposalValidationError("NPC statePatch has too many keys.");
+  }
+
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.has(key) || forbiddenStatePatchKeys.has(key) || key === "alive") {
+      throw new NPCReactionProposalValidationError(
+        `NPC cannot update statePatch key: ${key}.`
+      );
+    }
+  }
+
+  const patch: Record<string, unknown> = {};
+
+  for (const [key, nextValue] of Object.entries(record)) {
+    patch[key] = validateNPCScalarValue(nextValue, `statePatch.${key}`);
+  }
+
+  return patch;
+}
+
+function validateNPCRelationshipDeltas(
+  value: unknown,
+  options: {
+    readonly npcId: string;
+    readonly validNpcIds?: ReadonlySet<string>;
+  }
+): NPCRelationshipDeltaProposal[] {
+  if (!Array.isArray(value)) {
+    throw new NPCReactionProposalValidationError(
+      "relationshipDeltas must be an array."
+    );
+  }
+
+  if (value.length > npcReactionProposalLimits.relationshipDeltaMaxCount) {
+    throw new NPCReactionProposalValidationError(
+      "NPC proposed too many relationship deltas."
+    );
+  }
+
+  return value.map((delta, index) => {
+    const record = expectNPCRecord(delta, `relationshipDeltas[${index}]`);
+    assertOnlyNPCKeys(record, [
+      "targetType",
+      "targetId",
+      "affinityDelta",
+      "trustDelta",
+      "fearDelta"
+    ]);
+
+    if (!entityTypes.includes(record.targetType as EntityType)) {
+      throw new NPCReactionProposalValidationError(
+        `relationshipDeltas[${index}].targetType is invalid.`
+      );
+    }
+
+    const targetType = record.targetType as EntityType;
+    const targetId =
+      record.targetId === null || record.targetId === undefined
+        ? null
+        : validateNPCText(record.targetId, `relationshipDeltas[${index}].targetId`, 120);
+
+    if (targetType === "player" && targetId !== null) {
+      throw new NPCReactionProposalValidationError(
+        `relationshipDeltas[${index}] player targetId must be null.`
+      );
+    }
+
+    if (targetType === "npc") {
+      if (!targetId) {
+        throw new NPCReactionProposalValidationError(
+          `relationshipDeltas[${index}] npc targetId is required.`
+        );
+      }
+
+      if (targetId === options.npcId) {
+        throw new NPCReactionProposalValidationError(
+          "NPC cannot create a relationship delta to itself."
+        );
+      }
+
+      if (options.validNpcIds && !options.validNpcIds.has(targetId)) {
+        throw new NPCReactionProposalValidationError(
+          `relationshipDeltas[${index}] target NPC is invalid.`
+        );
+      }
+    }
+
+    return {
+      targetType,
+      targetId,
+      affinityDelta: validateNPCDeltaNumber(
+        record.affinityDelta,
+        `relationshipDeltas[${index}].affinityDelta`
+      ),
+      trustDelta: validateNPCDeltaNumber(
+        record.trustDelta,
+        `relationshipDeltas[${index}].trustDelta`
+      ),
+      fearDelta: validateNPCDeltaNumber(
+        record.fearDelta,
+        `relationshipDeltas[${index}].fearDelta`
+      )
+    };
+  });
+}
+
+function validateNPCMemoryCandidates(value: unknown): MemoryCandidate[] {
+  if (!Array.isArray(value)) {
+    throw new NPCReactionProposalValidationError("memoryCandidates must be an array.");
+  }
+
+  if (value.length > npcReactionProposalLimits.memoryCandidateMaxCount) {
+    throw new NPCReactionProposalValidationError(
+      "NPC proposed too many memory candidates."
+    );
+  }
+
+  return value.map((candidate, index) => {
+    const record = expectNPCRecord(candidate, `memoryCandidates[${index}]`);
+    assertOnlyNPCKeys(record, ["key", "content", "importance", "memoryType"]);
+
+    if (!memoryTypes.includes(record.memoryType as MemoryType)) {
+      throw new NPCReactionProposalValidationError(
+        `memoryCandidates[${index}].memoryType is invalid.`
+      );
+    }
+
+    const importance = record.importance;
+
+    if (
+      !Number.isInteger(importance) ||
+      (importance as number) < 1 ||
+      (importance as number) > 5
+    ) {
+      throw new NPCReactionProposalValidationError(
+        `memoryCandidates[${index}].importance is invalid.`
+      );
+    }
+
+    return {
+      key:
+        record.key === null || record.key === undefined
+          ? null
+          : validateMemoryKeyForNPC(record.key, `memoryCandidates[${index}].key`),
+      memoryType: record.memoryType as MemoryType,
+      content: validateNPCText(
+        record.content,
+        `memoryCandidates[${index}].content`,
+        summaryOutputLimits.memoryContentMaxLength
+      ),
+      importance: importance as number
+    };
+  });
+}
+
+function validateNPCEvents(value: unknown): GeneratedWorldEvent[] {
+  if (!Array.isArray(value)) {
+    throw new NPCReactionProposalValidationError("events must be an array.");
+  }
+
+  if (value.length > npcReactionProposalLimits.eventMaxCount) {
+    throw new NPCReactionProposalValidationError("NPC proposed too many events.");
+  }
+
+  return value.map((event, index) => {
+    const record = expectNPCRecord(event, `events[${index}]`);
+    assertOnlyNPCKeys(record, ["eventType", "title", "description", "importance"]);
+
+    const importance = record.importance;
+
+    if (
+      !Number.isInteger(importance) ||
+      (importance as number) < 1 ||
+      (importance as number) > 5
+    ) {
+      throw new NPCReactionProposalValidationError(
+        `events[${index}].importance is invalid.`
+      );
+    }
+
+    return {
+      eventType: validateNPCText(
+        record.eventType,
+        `events[${index}].eventType`,
+        aiTurnProposalLimits.eventTypeMaxLength
+      ),
+      title: validateNPCText(
+        record.title,
+        `events[${index}].title`,
+        aiTurnProposalLimits.eventTitleMaxLength
+      ),
+      description: validateNPCText(
+        record.description,
+        `events[${index}].description`,
+        aiTurnProposalLimits.eventDescriptionMaxLength
+      ),
+      importance: importance as number,
+      payload: {
+        source: "npc_ai"
+      }
+    };
+  });
 }
 
 export const maxPlayerActionLength = 2000;
@@ -795,6 +1303,70 @@ function validateText(value: unknown, path: string, maxLength: number): string {
   return text;
 }
 
+function validateNPCOptionalText(
+  value: unknown,
+  path: string,
+  maxLength: number
+): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  return validateNPCText(value, path, maxLength);
+}
+
+function validateNPCText(value: unknown, path: string, maxLength: number): string {
+  if (typeof value !== "string") {
+    throw new NPCReactionProposalValidationError(`${path} must be a string.`);
+  }
+
+  const text = value.trim();
+
+  if (!text || text.length > maxLength || hasControlCharacters(text)) {
+    throw new NPCReactionProposalValidationError(`${path} is invalid.`);
+  }
+
+  return text;
+}
+
+function validateNPCScalarValue(value: unknown, path: string): unknown {
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new NPCReactionProposalValidationError(`${path} must be finite.`);
+    }
+
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return validateNPCText(
+      value,
+      path,
+      npcReactionProposalLimits.statePatchStringMaxLength
+    );
+  }
+
+  throw new NPCReactionProposalValidationError(
+    `${path} must be a scalar JSON value.`
+  );
+}
+
+function validateNPCDeltaNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new NPCReactionProposalValidationError(`${path} must be finite.`);
+  }
+
+  if (Math.abs(value) > npcReactionProposalLimits.relationshipDeltaMaxAbs) {
+    throw new NPCReactionProposalValidationError(`${path} is too large.`);
+  }
+
+  return value;
+}
+
 function validateScalarJsonValue(value: unknown, path: string): unknown {
   if (value === null || typeof value === "boolean") {
     return value;
@@ -823,6 +1395,14 @@ function expectRecord(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function expectNPCRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NPCReactionProposalValidationError(`${path} must be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
 function assertOnlyKeys(
   value: Record<string, unknown>,
   allowedKeys: readonly string[]
@@ -832,6 +1412,21 @@ function assertOnlyKeys(
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
       throw new AITurnProposalValidationError(`Unexpected AI proposal key: ${key}.`);
+    }
+  }
+}
+
+function assertOnlyNPCKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[]
+): void {
+  const allowed = new Set(allowedKeys);
+
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new NPCReactionProposalValidationError(
+        `Unexpected NPC proposal key: ${key}.`
+      );
     }
   }
 }
@@ -916,6 +1511,16 @@ function validateMemoryKey(value: unknown, path: string): string {
 
   if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(key)) {
     throw new SummaryOutputValidationError(`${path} format is invalid.`);
+  }
+
+  return key;
+}
+
+function validateMemoryKeyForNPC(value: unknown, path: string): string {
+  const key = validateNPCText(value, path, summaryOutputLimits.memoryKeyMaxLength);
+
+  if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(key)) {
+    throw new NPCReactionProposalValidationError(`${path} format is invalid.`);
   }
 
   return key;
