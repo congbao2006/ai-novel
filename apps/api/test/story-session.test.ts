@@ -5,6 +5,8 @@ import type {
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
+  InventoryItemRecord,
+  QuestRecord,
   Repositories,
   RepositoryContext,
   StoryCharacterRecord,
@@ -105,14 +107,18 @@ function createStateRecord(input: CreateInitialStateInput): GameStateRecord {
 function createRepositoriesFixture(options: {
   readonly failStateCreate?: boolean;
   readonly ownerUserId?: string;
-} = {}): {
-  readonly repositories: Repositories;
-  readonly sessions: GameSessionRecord[];
-  readonly states: GameStateRecord[];
-} {
+	} = {}): {
+	  readonly repositories: Repositories;
+	  readonly sessions: GameSessionRecord[];
+	  readonly states: GameStateRecord[];
+	  readonly quests: QuestRecord[];
+	  readonly inventory: InventoryItemRecord[];
+	} {
   const sessions: GameSessionRecord[] = [];
   const states: GameStateRecord[] = [];
   const messages: GameMessageRecord[] = [];
+  const quests: QuestRecord[] = [];
+  const inventory: InventoryItemRecord[] = [];
 
   const repositories = {
     stories: {
@@ -178,6 +184,24 @@ function createRepositoriesFixture(options: {
       async getRecentMessages() {
         return messages;
       }
+    },
+    quests: {
+      async listSessionQuests(sessionId: string) {
+        return quests.filter((quest) => quest.sessionId === sessionId);
+      }
+    },
+    inventory: {
+      async listInventoryByOwner(
+        sessionId: string,
+        owner: Parameters<Repositories["inventory"]["listInventoryByOwner"]>[1]
+      ) {
+        return inventory.filter(
+          (item) =>
+            item.sessionId === sessionId &&
+            item.ownerType === owner.type &&
+            item.ownerId === (owner.id ?? null)
+        );
+      }
     }
   } as unknown as Repositories;
 
@@ -193,9 +217,33 @@ function createRepositoriesFixture(options: {
     );
     sessions.push(seeded);
     states.push(createStateRecord(buildInitialGameState(seeded.id, publishedStory, character)));
+    quests.push({
+      id: "550e8400-e29b-41d4-a716-446655440120",
+      sessionId: seeded.id,
+      questKey: "demo.quest",
+      title: "Demo Quest",
+      description: "A visible quest.",
+      status: "active",
+      progress: { stage: "start" },
+      createdAt: new Date("2026-01-02T00:00:00Z"),
+      updatedAt: new Date("2026-01-02T00:00:00Z")
+    });
+    inventory.push({
+      id: "550e8400-e29b-41d4-a716-446655440121",
+      sessionId: seeded.id,
+      ownerType: "player",
+      ownerId: null,
+      itemKey: "demo_item",
+      name: "Demo Item",
+      description: "A visible item.",
+      quantity: 2,
+      metadata: {},
+      createdAt: new Date("2026-01-02T00:00:00Z"),
+      updatedAt: new Date("2026-01-02T00:00:00Z")
+    });
   }
 
-  return { repositories, sessions, states };
+  return { repositories, sessions, states, quests, inventory };
 }
 
 function createTransactionRunner(
@@ -450,6 +498,47 @@ describe("story/session API routes", () => {
     expect(createResponse.statusCode).toBe(201);
     expect(getResponse.statusCode).toBe(200);
     expect(getResponse.json().currentState.location).toBe("Điểm khởi đầu");
+
+    await app.close();
+  });
+
+  it("serves protected quest and inventory DTOs for the owning user", async () => {
+    const { repositories, sessions } = createRepositoriesFixture({
+      ownerUserId: user.userId
+    });
+    const sessionService = new SessionService(
+      repositories,
+      undefined,
+      createTransactionRunner(repositories)
+    );
+    const app = await buildApp({
+      dependencies: {
+        authService: createFakeAuthService(),
+        sessionService
+      }
+    });
+    const sessionId = sessions[0]!.id;
+    const questsResponse = await app.inject({
+      method: "GET",
+      url: `/sessions/${sessionId}/quests`,
+      cookies: { ai_novel_session: "valid-token" }
+    });
+    const inventoryResponse = await app.inject({
+      method: "GET",
+      url: `/sessions/${sessionId}/inventory`,
+      cookies: { ai_novel_session: "valid-token" }
+    });
+
+    expect(questsResponse.statusCode).toBe(200);
+    expect(questsResponse.json().quests[0]).toMatchObject({
+      questKey: "demo.quest",
+      status: "active"
+    });
+    expect(inventoryResponse.statusCode).toBe(200);
+    expect(inventoryResponse.json().items[0]).toMatchObject({
+      itemKey: "demo_item",
+      quantity: 2
+    });
 
     await app.close();
   });

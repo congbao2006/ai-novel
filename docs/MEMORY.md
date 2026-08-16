@@ -254,6 +254,21 @@ Semantic retrieval may supplement NPC memory selection by embedding a short quer
 
 NPC memory is still context, not authority. `game_states` and validated runtime tables remain the source of truth.
 
+## Quest And Consequence Memories
+
+The consequence engine can create server-generated memory candidates for important quest changes:
+
+- quest activated
+- quest completed
+- quest failed
+- major objective or progress milestone
+
+These are stored as `session_memories` with `memory_type = quest` and a stable key when available. Server-generated quest memories are preferred over trying to infer durable quest facts from narrative prose.
+
+NPC-specific consequence memories can be stored with `subject_type = npc` and `subject_id = <runtime npc id>` only when the server has a validated reason that the NPC witnessed or learned the fact. There is no global broadcast to all NPCs.
+
+Embedding remains best-effort after the gameplay transaction commits. If memory embedding fails, the quest/inventory/relationship/state consequence remains committed and deterministic memory retrieval still works.
+
 ## Summary Output Contract
 
 Summary refresh uses structured output:

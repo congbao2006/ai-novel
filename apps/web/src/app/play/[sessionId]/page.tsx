@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   ApiRequestError,
   authRequest,
+  type ConsequenceSummary,
   type GameMessage,
   type GameplayTurnResponse,
   type SessionDetail
@@ -19,6 +20,7 @@ export default function PlayShellPage() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [consequences, setConsequences] = useState<ConsequenceSummary[]>([]);
 
   useEffect(() => {
     if (!params.sessionId) {
@@ -64,6 +66,7 @@ export default function PlayShellPage() {
         result.playerMessage,
         result.resultMessage
       ]);
+      setConsequences([...(result.consequences ?? [])]);
       setSession((current) =>
         current
           ? {
@@ -135,6 +138,25 @@ export default function PlayShellPage() {
                 Gameplay engine đang xử lý ở server. Streaming chưa được bật.
               </p>
             </div>
+
+            {consequences.length > 0 ? (
+              <div className="mt-6 grid gap-2">
+                {consequences.map((item, index) => (
+                  <div
+                    className="muted-panel"
+                    key={`${item.type}-${item.title}-${index}`}
+                  >
+                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
+                      {item.type}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">
+                      {item.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="mt-6 grid gap-3">
               {messages.length === 0 ? (

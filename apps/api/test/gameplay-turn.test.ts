@@ -19,7 +19,9 @@ import type {
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
+  InventoryItemRecord,
   NpcRecord,
+  QuestRecord,
   Repositories,
   RepositoryContext,
   RelationshipRecord,
@@ -28,7 +30,7 @@ import type {
   StoryRecord,
   WorldEventRecord
 } from "@ai-novel/db";
-import { StateVersionConflictError } from "@ai-novel/db";
+import { ConflictError, StateVersionConflictError } from "@ai-novel/db";
 import { buildApp } from "../src/app.js";
 import {
   BadRequestError,
@@ -132,6 +134,8 @@ function createFixture(options: {
   ];
   const relationships: RelationshipRecord[] = [];
   const memories: SessionMemoryRecord[] = [];
+  const quests: QuestRecord[] = [];
+  const inventory: InventoryItemRecord[] = [];
   let messageIndex = 0;
   let eventIndex = 0;
 
@@ -346,6 +350,119 @@ function createFixture(options: {
         return relationship;
       }
     },
+    inventory: {
+      async listInventoryByOwner(
+        sessionId: string,
+        owner: Parameters<Repositories["inventory"]["listInventoryByOwner"]>[1]
+      ) {
+        return inventory.filter(
+          (item) =>
+            item.sessionId === sessionId &&
+            item.ownerType === owner.type &&
+            item.ownerId === (owner.id ?? null)
+        );
+      },
+      async addOrUpdateQuantity(input: Parameters<Repositories["inventory"]["addOrUpdateQuantity"]>[0]) {
+        const existing = inventory.find(
+          (item) =>
+            item.sessionId === input.sessionId &&
+            item.ownerType === input.ownerType &&
+            item.ownerId === (input.ownerId ?? null) &&
+            item.itemKey === input.itemKey
+        );
+
+        if (existing) {
+          Object.assign(existing, {
+            quantity: existing.quantity + input.quantity,
+            name: input.name,
+            description: input.description ?? existing.description,
+            metadata: input.metadata ?? existing.metadata
+          });
+          return existing;
+        }
+
+        const item = {
+          id: `inventory-${inventory.length + 1}`,
+          sessionId: input.sessionId,
+          ownerType: input.ownerType,
+          ownerId: input.ownerId ?? null,
+          itemKey: input.itemKey,
+          name: input.name,
+          description: input.description ?? null,
+          quantity: input.quantity,
+          metadata: input.metadata ?? {},
+          createdAt: new Date("2026-01-02T00:03:00Z"),
+          updatedAt: new Date("2026-01-02T00:03:00Z")
+        } as InventoryItemRecord;
+        inventory.push(item);
+        return item;
+      },
+      async changeQuantity(input: Parameters<Repositories["inventory"]["changeQuantity"]>[0]) {
+        const existing = inventory.find(
+          (item) =>
+            item.sessionId === input.sessionId &&
+            item.ownerType === input.owner.type &&
+            item.ownerId === (input.owner.id ?? null) &&
+            item.itemKey === input.itemKey
+        );
+
+        if (!existing) {
+          throw new ConflictError("Inventory item was not found.");
+        }
+
+        const nextQuantity = existing.quantity + input.delta;
+
+        if (nextQuantity < 0) {
+          throw new ConflictError("Inventory quantity cannot become negative.");
+        }
+
+        if (nextQuantity === 0) {
+          inventory.splice(inventory.indexOf(existing), 1);
+          return null;
+        }
+
+        Object.assign(existing, { quantity: nextQuantity });
+        return existing;
+      }
+    },
+    quests: {
+      async listSessionQuests(sessionId: string) {
+        return quests.filter((quest) => quest.sessionId === sessionId);
+      },
+      async getByQuestKey(sessionId: string, questKey: string) {
+        return (
+          quests.find(
+            (quest) => quest.sessionId === sessionId && quest.questKey === questKey
+          ) ?? null
+        );
+      },
+      async create(input: Parameters<Repositories["quests"]["create"]>[0]) {
+        const quest = {
+          id: `quest-${quests.length + 1}`,
+          createdAt: new Date("2026-01-02T00:03:00Z"),
+          updatedAt: new Date("2026-01-02T00:03:00Z"),
+          ...input
+        } as QuestRecord;
+        quests.push(quest);
+        return quest;
+      },
+      async updateStatusOrProgress(input: Parameters<Repositories["quests"]["updateStatusOrProgress"]>[0]) {
+        const quest = quests.find(
+          (item) => item.sessionId === input.sessionId && item.questKey === input.questKey
+        );
+
+        if (!quest) {
+          throw new Error("Quest was not found.");
+        }
+
+        Object.assign(quest, {
+          status: input.status ?? quest.status,
+          progress: input.progress ?? quest.progress,
+          updatedAt: new Date("2026-01-02T00:04:00Z")
+        });
+        return quest;
+      }
+    },
     memories: {
       async createMemory(input: Parameters<Repositories["memories"]["createMemory"]>[0]) {
         const memory = {
@@ -392,6 +509,11 @@ function createFixture(options: {
     const stateSnapshot = states.map((state) => ({ ...state }));
     const messageSnapshot = [...messages];
     const eventSnapshot = [...events];
+    const questSnapshot = quests.map((quest) => ({ ...quest }));
+    const inventorySnapshot = inventory.map((item) => ({ ...item }));
+    const relationshipSnapshot = relationships.map((relationship) => ({ ...relationship }));
+    const memorySnapshot = memories.map((memory) => ({ ...memory }));
+    const npcSnapshot = npcs.map((npc) => ({ ...npc }));
 
     try {
       return await work({ db: {} as RepositoryContext["db"], repositories });
@@ -400,6 +522,11 @@ function createFixture(options: {
       states.splice(0, states.length, ...stateSnapshot);
       messages.splice(0, messages.length, ...messageSnapshot);
       events.splice(0, events.length, ...eventSnapshot);
+      quests.splice(0, quests.length, ...questSnapshot);
+      inventory.splice(0, inventory.length, ...inventorySnapshot);
+      relationships.splice(0, relationships.length, ...relationshipSnapshot);
+      memories.splice(0, memories.length, ...memorySnapshot);
+      npcs.splice(0, npcs.length, ...npcSnapshot);
       throw error;
     }
   };
@@ -413,7 +540,9 @@ function createFixture(options: {
     events,
     npcs,
     relationships,
-    memories
+    memories,
+    quests,
+    inventory
   };
 }
 
@@ -551,6 +680,71 @@ describe("GameplayService", () => {
       eventType: "movement",
       turnNumber: 1
     });
+  });
+
+  it("activates and completes quests through the consequence engine", async () => {
+    const { repositories, transactionRunner, quests, events, memories } =
+      createFixture();
+    const service = new GameplayService(repositories, undefined, transactionRunner);
+
+    const activated = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      { action: "nhận nhiệm vụ cứu Lý Thanh" }
+    );
+
+    expect(quests[0]).toMatchObject({
+      questKey: "cuu-ly-thanh",
+      status: "active"
+    });
+    expect(activated.consequences?.[0]).toMatchObject({
+      type: "quest",
+      title: "Nhiệm vụ mới"
+    });
+    expect(events.some((event) => event.eventType === "quest_activate")).toBe(true);
+    expect(memories.some((memory) => memory.memoryType === "quest")).toBe(true);
+
+    const completed = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      { action: "hoàn thành nhiệm vụ cứu Lý Thanh" }
+    );
+
+    expect(quests[0]?.status).toBe("completed");
+    expect(completed.consequences?.[0]).toMatchObject({
+      title: "Nhiệm vụ hoàn thành"
+    });
+  });
+
+  it("adds inventory items and rolls back the turn on underflow", async () => {
+    const { repositories, transactionRunner, inventory, messages, states } =
+      createFixture();
+    const service = new GameplayService(repositories, undefined, transactionRunner);
+
+    const added = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      { action: "nhận vật phẩm chìa khóa đồng" }
+    );
+
+    expect(inventory[0]).toMatchObject({
+      itemKey: "chia-khoa-dong",
+      quantity: 1
+    });
+    expect(added.consequences?.[0]).toMatchObject({
+      type: "inventory",
+      title: "Nhận vật phẩm"
+    });
+
+    await expect(
+      service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+        action: "mất vật phẩm ngọc rồng"
+      })
+    ).rejects.toBeInstanceOf(ConflictApplicationError);
+
+    expect(messages).toHaveLength(2);
+    expect(states[0]?.version).toBe(2);
+    expect(inventory).toHaveLength(1);
   });
 
   it("keeps look and fallback actions from mutating location or creating events", async () => {

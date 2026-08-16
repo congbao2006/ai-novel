@@ -10,10 +10,15 @@ import {
   runDeterministicTurn,
   sessionStatuses,
   storyStatuses,
+  assertQuestStatusTransition,
+  buildDeterministicConsequenceProposals,
+  expandConsequenceChain,
+  validateConsequenceProposal,
   validateSummaryOutput,
   validateAITurnProposal,
   validateNPCReactionProposal,
   AITurnProposalValidationError,
+  ConsequenceValidationError,
   NPCReactionProposalValidationError,
   SummaryOutputValidationError
 } from "../src/index.js";
@@ -394,5 +399,70 @@ describe("domain package", () => {
         { npcId: "npc-1" }
       )
     ).toThrow(NPCReactionProposalValidationError);
+  });
+
+  it("validates consequence proposals and quest lifecycle rules", () => {
+    const consequence = validateConsequenceProposal({
+      type: "quest_activate",
+      source: "deterministic",
+      questKey: "river.rescue",
+      title: "Cứu người ở bến sông",
+      description: "Giúp người bị truy đuổi ở bến sông.",
+      progress: {
+        counters: { rescued: 0 },
+        stage: "start"
+      }
+    });
+
+    expect(consequence).toMatchObject({
+      type: "quest_activate",
+      status: "active",
+      questKey: "river.rescue"
+    });
+    expect(() => assertQuestStatusTransition("inactive", "active")).not.toThrow();
+    expect(() => assertQuestStatusTransition("active", "completed")).not.toThrow();
+    expect(() => assertQuestStatusTransition("completed", "active")).toThrow(
+      ConsequenceValidationError
+    );
+  });
+
+  it("rejects unsafe consequence proposals", () => {
+    expect(() =>
+      validateConsequenceProposal({
+        type: "relationship_delta",
+        source: "main_ai",
+        sourceEntity: { type: "npc", id: "npc-1" },
+        targetEntity: { type: "player", id: null },
+        affinityDelta: 100,
+        trustDelta: 0,
+        fearDelta: 0
+      })
+    ).toThrow(ConsequenceValidationError);
+
+    expect(() =>
+      validateConsequenceProposal({
+        type: "flag_set",
+        source: "main_ai",
+        flagKey: "auth.admin",
+        value: true
+      })
+    ).toThrow(ConsequenceValidationError);
+  });
+
+  it("builds deterministic consequences and bounded rule-chain output", () => {
+    const proposals = buildDeterministicConsequenceProposals(
+      "nhận nhiệm vụ cứu Lý Thanh"
+    );
+    const consequences = expandConsequenceChain({
+      consequences: proposals.map(validateConsequenceProposal),
+      maxDepth: 2
+    });
+
+    expect(consequences[0]).toMatchObject({
+      type: "quest_activate",
+      questKey: "cuu-ly-thanh"
+    });
+    expect(consequences.some((item) => item.type === "world_event")).toBe(true);
+    expect(consequences.length).toBeLessThanOrEqual(20);
   });
 });

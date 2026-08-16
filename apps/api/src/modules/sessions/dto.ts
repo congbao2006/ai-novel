@@ -2,10 +2,13 @@ import type {
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
+  InventoryItemRecord,
+  QuestRecord,
   StoryCharacterRecord,
   StoryRecord,
   WorldEventRecord
 } from "@ai-novel/db";
+import type { ConsequenceSummary } from "./consequence-engine.js";
 import { toStoryCharacterDto, toStoryListItemDto } from "../stories/dto.js";
 
 export type SessionStoryDto = ReturnType<typeof toStoryListItemDto>;
@@ -51,6 +54,23 @@ export type WorldEventDto = {
   readonly createdAt: string;
 };
 
+export type QuestDto = {
+  readonly questKey: string;
+  readonly title: string;
+  readonly description: string;
+  readonly status: string;
+  readonly progress: Record<string, unknown>;
+  readonly updatedAt: string;
+};
+
+export type InventoryItemDto = {
+  readonly itemKey: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly quantity: number;
+  readonly metadata: Record<string, unknown>;
+};
+
 export type SessionDetailDto = SessionListItemDto & {
   readonly currentState: GameStateDto | null;
   readonly recentMessages: GameMessageDto[];
@@ -70,6 +90,15 @@ export type GameplayTurnResponseDto = {
   readonly resultMessage: GameMessageDto;
   readonly state: GameStateDto;
   readonly events: WorldEventDto[];
+  readonly consequences?: readonly ConsequenceSummary[];
+};
+
+export type QuestListResponseDto = {
+  readonly quests: QuestDto[];
+};
+
+export type InventoryResponseDto = {
+  readonly items: InventoryItemDto[];
 };
 
 export function toSessionListItemDto(input: {
@@ -123,6 +152,27 @@ export function toWorldEventDto(event: WorldEventRecord): WorldEventDto {
     payload: copyJsonObject(event.payload),
     turnNumber: event.turnNumber,
     createdAt: event.createdAt.toISOString()
+  };
+}
+
+export function toQuestDto(quest: QuestRecord): QuestDto {
+  return {
+    questKey: quest.questKey,
+    title: quest.title,
+    description: quest.description,
+    status: quest.status,
+    progress: copyJsonObject(quest.progress),
+    updatedAt: quest.updatedAt.toISOString()
+  };
+}
+
+export function toInventoryItemDto(item: InventoryItemRecord): InventoryItemDto {
+  return {
+    itemKey: item.itemKey,
+    name: item.name,
+    description: item.description ?? null,
+    quantity: item.quantity,
+    metadata: copyJsonObject(item.metadata)
   };
 }
 

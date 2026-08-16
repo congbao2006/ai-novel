@@ -67,6 +67,12 @@ export type WorldEvent = {
   readonly createdAt: string;
 };
 
+export type ConsequenceSummary = {
+  readonly type: "quest" | "inventory" | "relationship" | "world" | "state";
+  readonly title: string;
+  readonly description: string;
+};
+
 export type SessionDetail = SessionListItem & {
   readonly currentState: GameState | null;
   readonly recentMessages: GameMessage[];
@@ -78,6 +84,7 @@ export type GameplayTurnResponse = {
   readonly resultMessage: GameMessage;
   readonly state: GameState;
   readonly events: WorldEvent[];
+  readonly consequences?: readonly ConsequenceSummary[];
 };
 
 export class ApiRequestError extends Error {

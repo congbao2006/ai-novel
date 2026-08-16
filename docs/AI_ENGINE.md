@@ -79,8 +79,10 @@ Player action
   -> AIGateway records success/failure usage outside gameplay transaction
   -> provider returns AITurnProposal as structured output
   -> domain validator normalizes allowed proposal fields
+  -> optional NPC reaction proposals are collected under the NPC knowledge boundary
+  -> ConsequenceEngine creates a server-owned TurnPersistencePlan
   -> GameplayService re-checks game_states.version
-  -> one transaction persists messages, state patch, events, turn count, lastPlayedAt
+  -> one transaction persists messages, state patch, quests, inventory, relationships, NPC state, memories, events, turn count, lastPlayedAt
 ```
 
 The OpenAI call happens before the gameplay PostgreSQL transaction starts. This avoids holding a gameplay transaction open while waiting on the network. If another turn changes `game_states.version` while the AI call is running, the service returns HTTP 409 and discards the stale proposal.
@@ -151,6 +153,8 @@ The schema is strict:
 
 The structured proposal remains untrusted until domain validators accept it.
 
+Quest and inventory consequences do not require changing the `AITurnProposal` contract. The main AI still proposes narrative, safe state patch, and events. The server combines that with deterministic command intents and NPC reaction proposals, then passes everything through the consequence pipeline.
+
 ## Server Validation Policy
 
 AI is a proposer, not the authority.
@@ -166,6 +170,35 @@ Allowed proposal effects are intentionally narrow:
 Rejected fields include IDs, `userId`, `sessionId`, `version`, `turnCount`, auth fields, timestamps, unknown state keys, non-finite numbers, nested arbitrary JSON, and oversized text.
 
 Narrative is user-facing prose only. It is not the source of truth for state. If narrative says a stat changed but the validated structured patch does not include that change, the stat does not change.
+
+## Consequence Proposal Pipeline
+
+AI and NPC systems can suggest effects, but only the server consequence engine decides what is persisted:
+
+```text
+Player action
+  -> main AI proposal and/or deterministic command
+  -> optional NPCReactionProposal
+  -> server validators
+  -> ConsequenceEngine
+  -> bounded RuleRegistry
+  -> TurnPersistencePlan
+  -> gameplay transaction
+```
+
+Supported consequence families are intentionally narrow:
+
+- quest activate/progress/complete/fail
+- relationship delta
+- inventory add/remove
+- safe flag/state/reputation updates
+- NPC-owned state updates
+- world event
+- custom safe server-recognized effect
+
+The engine rejects arbitrary operation objects, direct IDs/timestamps/session ownership from AI, invalid quest transitions, inventory underflow, unsafe state namespaces, oversized progress JSON, unknown NPC action targets, and relationship deltas outside per-turn bounds.
+
+Rule chaining is deterministic and capped. Current rules derive generic events and memory candidates for quest changes, inventory acquisition, and relationship threshold crossings. The rule registry does not call an LLM.
 
 ## Prompt, Context, And Memory Strategy
 

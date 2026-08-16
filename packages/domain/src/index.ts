@@ -299,6 +299,78 @@ export type ValidatedNPCReactionProposal = {
   readonly events: readonly GeneratedWorldEvent[];
 };
 
+export const consequenceTypes = [
+  "quest_activate",
+  "quest_progress",
+  "quest_complete",
+  "quest_fail",
+  "relationship_delta",
+  "inventory_add",
+  "inventory_remove",
+  "flag_set",
+  "state_value_change",
+  "npc_state_change",
+  "world_event",
+  "reputation_delta",
+  "custom_safe"
+] as const;
+export type ConsequenceType = (typeof consequenceTypes)[number];
+
+export type QuestLifecycleStatus = QuestStatus;
+
+export type EntityReference = {
+  readonly type: EntityType;
+  readonly id: EntityId | null;
+};
+
+export type ConsequenceProposal = {
+  readonly type: ConsequenceType;
+  readonly source: "deterministic" | "main_ai" | "npc_ai" | "rule";
+  readonly questKey?: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly status?: QuestLifecycleStatus;
+  readonly progress?: Record<string, unknown>;
+  readonly sourceEntity?: EntityReference;
+  readonly targetEntity?: EntityReference;
+  readonly affinityDelta?: number;
+  readonly trustDelta?: number;
+  readonly fearDelta?: number;
+  readonly owner?: EntityReference;
+  readonly itemKey?: string;
+  readonly itemName?: string;
+  readonly quantity?: number;
+  readonly metadata?: Record<string, unknown>;
+  readonly flagKey?: string;
+  readonly stateKey?: string;
+  readonly reputationKey?: string;
+  readonly value?: unknown;
+  readonly delta?: number;
+  readonly npcId?: string;
+  readonly statePatch?: Record<string, unknown>;
+  readonly eventType?: string;
+  readonly importance?: number;
+};
+
+export type ValidatedConsequence = ConsequenceProposal & {
+  readonly type: ConsequenceType;
+  readonly source: "deterministic" | "main_ai" | "npc_ai" | "rule";
+};
+
+export type ConsequenceContext = {
+  readonly sessionId: SessionId;
+  readonly turnNumber: number;
+  readonly maxDepth: number;
+};
+
+export type TurnPersistencePlan = {
+  readonly statePatch: StatePatch;
+  readonly consequences: readonly ValidatedConsequence[];
+  readonly events: readonly GeneratedWorldEvent[];
+  readonly memories: readonly MemoryCandidate[];
+  readonly assistantNarrative: string;
+};
+
 export class AITurnProposalValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -317,6 +389,13 @@ export class NPCReactionProposalValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NPCReactionProposalValidationError";
+  }
+}
+
+export class ConsequenceValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConsequenceValidationError";
   }
 }
 
@@ -347,6 +426,20 @@ export const npcReactionProposalLimits = {
   relationshipDeltaMaxAbs: 20,
   eventMaxCount: 3,
   memoryCandidateMaxCount: 3
+} as const;
+
+export const consequenceLimits = {
+  questKeyMaxLength: 120,
+  titleMaxLength: 160,
+  descriptionMaxLength: 1000,
+  maxProgressKeys: 20,
+  maxProgressDepth: 3,
+  maxProgressStringLength: 300,
+  maxDeltaAbs: 20,
+  maxInventoryQuantity: 999,
+  maxConsequencesPerTurn: 20,
+  maxChainDepth: 3,
+  stateKeyMaxLength: 80
 } as const;
 
 export const summaryOutputJsonSchema = {
@@ -710,6 +803,280 @@ export function validateNPCReactionProposal(
     memoryCandidates: validateNPCMemoryCandidates(record.memoryCandidates),
     events: validateNPCEvents(record.events)
   };
+}
+
+export function validateConsequenceProposal(
+  proposal: unknown
+): ValidatedConsequence {
+  const record = expectConsequenceRecord(proposal, "consequence");
+
+  if (!consequenceTypes.includes(record.type as ConsequenceType)) {
+    throw new ConsequenceValidationError("Consequence type is invalid.");
+  }
+
+  const source = validateConsequenceSource(record.source);
+  const base = { type: record.type as ConsequenceType, source };
+
+  switch (base.type) {
+    case "quest_activate":
+      return {
+        ...base,
+        questKey: validateQuestKey(record.questKey, "questKey"),
+        title: validateConsequenceText(
+          record.title,
+          "title",
+          consequenceLimits.titleMaxLength
+        ),
+        description: validateConsequenceText(
+          record.description,
+          "description",
+          consequenceLimits.descriptionMaxLength
+        ),
+        status: "active",
+        progress: validateQuestProgress(record.progress ?? {})
+      };
+    case "quest_progress":
+      return {
+        ...base,
+        questKey: validateQuestKey(record.questKey, "questKey"),
+        progress: validateQuestProgress(record.progress ?? {})
+      };
+    case "quest_complete":
+    case "quest_fail":
+      return {
+        ...base,
+        questKey: validateQuestKey(record.questKey, "questKey"),
+        status: base.type === "quest_complete" ? "completed" : "failed",
+        ...(record.progress === undefined
+          ? {}
+          : { progress: validateQuestProgress(record.progress) })
+      };
+    case "relationship_delta":
+      return {
+        ...base,
+        sourceEntity: validateEntityReference(record.sourceEntity, "sourceEntity"),
+        targetEntity: validateEntityReference(record.targetEntity, "targetEntity"),
+        affinityDelta: validateConsequenceDelta(record.affinityDelta, "affinityDelta"),
+        trustDelta: validateConsequenceDelta(record.trustDelta, "trustDelta"),
+        fearDelta: validateConsequenceDelta(record.fearDelta, "fearDelta")
+      };
+    case "inventory_add":
+    case "inventory_remove":
+      return {
+        ...base,
+        owner: validateEntityReference(record.owner, "owner"),
+        itemKey: validateSafeKey(record.itemKey, "itemKey"),
+        ...(base.type === "inventory_add"
+          ? {
+              itemName: validateConsequenceText(
+                record.itemName,
+                "itemName",
+                consequenceLimits.titleMaxLength
+              )
+            }
+          : {}),
+        ...(record.description === undefined
+          ? {}
+          : {
+              description: validateConsequenceText(
+                record.description,
+                "description",
+                consequenceLimits.descriptionMaxLength
+              )
+            }),
+        quantity: validateInventoryQuantity(record.quantity),
+        metadata:
+          record.metadata === undefined
+            ? {}
+            : validateQuestProgress(record.metadata)
+      };
+    case "flag_set":
+      return {
+        ...base,
+        flagKey: validateSafeNamespaceKey(record.flagKey, "flagKey", "consequence"),
+        value: validateConsequenceScalar(record.value, "value")
+      };
+    case "state_value_change":
+      return {
+        ...base,
+        stateKey: validateSafeNamespaceKey(record.stateKey, "stateKey", "consequence"),
+        value: validateConsequenceScalar(record.value, "value")
+      };
+    case "reputation_delta":
+      return {
+        ...base,
+        reputationKey: validateSafeNamespaceKey(
+          record.reputationKey,
+          "reputationKey",
+          "reputation"
+        ),
+        delta: validateConsequenceDelta(record.delta, "delta")
+      };
+    case "npc_state_change":
+      return {
+        ...base,
+        npcId: validateConsequenceText(record.npcId, "npcId", 120),
+        statePatch: validateNPCStatePatch(record.statePatch ?? {})
+      };
+    case "world_event":
+    case "custom_safe":
+      return {
+        ...base,
+        eventType: validateConsequenceText(
+          record.eventType ?? "custom_safe",
+          "eventType",
+          aiTurnProposalLimits.eventTypeMaxLength
+        ),
+        title: validateConsequenceText(
+          record.title,
+          "title",
+          aiTurnProposalLimits.eventTitleMaxLength
+        ),
+        description: validateConsequenceText(
+          record.description,
+          "description",
+          aiTurnProposalLimits.eventDescriptionMaxLength
+        ),
+        importance: validateImportanceValue(record.importance),
+        metadata:
+          record.metadata === undefined
+            ? {}
+            : validateQuestProgress(record.metadata)
+      };
+  }
+}
+
+export function assertQuestStatusTransition(
+  currentStatus: QuestStatus | null,
+  nextStatus: QuestStatus
+): void {
+  if (currentStatus === null) {
+    if (nextStatus !== "active" && nextStatus !== "inactive") {
+      throw new ConsequenceValidationError(
+        "New quests must start inactive or active."
+      );
+    }
+    return;
+  }
+
+  const allowed =
+    (currentStatus === "inactive" && nextStatus === "active") ||
+    (currentStatus === "active" &&
+      (nextStatus === "completed" || nextStatus === "failed" || nextStatus === "active"));
+
+  if (!allowed && currentStatus !== nextStatus) {
+    throw new ConsequenceValidationError(
+      `Invalid quest transition: ${currentStatus} -> ${nextStatus}.`
+    );
+  }
+}
+
+export function expandConsequenceChain(input: {
+  readonly consequences: readonly ValidatedConsequence[];
+  readonly maxDepth?: number;
+}): ValidatedConsequence[] {
+  const maxDepth = input.maxDepth ?? consequenceLimits.maxChainDepth;
+  const results: ValidatedConsequence[] = [...input.consequences];
+  let frontier = [...input.consequences];
+  let depth = 0;
+
+  while (frontier.length > 0 && depth < maxDepth) {
+    const next = frontier.flatMap((consequence) =>
+      deriveRuleConsequences(consequence)
+    );
+
+    if (next.length === 0) {
+      break;
+    }
+
+    const deduped = next.filter(
+      (candidate) => !results.some((existing) => consequenceIdentity(existing) === consequenceIdentity(candidate))
+    );
+    results.push(...deduped);
+    frontier = deduped;
+    depth += 1;
+  }
+
+  if (results.length > consequenceLimits.maxConsequencesPerTurn) {
+    throw new ConsequenceValidationError("Too many consequences for one turn.");
+  }
+
+  return results;
+}
+
+export function buildDeterministicConsequenceProposals(
+  action: string
+): ConsequenceProposal[] {
+  const normalized = action.trim().replace(/\s+/g, " ");
+  const lower = normalizeConsequenceText(normalized);
+  const questActivate = /^(?:nhan nhiem vu|quest)\s+(.+)$/i.exec(lower);
+  const questComplete = /^(?:hoan thanh nhiem vu|complete quest)\s+(.+)$/i.exec(lower);
+  const questFail = /^(?:that bai nhiem vu|fail quest)\s+(.+)$/i.exec(lower);
+  const inventoryAdd = /^(?:nhan vat pham|nhan item|get item)\s+(.+)$/i.exec(lower);
+  const inventoryRemove = /^(?:mat vat pham|bo vat pham|remove item|drop item)\s+(.+)$/i.exec(lower);
+
+  if (questActivate?.[1]) {
+    const title = titleFromKey(questActivate[1]);
+    return [
+      {
+        type: "quest_activate",
+        source: "deterministic",
+        questKey: safeKeyFromText(questActivate[1]),
+        title,
+        description: `Nhiệm vụ được kích hoạt: ${title}.`,
+        progress: {}
+      }
+    ];
+  }
+
+  if (questComplete?.[1]) {
+    return [
+      {
+        type: "quest_complete",
+        source: "deterministic",
+        questKey: safeKeyFromText(questComplete[1])
+      }
+    ];
+  }
+
+  if (questFail?.[1]) {
+    return [
+      {
+        type: "quest_fail",
+        source: "deterministic",
+        questKey: safeKeyFromText(questFail[1])
+      }
+    ];
+  }
+
+  if (inventoryAdd?.[1]) {
+    const title = titleFromKey(inventoryAdd[1]);
+    return [
+      {
+        type: "inventory_add",
+        source: "deterministic",
+        owner: { type: "player", id: null },
+        itemKey: safeKeyFromText(inventoryAdd[1]),
+        itemName: title,
+        quantity: 1,
+        metadata: { source: "deterministic" }
+      }
+    ];
+  }
+
+  if (inventoryRemove?.[1]) {
+    return [
+      {
+        type: "inventory_remove",
+        source: "deterministic",
+        owner: { type: "player", id: null },
+        itemKey: safeKeyFromText(inventoryRemove[1]),
+        quantity: 1
+      }
+    ];
+  }
+
+  return [];
 }
 
 function validateMemoryCandidate(value: unknown, index: number): MemoryCandidate {
@@ -1524,6 +1891,285 @@ function validateMemoryKeyForNPC(value: unknown, path: string): string {
   }
 
   return key;
+}
+
+function validateConsequenceSource(value: unknown): ValidatedConsequence["source"] {
+  if (
+    value === "deterministic" ||
+    value === "main_ai" ||
+    value === "npc_ai" ||
+    value === "rule"
+  ) {
+    return value;
+  }
+
+  throw new ConsequenceValidationError("Consequence source is invalid.");
+}
+
+function validateQuestKey(value: unknown, path: string): string {
+  return validateSafeKey(value, path);
+}
+
+function validateSafeKey(value: unknown, path: string): string {
+  const key = validateConsequenceText(
+    value,
+    path,
+    consequenceLimits.questKeyMaxLength
+  );
+
+  if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(key)) {
+    throw new ConsequenceValidationError(`${path} format is invalid.`);
+  }
+
+  return key;
+}
+
+function validateSafeNamespaceKey(
+  value: unknown,
+  path: string,
+  namespace: string
+): string {
+  const key = validateSafeKey(value, path);
+
+  if (!key.startsWith(`${namespace}.`)) {
+    throw new ConsequenceValidationError(
+      `${path} must be in the ${namespace} namespace.`
+    );
+  }
+
+  return key;
+}
+
+function validateQuestProgress(value: unknown): Record<string, unknown> {
+  const record = expectConsequenceRecord(value, "progress");
+  validateBoundedObject(record, "progress", 0);
+  return JSON.parse(JSON.stringify(record)) as Record<string, unknown>;
+}
+
+function validateBoundedObject(
+  record: Record<string, unknown>,
+  path: string,
+  depth: number
+): void {
+  if (Object.keys(record).length > consequenceLimits.maxProgressKeys) {
+    throw new ConsequenceValidationError(`${path} has too many keys.`);
+  }
+
+  if (depth > consequenceLimits.maxProgressDepth) {
+    throw new ConsequenceValidationError(`${path} is too deeply nested.`);
+  }
+
+  for (const [key, value] of Object.entries(record)) {
+    if (!/^[a-zA-Z0-9_.:-]+$/.test(key)) {
+      throw new ConsequenceValidationError(`${path}.${key} key is invalid.`);
+    }
+
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      validateBoundedObject(value as Record<string, unknown>, `${path}.${key}`, depth + 1);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      throw new ConsequenceValidationError(`${path}.${key} arrays are not allowed.`);
+    }
+
+    validateConsequenceScalar(value, `${path}.${key}`);
+  }
+}
+
+function validateConsequenceScalar(value: unknown, path: string): unknown {
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || Math.abs(value) > 1_000_000) {
+      throw new ConsequenceValidationError(`${path} number is invalid.`);
+    }
+
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return validateConsequenceText(
+      value,
+      path,
+      consequenceLimits.maxProgressStringLength
+    );
+  }
+
+  throw new ConsequenceValidationError(`${path} must be scalar JSON.`);
+}
+
+function validateEntityReference(value: unknown, path: string): EntityReference {
+  const record = expectConsequenceRecord(value, path);
+
+  if (!entityTypes.includes(record.type as EntityType)) {
+    throw new ConsequenceValidationError(`${path}.type is invalid.`);
+  }
+
+  const type = record.type as EntityType;
+  const id =
+    record.id === null || record.id === undefined
+      ? null
+      : validateConsequenceText(record.id, `${path}.id`, 120);
+
+  if (type === "player" && id !== null) {
+    throw new ConsequenceValidationError(`${path}.id must be null for player.`);
+  }
+
+  if (type === "npc" && !id) {
+    throw new ConsequenceValidationError(`${path}.id is required for npc.`);
+  }
+
+  return { type, id };
+}
+
+function validateConsequenceDelta(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ConsequenceValidationError(`${path} must be finite.`);
+  }
+
+  if (Math.abs(value) > consequenceLimits.maxDeltaAbs) {
+    throw new ConsequenceValidationError(`${path} is too large.`);
+  }
+
+  return Math.trunc(value);
+}
+
+function validateInventoryQuantity(value: unknown): number {
+  if (
+    !Number.isInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > consequenceLimits.maxInventoryQuantity
+  ) {
+    throw new ConsequenceValidationError("Inventory quantity is invalid.");
+  }
+
+  return value as number;
+}
+
+function validateImportanceValue(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 5) {
+    throw new ConsequenceValidationError("Consequence importance is invalid.");
+  }
+
+  return value as number;
+}
+
+function validateConsequenceText(
+  value: unknown,
+  path: string,
+  maxLength: number
+): string {
+  if (typeof value !== "string") {
+    throw new ConsequenceValidationError(`${path} must be a string.`);
+  }
+
+  const text = value.trim();
+
+  if (!text || text.length > maxLength || hasControlCharacters(text)) {
+    throw new ConsequenceValidationError(`${path} is invalid.`);
+  }
+
+  return text;
+}
+
+function expectConsequenceRecord(
+  value: unknown,
+  path: string
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConsequenceValidationError(`${path} must be an object.`);
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function deriveRuleConsequences(
+  consequence: ValidatedConsequence
+): ValidatedConsequence[] {
+  if (
+    consequence.type === "quest_activate" ||
+    consequence.type === "quest_complete" ||
+    consequence.type === "quest_fail"
+  ) {
+    const title =
+      consequence.type === "quest_activate"
+        ? "Nhiệm vụ mới"
+        : consequence.type === "quest_complete"
+          ? "Nhiệm vụ hoàn thành"
+          : "Nhiệm vụ thất bại";
+
+    return [
+      validateConsequenceProposal({
+        type: "world_event",
+        source: "rule",
+        eventType: consequence.type,
+        title,
+        description: `${title}: ${consequence.questKey}.`,
+        importance: consequence.type === "quest_activate" ? 3 : 4
+      }),
+      validateConsequenceProposal({
+        type: "custom_safe",
+        source: "rule",
+        eventType: "quest_memory",
+        title,
+        description: `${title}: ${consequence.questKey}.`,
+        importance: 4
+      })
+    ];
+  }
+
+  if (consequence.type === "inventory_add") {
+    return [
+      validateConsequenceProposal({
+        type: "world_event",
+        source: "rule",
+        eventType: "inventory_item_acquired",
+        title: "Nhận vật phẩm",
+        description: `Người chơi nhận vật phẩm ${consequence.itemKey}.`,
+        importance: 2
+      })
+    ];
+  }
+
+  return [];
+}
+
+function consequenceIdentity(consequence: ValidatedConsequence): string {
+  return [
+    consequence.type,
+    consequence.questKey ?? "",
+    consequence.eventType ?? "",
+    consequence.itemKey ?? "",
+    consequence.flagKey ?? "",
+    consequence.stateKey ?? "",
+    consequence.reputationKey ?? "",
+    consequence.npcId ?? ""
+  ].join(":");
+}
+
+function normalizeConsequenceText(value: string): string {
+  return value
+    .toLocaleLowerCase("vi-VN")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function safeKeyFromText(value: string): string {
+  return normalizeConsequenceText(value)
+    .replace(/[^a-z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, consequenceLimits.questKeyMaxLength) || "unknown";
+}
+
+function titleFromKey(value: string): string {
+  const text = value.trim().replace(/\s+/g, " ");
+  return text.charAt(0).toLocaleUpperCase("vi-VN") + text.slice(1);
 }
 
 function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {

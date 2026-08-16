@@ -56,6 +56,28 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
     return gameplayService.submitTurn(getRequiredUser(request), params.id, input);
   });
 
+  app.get("/:id/quests", { preHandler: requireUser }, async (request) => {
+    const sessionService = app.dependencies.sessionService;
+
+    if (!sessionService) {
+      throw new ServiceUnavailableError("Session service is unavailable.");
+    }
+
+    const params = sessionParamsSchema.parse(request.params);
+    return sessionService.listSessionQuests(getRequiredUser(request), params.id);
+  });
+
+  app.get("/:id/inventory", { preHandler: requireUser }, async (request) => {
+    const sessionService = app.dependencies.sessionService;
+
+    if (!sessionService) {
+      throw new ServiceUnavailableError("Session service is unavailable.");
+    }
+
+    const params = sessionParamsSchema.parse(request.params);
+    return sessionService.listPlayerInventory(getRequiredUser(request), params.id);
+  });
+
   app.get("/:id", { preHandler: requireUser }, async (request) => {
     const sessionService = app.dependencies.sessionService;
 

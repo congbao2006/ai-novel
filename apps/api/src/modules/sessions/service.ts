@@ -20,8 +20,12 @@ import type { NPCInitializationService } from "./npc-initialization-service.js";
 import {
   toGameMessageDto,
   toGameStateDto,
+  toInventoryItemDto,
+  toQuestDto,
   toSessionListItemDto,
   type CreateSessionResponseDto,
+  type InventoryResponseDto,
+  type QuestListResponseDto,
   type SessionDetailDto,
   type SessionListResponseDto
 } from "./dto.js";
@@ -121,6 +125,33 @@ export class SessionService {
     return this.buildSessionDetail(user.userId, session);
   }
 
+  async listSessionQuests(
+    user: CurrentUser,
+    sessionId: string
+  ): Promise<QuestListResponseDto> {
+    await this.requireOwnedSession(user.userId, sessionId);
+    const quests = await this.repositories.quests.listSessionQuests(sessionId);
+
+    return {
+      quests: quests.map(toQuestDto)
+    };
+  }
+
+  async listPlayerInventory(
+    user: CurrentUser,
+    sessionId: string
+  ): Promise<InventoryResponseDto> {
+    await this.requireOwnedSession(user.userId, sessionId);
+    const items = await this.repositories.inventory.listInventoryByOwner(
+      sessionId,
+      { type: "player", id: null }
+    );
+
+    return {
+      items: items.map(toInventoryItemDto)
+    };
+  }
+
   private async getPublishedStory(storyId: string): Promise<StoryRecord> {
     const story = await this.repositories.stories.getById(storyId);
 
@@ -129,6 +160,19 @@ export class SessionService {
     }
 
     return story;
+  }
+
+  private async requireOwnedSession(
+    userId: string,
+    sessionId: string
+  ): Promise<GameSessionRecord> {
+    const session = await this.repositories.gameSessions.getById(sessionId);
+
+    if (!session || session.userId !== userId) {
+      throw new ResourceNotFoundError("Game session was not found.");
+    }
+
+    return session;
   }
 
   private async loadSessionReferences(session: GameSessionRecord): Promise<{

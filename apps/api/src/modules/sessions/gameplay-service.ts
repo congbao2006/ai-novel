@@ -1,11 +1,13 @@
 import {
   AITurnProposalValidationError,
+  ConsequenceValidationError,
+  assertQuestStatusTransition,
   maxPlayerActionLength,
   runDeterministicTurn,
   validateAITurnProposal,
   type AITurnProposal,
+  type EntityReference,
   type GameStateSnapshot,
-  type GeneratedWorldEvent,
   type StatePatch
 } from "@ai-novel/domain";
 import {
@@ -23,7 +25,12 @@ import type {
   StoryCharacterRecord,
   StoryRecord
 } from "@ai-novel/db";
-import { StateVersionConflictError, withTransaction } from "@ai-novel/db";
+import {
+  ConflictError,
+  StateVersionConflictError,
+  ValidationError,
+  withTransaction
+} from "@ai-novel/db";
 import {
   BadRequestError,
   ConflictApplicationError,
@@ -39,12 +46,13 @@ import {
   type GameplayTurnResponseDto
 } from "./dto.js";
 import { buildAITurnGenerationRequest } from "./ai-turn-prompt.js";
+import {
+  ConsequenceEngine,
+  type InternalTurnPersistencePlan
+} from "./consequence-engine.js";
 import { toStateSnapshot } from "./memory-context-builder.js";
 import type { MemoryContextBuilder } from "./memory-context-builder.js";
-import type {
-  NPCReactionService,
-  PersistableNPCReaction
-} from "./npc-reaction-service.js";
+import type { NPCReactionService } from "./npc-reaction-service.js";
 import type { SummaryService } from "./summary-service.js";
 import type { TransactionRunner } from "./service.js";
 
@@ -61,11 +69,12 @@ export type GameplayServiceOptions = {
   readonly memoryContextBuilder?: MemoryContextBuilder;
   readonly summaryService?: SummaryService;
   readonly npcReactionService?: NPCReactionService;
+  readonly consequenceEngine?: ConsequenceEngine;
 };
 
 type PersistedTurnResult = {
   readonly response: GameplayTurnResponseDto;
-  readonly npcMemories: readonly SessionMemoryRecord[];
+  readonly memories: readonly SessionMemoryRecord[];
 };
 
 export class GameplayService {
@@ -76,6 +85,7 @@ export class GameplayService {
   private readonly memoryContextBuilder: MemoryContextBuilder | undefined;
   private readonly summaryService: SummaryService | undefined;
   private readonly npcReactionService: NPCReactionService | undefined;
+  private readonly consequenceEngine: ConsequenceEngine;
 
   constructor(
     private readonly repositories: Repositories,
@@ -89,6 +99,7 @@ export class GameplayService {
     this.memoryContextBuilder = options.memoryContextBuilder;
     this.summaryService = options.summaryService;
     this.npcReactionService = options.npcReactionService;
+    this.consequenceEngine = options.consequenceEngine ?? new ConsequenceEngine();
     this.runInTransaction =
       transactionRunner ??
       (database
@@ -155,15 +166,20 @@ export class GameplayService {
           }
         );
         const statePatch = validateStatePatch(engineResult.statePatch);
+        const plan = this.consequenceEngine.buildPlan({
+          state,
+          action,
+          assistantNarrative: engineResult.resultText,
+          baseStatePatch: statePatch,
+          baseEvents: engineResult.events
+        });
 
         const persisted = await persistTurn(context, {
           sessionId: session.id,
           expectedVersion: state.version,
           turnNumber,
           action,
-          resultText: engineResult.resultText,
-          statePatch,
-          events: engineResult.events,
+          plan,
           preAppendedPlayerMessage: playerMessage
         });
 
@@ -172,6 +188,14 @@ export class GameplayService {
     } catch (error) {
       if (error instanceof StateVersionConflictError) {
         throw new ConflictApplicationError("Game state changed before this turn was saved.");
+      }
+
+      if (
+        error instanceof ConflictError ||
+        error instanceof ValidationError ||
+        error instanceof ConsequenceValidationError
+      ) {
+        throw new ConflictApplicationError(error.message);
       }
 
       throw error;
@@ -243,6 +267,18 @@ export class GameplayService {
     });
 
     try {
+      const plan = this.consequenceEngine.buildPlan({
+        state: snapshot.state,
+        action,
+        assistantNarrative: composeResultText(
+          validatedProposal.resultText,
+          npcReactions?.dialogueBlocks ?? []
+        ),
+        baseStatePatch: validatedProposal.statePatch,
+        baseEvents: validatedProposal.events,
+        npcReactions: npcReactions?.reactions ?? [],
+        npcEvents: npcReactions?.events ?? []
+      });
       const persisted = await this.runInTransaction(async (transactionContext) => {
         const { session, state } = await loadOwnedActiveTurnSnapshot(
           transactionContext,
@@ -261,23 +297,14 @@ export class GameplayService {
           expectedVersion,
           turnNumber,
           action,
-          resultText: composeResultText(
-            validatedProposal.resultText,
-            npcReactions?.dialogueBlocks ?? []
-          ),
-          statePatch: validatedProposal.statePatch,
-          events: [
-            ...validatedProposal.events,
-            ...(npcReactions?.events ?? [])
-          ],
-          npcReactions: npcReactions?.reactions ?? []
+          plan
         });
       });
 
       await this.npcReactionService?.embedMemoriesBestEffort({
         userId: user.userId,
         sessionId,
-        memories: persisted.npcMemories
+        memories: persisted.memories
       });
       await this.refreshSummaryAfterTurn(user, sessionId, persisted.response.turnNumber);
 
@@ -287,6 +314,14 @@ export class GameplayService {
         throw new ConflictApplicationError(
           "Game state changed before this AI turn was saved."
         );
+      }
+
+      if (
+        error instanceof ConflictError ||
+        error instanceof ValidationError ||
+        error instanceof ConsequenceValidationError
+      ) {
+        throw new ConflictApplicationError(error.message);
       }
 
       throw error;
@@ -434,11 +469,8 @@ async function persistTurn(
     readonly expectedVersion: number;
     readonly turnNumber: number;
     readonly action: string;
-    readonly resultText: string;
-    readonly statePatch: StatePatch;
-    readonly events: readonly GeneratedWorldEvent[];
+    readonly plan: InternalTurnPersistencePlan;
     readonly preAppendedPlayerMessage?: GameMessageRecord;
-    readonly npcReactions?: readonly PersistableNPCReaction[];
   }
 ): Promise<PersistedTurnResult> {
   const playerMessage =
@@ -452,11 +484,18 @@ async function persistTurn(
   const updatedState = await context.repositories.gameStates.updateStateWithVersion({
     sessionId: input.sessionId,
     expectedVersion: input.expectedVersion,
-    ...input.statePatch
+    ...input.plan.statePatch
   });
   const events = [];
 
-  for (const event of input.events) {
+  const consequenceMemories = await persistConsequences(context, {
+    sessionId: input.sessionId,
+    turnNumber: input.turnNumber,
+    consequences: input.plan.consequences,
+    memories: input.plan.memories
+  });
+
+  for (const event of input.plan.events) {
     events.push(
       await context.repositories.worldEvents.append({
         sessionId: input.sessionId,
@@ -469,16 +508,11 @@ async function persistTurn(
       })
     );
   }
-  const npcMemories = await persistNPCReactions(context, {
-    sessionId: input.sessionId,
-    turnNumber: input.turnNumber,
-    reactions: input.npcReactions ?? []
-  });
 
   const resultMessage = await context.repositories.gameMessages.append({
     sessionId: input.sessionId,
     role: "assistant",
-    content: input.resultText,
+    content: input.plan.assistantNarrative,
     turnNumber: input.turnNumber
   });
 
@@ -491,89 +525,55 @@ async function persistTurn(
       playerMessage: toGameMessageDto(playerMessage),
       resultMessage: toGameMessageDto(resultMessage),
       state: toGameStateDto(updatedState),
-      events: events.map(toWorldEventDto)
+      events: events.map(toWorldEventDto),
+      consequences: input.plan.summaries
     },
-    npcMemories
+    memories: consequenceMemories
   };
 }
 
-async function persistNPCReactions(
+async function persistConsequences(
   context: RepositoryContext,
   input: {
     readonly sessionId: string;
     readonly turnNumber: number;
-    readonly reactions: readonly PersistableNPCReaction[];
+    readonly consequences: InternalTurnPersistencePlan["consequences"];
+    readonly memories: InternalTurnPersistencePlan["memories"];
   }
 ): Promise<SessionMemoryRecord[]> {
   const memories: SessionMemoryRecord[] = [];
 
-  for (const reaction of input.reactions) {
-    const npc = await context.repositories.npcs.getByIdForSession(
-      input.sessionId,
-      reaction.npcId
-    );
-
-    if (!npc) {
-      continue;
+  for (const consequence of input.consequences) {
+    if (
+      consequence.type === "quest_activate" ||
+      consequence.type === "quest_progress" ||
+      consequence.type === "quest_complete" ||
+      consequence.type === "quest_fail"
+    ) {
+      await applyQuestConsequence(context, input.sessionId, consequence);
     }
 
-    if (Object.keys(reaction.statePatch).length > 0) {
-      await context.repositories.npcs.updateRuntimeState({
+    if (consequence.type === "inventory_add" || consequence.type === "inventory_remove") {
+      await applyInventoryConsequence(context, input.sessionId, consequence);
+    }
+
+    if (consequence.type === "relationship_delta") {
+      await applyRelationshipDelta(context, input.sessionId, consequence);
+    }
+
+    if (consequence.type === "npc_state_change" && consequence.npcId) {
+      await applyNPCStateConsequence(context, input.sessionId, input.turnNumber, consequence);
+    }
+  }
+
+  for (const memory of input.memories) {
+    memories.push(
+      await upsertMemoryCandidate(context, {
         sessionId: input.sessionId,
-        npcId: reaction.npcId,
-        currentState: {
-          ...copyJsonObject(npc.currentState),
-          ...copyJsonObject(reaction.statePatch),
-          lastInteractionTurn: input.turnNumber
-        }
-      });
-    }
-
-    for (const delta of reaction.relationshipDeltas) {
-      await applyRelationshipDelta(context, input.sessionId, reaction.npcId, delta);
-    }
-
-    for (const candidate of reaction.memoryCandidates) {
-      const key = candidate.key ? `npc:${reaction.npcId}:${candidate.key}` : null;
-      const existing = key
-        ? await context.repositories.memories.findByKey(input.sessionId, key)
-        : null;
-
-      if (existing) {
-        memories.push(
-          await context.repositories.memories.updateMemory({
-            sessionId: input.sessionId,
-            memoryId: existing.id,
-            content: candidate.content,
-            importance: Math.max(existing.importance, candidate.importance),
-            lastConfirmedTurn: input.turnNumber,
-            active: true,
-            metadata: {
-              ...existing.metadata,
-              source: "npc_ai"
-            }
-          })
-        );
-        continue;
-      }
-
-      memories.push(
-        await context.repositories.memories.createMemory({
-          sessionId: input.sessionId,
-          memoryType: candidate.memoryType,
-          subjectType: "npc",
-          subjectId: reaction.npcId,
-          key,
-          content: candidate.content,
-          importance: candidate.importance,
-          firstObservedTurn: input.turnNumber,
-          lastConfirmedTurn: input.turnNumber,
-          metadata: {
-            source: "npc_ai"
-          }
-        })
-      );
-    }
+        turnNumber: input.turnNumber,
+        memory
+      })
+    );
   }
 
   return memories;
@@ -582,26 +582,21 @@ async function persistNPCReactions(
 async function applyRelationshipDelta(
   context: RepositoryContext,
   sessionId: string,
-  npcId: string,
-  delta: PersistableNPCReaction["relationshipDeltas"][number]
+  consequence: InternalTurnPersistencePlan["consequences"][number]
 ): Promise<void> {
-  const target =
-    delta.targetType === "player"
-      ? { type: "player" as const, id: null }
-      : { type: "npc" as const, id: delta.targetId };
-
-  if (target.type === "npc") {
-    const targetNpc = await context.repositories.npcs.getByIdForSession(
-      sessionId,
-      target.id ?? ""
-    );
-
-    if (!targetNpc) {
-      return;
-    }
+  if (
+    consequence.type !== "relationship_delta" ||
+    !consequence.sourceEntity ||
+    !consequence.targetEntity
+  ) {
+    return;
   }
 
-  const source = { type: "npc" as const, id: npcId };
+  await assertEntityExists(context, sessionId, consequence.sourceEntity);
+  await assertEntityExists(context, sessionId, consequence.targetEntity);
+
+  const source = toDbEntityRef(consequence.sourceEntity);
+  const target = toDbEntityRef(consequence.targetEntity);
   const existing = await context.repositories.relationships.getRelationshipEdge(
     sessionId,
     source,
@@ -613,17 +608,234 @@ async function applyRelationshipDelta(
     source,
     target,
     affinity: clampRelationship(
-      (existing?.affinity ?? 0) + delta.affinityDelta,
+      (existing?.affinity ?? 0) + (consequence.affinityDelta ?? 0),
       -100,
       100
     ),
-    trust: clampRelationship((existing?.trust ?? 0) + delta.trustDelta, -100, 100),
-    fear: clampRelationship((existing?.fear ?? 0) + delta.fearDelta, 0, 100),
+    trust: clampRelationship(
+      (existing?.trust ?? 0) + (consequence.trustDelta ?? 0),
+      -100,
+      100
+    ),
+    fear: clampRelationship((existing?.fear ?? 0) + (consequence.fearDelta ?? 0), 0, 100),
     metadata: {
       ...(existing?.metadata ?? {}),
-      source: "npc_ai"
+      source: consequence.source,
+      lastConsequenceTurn: new Date().toISOString()
     }
   });
+}
+
+async function applyQuestConsequence(
+  context: RepositoryContext,
+  sessionId: string,
+  consequence: InternalTurnPersistencePlan["consequences"][number]
+): Promise<void> {
+  const questKey = consequence.questKey;
+
+  if (!questKey) {
+    return;
+  }
+
+  const existing = await context.repositories.quests.getByQuestKey(sessionId, questKey);
+
+  if (consequence.type === "quest_activate") {
+    if (!existing) {
+      await context.repositories.quests.create({
+        sessionId,
+        questKey,
+        title: consequence.title ?? questKey,
+        description: consequence.description ?? "",
+        status: "active",
+        progress: consequence.progress ?? {}
+      });
+      return;
+    }
+
+    assertQuestStatusTransition(existing.status, "active");
+    await context.repositories.quests.updateStatusOrProgress({
+      sessionId,
+      questKey,
+      status: "active",
+      progress: mergeQuestProgress(existing.progress, consequence.progress ?? {})
+    });
+    return;
+  }
+
+  if (!existing) {
+    throw new ConflictApplicationError(`Quest ${questKey} does not exist.`);
+  }
+
+  if (consequence.type === "quest_progress") {
+    assertQuestStatusTransition(existing.status, "active");
+    await context.repositories.quests.updateStatusOrProgress({
+      sessionId,
+      questKey,
+      status: existing.status,
+      progress: mergeQuestProgress(existing.progress, consequence.progress ?? {})
+    });
+    return;
+  }
+
+  if (consequence.type === "quest_complete" || consequence.type === "quest_fail") {
+    const status = consequence.type === "quest_complete" ? "completed" : "failed";
+    assertQuestStatusTransition(existing.status, status);
+    await context.repositories.quests.updateStatusOrProgress({
+      sessionId,
+      questKey,
+      status,
+      progress: mergeQuestProgress(existing.progress, consequence.progress ?? {})
+    });
+  }
+}
+
+async function applyInventoryConsequence(
+  context: RepositoryContext,
+  sessionId: string,
+  consequence: InternalTurnPersistencePlan["consequences"][number]
+): Promise<void> {
+  if (
+    (consequence.type !== "inventory_add" &&
+      consequence.type !== "inventory_remove") ||
+    !consequence.owner ||
+    !consequence.itemKey ||
+    !consequence.quantity
+  ) {
+    return;
+  }
+
+  await assertEntityExists(context, sessionId, consequence.owner);
+  const owner = toDbEntityRef(consequence.owner);
+
+  if (consequence.type === "inventory_add") {
+    await context.repositories.inventory.addOrUpdateQuantity({
+      sessionId,
+      ownerType: owner.type,
+      ownerId: owner.id ?? null,
+      itemKey: consequence.itemKey,
+      name: consequence.itemName ?? consequence.itemKey,
+      description: consequence.description,
+      quantity: consequence.quantity,
+      metadata: consequence.metadata ?? {}
+    });
+    return;
+  }
+
+  await context.repositories.inventory.changeQuantity({
+    sessionId,
+    owner,
+    itemKey: consequence.itemKey,
+    delta: -consequence.quantity
+  });
+}
+
+async function applyNPCStateConsequence(
+  context: RepositoryContext,
+  sessionId: string,
+  turnNumber: number,
+  consequence: InternalTurnPersistencePlan["consequences"][number]
+): Promise<void> {
+  if (consequence.type !== "npc_state_change" || !consequence.npcId) {
+    return;
+  }
+
+  const npc = await context.repositories.npcs.getByIdForSession(
+    sessionId,
+    consequence.npcId
+  );
+
+  if (!npc) {
+    throw new ConflictApplicationError("NPC consequence target was not found.");
+  }
+
+  await context.repositories.npcs.updateRuntimeState({
+    sessionId,
+    npcId: consequence.npcId,
+    currentState: {
+      ...copyJsonObject(npc.currentState),
+      ...copyJsonObject(consequence.statePatch ?? {}),
+      lastInteractionTurn: turnNumber
+    }
+  });
+}
+
+async function upsertMemoryCandidate(
+  context: RepositoryContext,
+  input: {
+    readonly sessionId: string;
+    readonly turnNumber: number;
+    readonly memory: InternalTurnPersistencePlan["memories"][number];
+  }
+): Promise<SessionMemoryRecord> {
+  const existing = input.memory.key
+    ? await context.repositories.memories.findByKey(input.sessionId, input.memory.key)
+    : null;
+
+  if (existing) {
+    return context.repositories.memories.updateMemory({
+      sessionId: input.sessionId,
+      memoryId: existing.id,
+      content: input.memory.content,
+      importance: Math.max(existing.importance, input.memory.importance),
+      lastConfirmedTurn: input.turnNumber,
+      active: true,
+      metadata: {
+        ...existing.metadata,
+        source: "consequence_engine"
+      }
+    });
+  }
+
+  return context.repositories.memories.createMemory({
+    sessionId: input.sessionId,
+    memoryType: input.memory.memoryType,
+    subjectType: input.memory.subjectType ?? null,
+    subjectId: input.memory.subjectId ?? null,
+    key: input.memory.key ?? null,
+    content: input.memory.content,
+    importance: input.memory.importance,
+    firstObservedTurn: input.turnNumber,
+    lastConfirmedTurn: input.turnNumber,
+    metadata: {
+      ...(input.memory.metadata ?? {}),
+      source: "consequence_engine"
+    }
+  });
+}
+
+async function assertEntityExists(
+  context: RepositoryContext,
+  sessionId: string,
+  entity: EntityReference
+): Promise<void> {
+  if (entity.type === "player") {
+    return;
+  }
+
+  const npc = await context.repositories.npcs.getByIdForSession(
+    sessionId,
+    entity.id ?? ""
+  );
+
+  if (!npc) {
+    throw new ConflictApplicationError("Consequence target was not found.");
+  }
+}
+
+function toDbEntityRef(entity: EntityReference) {
+  return entity.type === "player"
+    ? { type: "player" as const, id: null }
+    : { type: "npc" as const, id: entity.id };
+}
+
+function mergeQuestProgress(
+  current: Record<string, unknown>,
+  next: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...copyJsonObject(current),
+    ...copyJsonObject(next)
+  };
 }
 
 function validateStatePatch(patch: StatePatch): StatePatch {

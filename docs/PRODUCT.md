@@ -37,10 +37,11 @@ In scope:
 - Memory foundation for AI gameplay context using current state, bounded recent messages, rolling summaries, important memories, and important world events.
 - Semantic memory retrieval for persistent memories using deterministic filtering, embeddings, importance, and recency.
 - NPC runtime intelligence foundation for session-owned NPC identity, bounded NPC knowledge context, and optional AI-driven NPC reactions during player turns.
+- Quest/consequence engine expansion for validated quest lifecycle changes, inventory changes, relationship deltas, reputation-like state flags, NPC runtime state patches, memories, and meaningful world events.
 
 Out of scope:
 
-- Autonomous/background NPC turns and AI-generated quest gameplay.
+- Autonomous/background NPC turns.
 - Payment or coin system implementation.
 - User-visible token/cost dashboard.
 - Admin dashboard implementation.
@@ -86,6 +87,14 @@ When semantic memory is enabled, old persistent memories can be retrieved by mea
 NPCs are session-owned runtime identities cloned from story templates when a session starts. Each runtime NPC can have its own personality, goals, secrets, relationship edges, current state, and scoped memories.
 
 NPC AI reactions are optional parts of player turns in AI gameplay mode. They do not run autonomously, do not write the database, and cannot override authoritative state. The server selects relevant NPCs, builds a knowledge-limited context for each NPC, validates the AI's proposed dialogue/intent/relationship/memory effects, and persists only allowed changes.
+
+### Quest And Consequence
+
+Quest state is session-owned runtime state with a small lifecycle: `inactive -> active`, `active -> completed`, or `active -> failed`. Completed and failed quests do not reopen without a future explicit mechanic.
+
+Gameplay outcomes can now produce structured consequences. The AI and NPC reaction engines may suggest intent, but the server validates every target, key, delta, quantity, and quest transition before persistence. Consequences can affect quests, inventory, relationships, reputation-like state namespaces, NPC-owned runtime state, world events, and important memories.
+
+Consequence chaining is intentionally bounded and deterministic. For example, completing a quest can create a world event and quest memory, but it cannot recurse indefinitely or run another AI call.
 
 ### Save
 

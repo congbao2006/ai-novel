@@ -356,6 +356,34 @@ Next step:
 
 - Quest/Consequence Engine Expansion. This should turn validated player/NPC outcomes into more explicit quest, inventory, relationship, and world consequence rules before adding broader world/faction simulation.
 
+## Phase 4.10: Quest/Consequence Engine Expansion
+
+Status: completed.
+
+Goals:
+
+- Normalize gameplay consequences from deterministic commands, main AI proposals, NPC reaction proposals, and future rule sources.
+- Keep AI/NPC AI as proposers while the server validates and persists all effects.
+- Add bounded quest lifecycle, inventory, relationship, state/reputation, NPC state, memory, and world-event consequences.
+- Keep consequence chaining deterministic, capped, and testable.
+- Preserve atomic gameplay transaction behavior.
+
+Completed:
+
+- Added provider-neutral consequence contracts and validators in the domain package.
+- Added `ConsequenceEngine` to build a server-owned `TurnPersistencePlan`.
+- Added deterministic command intents for quest activation/completion/failure and inventory add/remove.
+- Added quest lifecycle enforcement for `inactive -> active`, `active -> completed`, and `active -> failed`.
+- Added inventory underflow rejection, relationship delta bounds/clamping, safe state/reputation namespaces, and NPC-owned state patch policy.
+- Added bounded rule chaining for quest events, quest memories, inventory acquisition events, and relationship threshold events.
+- Updated gameplay turn persistence to apply state, quests, inventory, relationships, NPC state, world events, messages, turn count, and last-played timestamp atomically.
+- Added protected quest and inventory read endpoints for session owners.
+- Added minimal play-page consequence summaries.
+
+Next step:
+
+- World/Faction Simulation Foundation. This should add explicit world-level systems and faction state without introducing autonomous background ticks until the simulation boundaries are designed.
+
 ## Phase 5: Story Creation Tools
 
 Goals:
