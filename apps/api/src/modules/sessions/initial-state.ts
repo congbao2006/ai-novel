@@ -10,11 +10,25 @@ export function buildInitialGameState(
   character: StoryCharacterRecord
 ): CreateInitialStateInput {
   const playerStats = copyJsonObject(character.initialStats);
+  const storySettings = copyJsonObject(story.settings);
+  const characterState = copyJsonObject(character.initialState);
+  const initialLocation =
+    typeof character.initialLocation === "string" && character.initialLocation.trim()
+      ? character.initialLocation.trim()
+      : typeof storySettings.initialLocation === "string" &&
+          storySettings.initialLocation.trim()
+        ? storySettings.initialLocation.trim()
+        : "Điểm khởi đầu";
+  const worldTime =
+    typeof storySettings.initialWorldTime === "string" &&
+    storySettings.initialWorldTime.trim()
+      ? storySettings.initialWorldTime.trim()
+      : null;
 
   return {
     sessionId,
-    location: "Điểm khởi đầu",
-    worldTime: null,
+    location: initialLocation,
+    worldTime,
     playerStats,
     flags: {
       storySlug: story.slug,
@@ -25,7 +39,9 @@ export function buildInitialGameState(
       initialized: true,
       storyId: story.id,
       characterName: character.name,
-      gameplayEnabled: false
+      gameplayEnabled: false,
+      initialSettings: storySettings,
+      characterInitialState: characterState
     }
   };
 }

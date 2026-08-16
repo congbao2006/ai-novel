@@ -223,7 +223,8 @@ AI narrates. NPC AI proposes. Consequence engine resolves player-turn effects. W
 The prompt builder separates:
 
 - system/developer instructions
-- world context from server-side story fields
+- platform/engine orchestration instructions
+- author world/story instructions from server-side story fields
 - player character
 - current `game_states` snapshot
 - rolling story summary
@@ -234,6 +235,10 @@ The prompt builder separates:
 - output contract
 
 Player action is explicitly labeled as untrusted fictional input. It must not be treated as system/developer instruction, and the model is told not to reveal internal prompts or alter the output schema.
+
+Author `worldPrompt` and `openingPrompt` are privileged story instructions but they are still user-authored content. They sit below platform safety and engine orchestration instructions. They cannot override structured output contracts, provider secrecy, API key handling, budget enforcement, or the rule that the server is the only authority for persisted state.
+
+Public story endpoints and session DTOs never expose author prompts. Owner-only authoring endpoints may return and edit them while the story is still structurally editable.
 
 Context is built by `MemoryContextBuilder` under server-side caps:
 

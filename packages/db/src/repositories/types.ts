@@ -7,6 +7,7 @@ import type {
   MessageRole,
   QuestStatus,
   SessionStatus,
+  StoryCharacterType,
   StoryStatus
 } from "@ai-novel/domain";
 import type {
@@ -31,6 +32,9 @@ import type {
   NewQuest,
   NewRelationship,
   NewStory,
+  NewStoryCharacter,
+  NewStoryFaction,
+  NewStoryFactionRelationship,
   NewUser,
   NewWorldEvent,
   NewWorldSimulationState,
@@ -41,6 +45,8 @@ import type {
   SessionSummary,
   Story,
   StoryCharacter,
+  StoryFaction,
+  StoryFactionRelationship,
   User,
   WorldEvent,
   WorldSimulationState
@@ -54,7 +60,12 @@ export type {
   SessionStatus,
   StoryStatus
 };
-export type { AIUsagePurpose, AIUsageStatus, FactionStatus };
+export type {
+  AIUsagePurpose,
+  AIUsageStatus,
+  FactionStatus,
+  StoryCharacterType
+};
 
 export type JsonObject = Record<string, unknown>;
 
@@ -74,6 +85,42 @@ export type CreateAuthSessionInput = Pick<
 export type StoryRecord = Story;
 export type StoryCharacterRecord = StoryCharacter;
 export type CreateStoryInput = Omit<NewStory, "id" | "createdAt" | "updatedAt">;
+export type UpdateStoryInput = {
+  readonly title?: string;
+  readonly slug?: string;
+  readonly description?: string;
+  readonly genre?: string;
+  readonly status?: StoryStatus;
+  readonly worldPrompt?: string;
+  readonly openingPrompt?: string;
+  readonly settings?: JsonObject;
+};
+export type CreateStoryCharacterInput = Omit<
+  NewStoryCharacter,
+  "id" | "createdAt" | "updatedAt"
+>;
+export type UpdateStoryCharacterInput = Partial<
+  Omit<CreateStoryCharacterInput, "storyId">
+> & {
+  readonly storyId: string;
+  readonly characterId: string;
+};
+export type StoryFactionRecord = StoryFaction;
+export type CreateStoryFactionInput = Omit<
+  NewStoryFaction,
+  "id" | "createdAt" | "updatedAt"
+>;
+export type UpdateStoryFactionInput = Partial<
+  Omit<CreateStoryFactionInput, "storyId">
+> & {
+  readonly storyId: string;
+  readonly factionId: string;
+};
+export type StoryFactionRelationshipRecord = StoryFactionRelationship;
+export type CreateStoryFactionRelationshipInput = Omit<
+  NewStoryFactionRelationship,
+  "id" | "createdAt" | "updatedAt"
+>;
 export type StoryListPageInput = {
   readonly genre?: string | undefined;
   readonly limit: number;

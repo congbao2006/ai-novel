@@ -30,6 +30,7 @@ const story: StoryRecord = {
   status: "published",
   worldPrompt: "secret world prompt",
   openingPrompt: "secret opening prompt",
+  settings: {},
   createdByUserId: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
@@ -38,11 +39,17 @@ const story: StoryRecord = {
 const playerTemplate: StoryCharacterRecord = {
   id: "character-player",
   storyId: story.id,
+  characterType: "playable",
   name: "Người chơi",
   description: "Player character.",
   personality: "brave",
   background: "public background",
   initialStats: {},
+  goals: [],
+  secrets: {},
+  initialState: {},
+  initialLocation: null,
+  metadata: {},
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
 };
@@ -50,6 +57,7 @@ const playerTemplate: StoryCharacterRecord = {
 const npcTemplate: StoryCharacterRecord = {
   ...playerTemplate,
   id: "character-ly-thanh",
+  characterType: "npc",
   name: "Lý Thanh",
   description: "A cautious ally.",
   personality: "careful"

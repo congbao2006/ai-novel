@@ -65,6 +65,7 @@ const story: StoryRecord = {
   status: "published",
   worldPrompt: "internal world prompt",
   openingPrompt: "internal opening prompt",
+  settings: {},
   createdByUserId: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
@@ -73,11 +74,17 @@ const story: StoryRecord = {
 const character: StoryCharacterRecord = {
   id: "550e8400-e29b-41d4-a716-446655440001",
   storyId: story.id,
+  characterType: "playable",
   name: "Trinh sat",
   description: "Nhanh và kín đáo.",
   personality: "calm",
   background: "Lớn lên ở vùng biên.",
   initialStats: { agility: 7 },
+  goals: [],
+  secrets: {},
+  initialState: {},
+  initialLocation: null,
+  metadata: {},
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
 };

@@ -7,6 +7,7 @@ import {
 import { buildApp } from "./app.js";
 import { BudgetService } from "./modules/ai/budget-service.js";
 import { RepositoryAIUsageLedger } from "./modules/ai/usage-ledger.js";
+import { StoryAuthoringService } from "./modules/authoring/service.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
 import { GameplayService } from "./modules/sessions/gameplay-service.js";
@@ -37,6 +38,9 @@ const authService = repositories
     })
   : undefined;
 const storyService = repositories ? new StoryService(repositories) : undefined;
+const storyAuthoringService = repositories
+  ? new StoryAuthoringService(repositories)
+  : undefined;
 const npcInitializationService = repositories
   ? new NPCInitializationService()
   : undefined;
@@ -185,6 +189,7 @@ const gameplayService = repositories
 const dependencies = {
   ...(repositories ? { repositories } : {}),
   ...(authService ? { authService } : {}),
+  ...(storyAuthoringService ? { storyAuthoringService } : {}),
   ...(storyService ? { storyService } : {}),
   ...(sessionService ? { sessionService } : {}),
   ...(gameplayService ? { gameplayService } : {}),

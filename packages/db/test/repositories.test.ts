@@ -57,6 +57,8 @@ describe("repository layer", () => {
       "semanticMemories",
       "sessionSummaries",
       "stories",
+      "storyFactionRelationships",
+      "storyFactions",
       "users",
       "worldEvents",
       "worldSimulationStates"

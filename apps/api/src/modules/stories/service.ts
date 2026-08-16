@@ -41,8 +41,9 @@ export class StoryService {
       throw new ResourceNotFoundError("Story was not found.");
     }
 
-    const characters = await this.repositories.stories.listCharactersForStory(
-      story.id
+    const characters = await this.repositories.stories.listCharactersForStoryByType(
+      story.id,
+      "playable"
     );
 
     return {

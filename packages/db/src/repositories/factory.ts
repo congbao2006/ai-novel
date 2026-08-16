@@ -14,6 +14,8 @@ import type {
   RelationshipRepository,
   SemanticMemoryRepository,
   SessionSummaryRepository,
+  StoryFactionRelationshipRepository,
+  StoryFactionRepository,
   StoryRepository,
   UserRepository,
   WorldEventRepository,
@@ -34,6 +36,8 @@ import {
   DrizzleRelationshipRepository,
   DrizzleSemanticMemoryRepository,
   DrizzleSessionSummaryRepository,
+  DrizzleStoryFactionRelationshipRepository,
+  DrizzleStoryFactionRepository,
   DrizzleStoryRepository,
   DrizzleUserRepository,
   DrizzleWorldEventRepository,
@@ -45,6 +49,8 @@ export type Repositories = {
   readonly aiUsage: AIUsageRepository;
   readonly authSessions: AuthSessionRepository;
   readonly stories: StoryRepository;
+  readonly storyFactions: StoryFactionRepository;
+  readonly storyFactionRelationships: StoryFactionRelationshipRepository;
   readonly gameSessions: GameSessionRepository;
   readonly gameMessages: GameMessageRepository;
   readonly gameStates: GameStateRepository;
@@ -67,6 +73,8 @@ export function createRepositories(db: DbExecutor): Repositories {
     aiUsage: new DrizzleAIUsageRepository(db),
     authSessions: new DrizzleAuthSessionRepository(db),
     stories: new DrizzleStoryRepository(db),
+    storyFactions: new DrizzleStoryFactionRepository(db),
+    storyFactionRelationships: new DrizzleStoryFactionRelationshipRepository(db),
     gameSessions: new DrizzleGameSessionRepository(db),
     gameMessages: new DrizzleGameMessageRepository(db),
     gameStates: new DrizzleGameStateRepository(db),

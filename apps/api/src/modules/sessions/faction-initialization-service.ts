@@ -1,65 +1,5 @@
 import type { RepositoryContext, StoryRecord } from "@ai-novel/db";
 
-const defaultFactionTemplates = [
-  {
-    factionKey: "city_guard",
-    name: "Đội Tuần Thành",
-    description: "Lực lượng giữ trật tự tại các khu dân cư và cổng thành.",
-    influence: 55,
-    resources: {
-      wealth: 40,
-      manpower: 60,
-      supplies: 50,
-      politicalPower: 50
-    },
-    goals: [
-      {
-        key: "keep_order",
-        status: "active",
-        progress: 40
-      }
-    ]
-  },
-  {
-    factionKey: "river_guild",
-    name: "Bang Sông Nước",
-    description: "Mạng lưới thương nhân, lái đò và người đưa tin ven sông.",
-    influence: 50,
-    resources: {
-      wealth: 55,
-      manpower: 35,
-      supplies: 60,
-      politicalPower: 35
-    },
-    goals: [
-      {
-        key: "secure_routes",
-        status: "active",
-        progress: 35
-      }
-    ]
-  },
-  {
-    factionKey: "shadow_court",
-    name: "Mật Hội Bóng Tối",
-    description: "Một mạng lưới bí mật theo đuổi lợi ích riêng trong bóng tối.",
-    influence: 45,
-    resources: {
-      wealth: 45,
-      manpower: 30,
-      supplies: 35,
-      politicalPower: 55
-    },
-    goals: [
-      {
-        key: "expand_influence",
-        status: "active",
-        progress: 25
-      }
-    ]
-  }
-] as const;
-
 export class FactionInitializationService {
   async initializeForSession(input: {
     readonly context: RepositoryContext;
@@ -74,20 +14,53 @@ export class FactionInitializationService {
       return;
     }
 
-    for (const template of defaultFactionTemplates) {
-      await input.context.repositories.factions.create({
+    const templates = await input.context.repositories.storyFactions.listForStory(
+      input.story.id
+    );
+    const templateToRuntimeId = new Map<string, string>();
+
+    for (const template of templates) {
+      const faction = await input.context.repositories.factions.create({
         sessionId: input.sessionId,
-        factionKey: `${input.story.slug}.${template.factionKey}`,
+        factionKey: template.factionKey,
         name: template.name,
         description: template.description,
-        status: "active",
-        influence: template.influence,
-        resources: template.resources,
-        goals: [...template.goals],
+        status: template.initialStatus,
+        influence: template.initialInfluence,
+        resources: copyJsonObject(template.resources),
+        goals: copyJsonArray(template.goals),
         state: {
-          source: "default_seed",
-          storySlug: input.story.slug
+          ...copyJsonObject(template.state),
+          templateFactionId: template.id
         }
+      });
+      templateToRuntimeId.set(template.id, faction.id);
+    }
+
+    const relationTemplates =
+      await input.context.repositories.storyFactionRelationships.listForStory(
+        input.story.id
+      );
+
+    for (const relationTemplate of relationTemplates) {
+      const sourceFactionId = templateToRuntimeId.get(
+        relationTemplate.sourceFactionId
+      );
+      const targetFactionId = templateToRuntimeId.get(
+        relationTemplate.targetFactionId
+      );
+
+      if (!sourceFactionId || !targetFactionId) {
+        continue;
+      }
+
+      await input.context.repositories.factionRelationships.upsertRelation({
+        sessionId: input.sessionId,
+        sourceFactionId,
+        targetFactionId,
+        affinity: relationTemplate.affinity,
+        tension: relationTemplate.tension,
+        metadata: copyJsonObject(relationTemplate.metadata)
       });
     }
 
@@ -96,4 +69,12 @@ export class FactionInitializationService {
       lastTickTurn: 0
     });
   }
+}
+
+function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function copyJsonArray(value: unknown[]): unknown[] {
+  return JSON.parse(JSON.stringify(value)) as unknown[];
 }

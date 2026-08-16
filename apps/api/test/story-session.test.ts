@@ -10,6 +10,7 @@ import type {
   QuestRecord,
   Repositories,
   RepositoryContext,
+  StoryFactionRecord,
   StoryCharacterRecord,
   StoryRecord
 } from "@ai-novel/db";
@@ -43,6 +44,7 @@ const publishedStory: StoryRecord = {
   status: "published",
   worldPrompt: "internal world prompt",
   openingPrompt: "internal opening prompt",
+  settings: { initialLocation: "Bến sông" },
   createdByUserId: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
@@ -58,11 +60,17 @@ const draftStory: StoryRecord = {
 const character: StoryCharacterRecord = {
   id: "550e8400-e29b-41d4-a716-446655440001",
   storyId: publishedStory.id,
+  characterType: "playable",
   name: "Trinh sat",
   description: "Nhanh và kín đáo.",
   personality: "calm",
   background: "Lớn lên ở vùng biên.",
   initialStats: { agility: 7, nested: { courage: 3 } },
+  goals: [],
+  secrets: {},
+  initialState: {},
+  initialLocation: null,
+  metadata: {},
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
 };
@@ -71,6 +79,28 @@ const otherCharacter: StoryCharacterRecord = {
   ...character,
   id: "550e8400-e29b-41d4-a716-446655440011",
   storyId: draftStory.id
+};
+
+const npcCharacter: StoryCharacterRecord = {
+  ...character,
+  id: "550e8400-e29b-41d4-a716-446655440012",
+  characterType: "npc",
+  name: "NPC Template"
+};
+
+const storyFactionTemplate: StoryFactionRecord = {
+  id: "550e8400-e29b-41d4-a716-446655440020",
+  storyId: publishedStory.id,
+  factionKey: "river_guard",
+  name: "River Guard",
+  description: "Template faction.",
+  initialStatus: "active",
+  initialInfluence: 61,
+  resources: { manpower: 5 },
+  goals: [],
+  state: { public: true },
+  createdAt: new Date("2026-01-01T00:00:00Z"),
+  updatedAt: new Date("2026-01-01T00:00:00Z")
 };
 
 function createSessionRecord(
@@ -145,16 +175,39 @@ function createRepositoriesFixture(options: {
         return [];
       },
       async listCharactersForStory(storyId: string) {
-        return [character, otherCharacter].filter(
+        return [character, otherCharacter, npcCharacter].filter(
           (item) => item.storyId === storyId
+        );
+      },
+      async listCharactersForStoryByType(
+        storyId: string,
+        characterType: StoryCharacterRecord["characterType"]
+      ) {
+        return [character, otherCharacter, npcCharacter].filter(
+          (item) => item.storyId === storyId && item.characterType === characterType
         );
       },
       async getCharacterForStory(storyId: string, characterId: string) {
         return (
-          [character, otherCharacter].find(
+          [character, otherCharacter, npcCharacter].find(
             (item) => item.storyId === storyId && item.id === characterId
           ) ?? null
         );
+      }
+    },
+    storyFactions: {
+      async listForStory(storyId: string) {
+        return [storyFactionTemplate].filter((item) => item.storyId === storyId);
+      }
+    },
+    storyFactionRelationships: {
+      async listForStory() {
+        return [];
+      }
+    },
+    factionRelationships: {
+      async upsertRelation() {
+        throw new Error("not expected");
       }
     },
     gameSessions: {
@@ -391,8 +444,9 @@ describe("SessionService", () => {
 
     expect(sessions).toHaveLength(1);
     expect(states).toHaveLength(1);
-    expect(factions).toHaveLength(3);
+    expect(factions).toHaveLength(1);
     expect(factions.every((faction) => faction.sessionId === sessions[0]?.id)).toBe(true);
+    expect(factions[0]?.factionKey).toBe(storyFactionTemplate.factionKey);
     expect(result.session.currentState?.playerStats).toEqual(character.initialStats);
     expect(result.session.recentMessages).toEqual([]);
   });
@@ -446,7 +500,7 @@ describe("SessionService", () => {
     (state.playerStats.nested as { courage: number }).courage = 99;
 
     expect(character.initialStats).toEqual({ agility: 7, nested: { courage: 3 } });
-    expect(state.location).toBe("Điểm khởi đầu");
+    expect(state.location).toBe("Bến sông");
     expect(state.flags).toMatchObject({
       storySlug: publishedStory.slug,
       selectedCharacterId: character.id,
@@ -558,7 +612,7 @@ describe("story/session API routes", () => {
 
     expect(createResponse.statusCode).toBe(201);
     expect(getResponse.statusCode).toBe(200);
-    expect(getResponse.json().currentState.location).toBe("Điểm khởi đầu");
+    expect(getResponse.json().currentState.location).toBe("Bến sông");
 
     await app.close();
   });

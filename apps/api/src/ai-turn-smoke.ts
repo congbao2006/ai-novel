@@ -49,6 +49,7 @@ const result = await gateway.generate(
       status: "published",
       worldPrompt: "Keep the scene small and concrete.",
       openingPrompt: "The player stands inside a quiet room.",
+      settings: {},
       createdByUserId: null,
       createdAt: now,
       updatedAt: now
@@ -56,6 +57,7 @@ const result = await gateway.generate(
     character: {
       id: "ai-turn-smoke-character",
       storyId: "ai-turn-smoke-story",
+      characterType: "playable",
       name: "Tester",
       description: "A careful observer.",
       personality: "curious",
@@ -64,6 +66,11 @@ const result = await gateway.generate(
         hp: 10,
         stamina: 8
       },
+      goals: [],
+      secrets: {},
+      initialState: {},
+      initialLocation: null,
+      metadata: {},
       createdAt: now,
       updatedAt: now
     },

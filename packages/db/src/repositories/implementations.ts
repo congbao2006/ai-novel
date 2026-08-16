@@ -32,6 +32,10 @@ import type {
   CreateNpcInput,
   CreateQuestInput,
   CreateSessionInput,
+  CreateStoryCharacterInput,
+  CreateStoryFactionInput,
+  CreateStoryFactionRelationshipInput,
+  CreateStoryInput,
   CreateUserInput,
   CreateWorldSimulationStateInput,
   EntityRef,
@@ -53,7 +57,12 @@ import type {
   SessionSummaryRecord,
   StoryRecord,
   StoryCharacterRecord,
+  StoryFactionRecord,
+  StoryFactionRelationshipRecord,
   StoryListPageInput,
+  UpdateStoryCharacterInput,
+  UpdateStoryFactionInput,
+  UpdateStoryInput,
   UpdateNpcRuntimeStateInput,
   UpdateQuestInput,
   UpdateSessionMetadataInput,
@@ -87,6 +96,8 @@ import {
   sessionSummaries,
   stories,
   storyCharacters,
+  storyFactionRelationships,
+  storyFactions,
   users,
   worldEvents,
   worldSimulationStates
@@ -106,6 +117,8 @@ import type {
   RelationshipRepository,
   SemanticMemoryRepository,
   SessionSummaryRepository,
+  StoryFactionRelationshipRepository,
+  StoryFactionRepository,
   StoryRepository,
   UserRepository,
   WorldEventRepository,
@@ -262,6 +275,15 @@ export class DrizzleStoryRepository
   extends BaseRepository
   implements StoryRepository
 {
+  create(input: CreateStoryInput): Promise<StoryRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(stories).values(input).returning(),
+        new ConflictError("Story could not be created.")
+      )
+    );
+  }
+
   getById(id: string): Promise<StoryRecord | null> {
     return this.run(async () =>
       firstOrNull(await this.db.select().from(stories).where(eq(stories.id, id)).limit(1))
@@ -274,6 +296,32 @@ export class DrizzleStoryRepository
         await this.db.select().from(stories).where(eq(stories.slug, slug)).limit(1)
       )
     );
+  }
+
+  update(storyId: string, input: UpdateStoryInput): Promise<StoryRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof stories.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.title !== undefined) updates.title = input.title;
+      if (input.slug !== undefined) updates.slug = input.slug;
+      if (input.description !== undefined) updates.description = input.description;
+      if (input.genre !== undefined) updates.genre = input.genre;
+      if (input.status !== undefined) updates.status = input.status;
+      if (input.worldPrompt !== undefined) updates.worldPrompt = input.worldPrompt;
+      if (input.openingPrompt !== undefined) updates.openingPrompt = input.openingPrompt;
+      if (input.settings !== undefined) updates.settings = input.settings;
+
+      return firstOrThrow(
+        await this.db
+          .update(stories)
+          .set(updates)
+          .where(eq(stories.id, storyId))
+          .returning(),
+        new NotFoundError("Story")
+      );
+    });
   }
 
   listPublishedPage(input: StoryListPageInput): Promise<StoryRecord[]> {
@@ -341,6 +389,84 @@ export class DrizzleStoryRepository
     );
   }
 
+  listCharactersForStoryByType(
+    storyId: string,
+    characterType: StoryCharacterRecord["characterType"]
+  ): Promise<StoryCharacterRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyCharacters)
+        .where(
+          and(
+            eq(storyCharacters.storyId, storyId),
+            eq(storyCharacters.characterType, characterType)
+          )
+        )
+        .orderBy(storyCharacters.createdAt, storyCharacters.id)
+    );
+  }
+
+  createCharacter(input: CreateStoryCharacterInput): Promise<StoryCharacterRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyCharacters).values(input).returning(),
+        new ConflictError("Story character could not be created.")
+      )
+    );
+  }
+
+  updateCharacter(input: UpdateStoryCharacterInput): Promise<StoryCharacterRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof storyCharacters.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.name !== undefined) updates.name = input.name;
+      if (input.characterType !== undefined) {
+        updates.characterType = input.characterType;
+      }
+      if (input.description !== undefined) updates.description = input.description;
+      if (input.personality !== undefined) updates.personality = input.personality;
+      if (input.background !== undefined) updates.background = input.background;
+      if (input.initialStats !== undefined) updates.initialStats = input.initialStats;
+      if (input.goals !== undefined) updates.goals = input.goals;
+      if (input.secrets !== undefined) updates.secrets = input.secrets;
+      if (input.initialState !== undefined) updates.initialState = input.initialState;
+      if (input.initialLocation !== undefined) {
+        updates.initialLocation = input.initialLocation;
+      }
+      if (input.metadata !== undefined) updates.metadata = input.metadata;
+
+      return firstOrThrow(
+        await this.db
+          .update(storyCharacters)
+          .set(updates)
+          .where(
+            and(
+              eq(storyCharacters.storyId, input.storyId),
+              eq(storyCharacters.id, input.characterId)
+            )
+          )
+          .returning(),
+        new NotFoundError("Story character")
+      );
+    });
+  }
+
+  async deleteCharacter(storyId: string, characterId: string): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .delete(storyCharacters)
+        .where(
+          and(
+            eq(storyCharacters.storyId, storyId),
+            eq(storyCharacters.id, characterId)
+          )
+        );
+    });
+  }
+
   getCharacterForStory(
     storyId: string,
     characterId: string
@@ -359,6 +485,147 @@ export class DrizzleStoryRepository
           .limit(1)
       )
     );
+  }
+}
+
+export class DrizzleStoryFactionRepository
+  extends BaseRepository
+  implements StoryFactionRepository
+{
+  create(input: CreateStoryFactionInput): Promise<StoryFactionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyFactions).values(input).returning(),
+        new ConflictError("Story faction could not be created.")
+      )
+    );
+  }
+
+  listForStory(storyId: string): Promise<StoryFactionRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyFactions)
+        .where(eq(storyFactions.storyId, storyId))
+        .orderBy(storyFactions.createdAt, storyFactions.id)
+    );
+  }
+
+  getForStory(
+    storyId: string,
+    factionId: string
+  ): Promise<StoryFactionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyFactions)
+          .where(and(eq(storyFactions.storyId, storyId), eq(storyFactions.id, factionId)))
+          .limit(1)
+      )
+    );
+  }
+
+  getByKey(storyId: string, factionKey: string): Promise<StoryFactionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyFactions)
+          .where(
+            and(
+              eq(storyFactions.storyId, storyId),
+              eq(storyFactions.factionKey, factionKey)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  update(input: UpdateStoryFactionInput): Promise<StoryFactionRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof storyFactions.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.factionKey !== undefined) updates.factionKey = input.factionKey;
+      if (input.name !== undefined) updates.name = input.name;
+      if (input.description !== undefined) updates.description = input.description;
+      if (input.initialStatus !== undefined) {
+        updates.initialStatus = input.initialStatus;
+      }
+      if (input.initialInfluence !== undefined) {
+        updates.initialInfluence = input.initialInfluence;
+      }
+      if (input.resources !== undefined) updates.resources = input.resources;
+      if (input.goals !== undefined) updates.goals = input.goals;
+      if (input.state !== undefined) updates.state = input.state;
+
+      return firstOrThrow(
+        await this.db
+          .update(storyFactions)
+          .set(updates)
+          .where(
+            and(
+              eq(storyFactions.storyId, input.storyId),
+              eq(storyFactions.id, input.factionId)
+            )
+          )
+          .returning(),
+        new NotFoundError("Story faction")
+      );
+    });
+  }
+
+  async delete(storyId: string, factionId: string): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .delete(storyFactions)
+        .where(and(eq(storyFactions.storyId, storyId), eq(storyFactions.id, factionId)));
+    });
+  }
+}
+
+export class DrizzleStoryFactionRelationshipRepository
+  extends BaseRepository
+  implements StoryFactionRelationshipRepository
+{
+  create(
+    input: CreateStoryFactionRelationshipInput
+  ): Promise<StoryFactionRelationshipRecord> {
+    return this.run(async () => {
+      if (input.sourceFactionId === input.targetFactionId) {
+        throw new ValidationError("Faction relationship cannot target itself.");
+      }
+
+      return firstOrThrow(
+        await this.db.insert(storyFactionRelationships).values(input).returning(),
+        new ConflictError("Story faction relationship could not be created.")
+      );
+    });
+  }
+
+  listForStory(storyId: string): Promise<StoryFactionRelationshipRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyFactionRelationships)
+        .where(eq(storyFactionRelationships.storyId, storyId))
+    );
+  }
+
+  async delete(storyId: string, relationshipId: string): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .delete(storyFactionRelationships)
+        .where(
+          and(
+            eq(storyFactionRelationships.storyId, storyId),
+            eq(storyFactionRelationships.id, relationshipId)
+          )
+        );
+    });
   }
 }
 

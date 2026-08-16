@@ -77,6 +77,10 @@ export class SessionService {
       throw new BadRequestError("Selected character does not belong to this story.");
     }
 
+    if (character.characterType !== "playable") {
+      throw new BadRequestError("Selected character is not playable.");
+    }
+
     const session = await this.runInTransaction(async (context) => {
       const createdSession = await context.repositories.gameSessions.create({
         userId: user.userId,

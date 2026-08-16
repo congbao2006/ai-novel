@@ -39,6 +39,7 @@ In scope:
 - NPC runtime intelligence foundation for session-owned NPC identity, bounded NPC knowledge context, and optional AI-driven NPC reactions during player turns.
 - Quest/consequence engine expansion for validated quest lifecycle changes, inventory changes, relationship deltas, reputation-like state flags, NPC runtime state patches, memories, and meaningful world events.
 - World/faction simulation foundation with session-owned factions, faction relationships, explicit deterministic ticks, bounded rule outputs, and server-owned persistence.
+- Playable content authoring foundation for owner-managed story drafts, world instructions, opening setup, playable/NPC character templates, faction templates, initial settings, validation, and publishing.
 
 Out of scope:
 
@@ -46,7 +47,7 @@ Out of scope:
 - Payment or coin system implementation.
 - User-visible token/cost dashboard.
 - Admin dashboard implementation.
-- Story creation implementation.
+- Collaborative story creation, marketplace workflows, ratings/comments, and AI-assisted full-story generation.
 - Autonomous NPC/world simulation, background world ticks, and runtime quest generation.
 
 ## Core Product Concepts
@@ -59,9 +60,20 @@ A registered account that owns characters, sessions, saves, inventory progress, 
 
 A playable narrative world with metadata, genre, entry points, rules, character options, world state templates, NPC definitions, and quest/event configuration.
 
+Authors can now create story drafts, edit owner-only authoring fields, validate them, and publish playable content. Public catalog endpoints expose only published metadata and playable character templates; internal world instructions, opening setup, NPC secrets, and authoring-only template data remain server-side.
+
+Published stories use a conservative mutation policy. Public metadata may be edited, but runtime-critical fields such as world instructions, opening setup, initial settings, characters, and factions are locked after publish. Structural changes should be made through future story versioning rather than mutating active published content in place.
+
 ### Character
 
 A player-controlled identity inside a story. A character can be selected from templates or created by the player under story constraints.
+
+Story character templates now have an explicit type:
+
+- `playable`: selectable by players when creating a session.
+- `npc`: cloned into session-owned runtime NPC rows when a session starts.
+
+Template data defines initial conditions only. Runtime gameplay never writes changes back to story templates.
 
 ### Session
 
@@ -100,6 +112,8 @@ Consequence chaining is intentionally bounded and deterministic. For example, co
 ### Faction And World Simulation
 
 Factions are session-owned runtime entities with identity, status, influence, resources, goals, and state. Two users playing the same story receive separate faction runtime rows.
+
+Faction runtime rows are cloned from authored story faction templates. Stories may publish with zero factions; gameplay still works. Application runtime logic no longer depends on hardcoded seed-story slugs to create factions.
 
 World simulation is explicit and deterministic. It can run after gameplay turns when tick policy says it is due, or through a protected manual tick path. It does not run in the background and does not use AI for faction planning.
 

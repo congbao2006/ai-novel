@@ -13,7 +13,7 @@ Memory foundation tables now support rolling summaries, persistent important mem
 Not implemented yet:
 
 - Payment, coin, or wallet tables.
-- Story editor/versioning tables.
+- Story version history, branching, moderation workflow, or marketplace tables.
 
 ## Entity Overview
 
@@ -63,11 +63,20 @@ Important columns:
 - `status`
 - `world_prompt`
 - `opening_prompt`
+- `settings`
 - `created_by_user_id`
 - `created_at`
 - `updated_at`
 
 `slug` is unique. `status` uses `story_status`: `draft`, `published`, `archived`.
+
+`settings` stores bounded authoring configuration for initial runtime setup. Current supported keys are:
+
+- `initialLocation`
+- `initialWorldTime`
+- optional future-safe `statDefinitions`
+
+Published runtime-critical story fields are locked by the application service in the MVP. This avoids active sessions unexpectedly changing behavior while full story version snapshots are still future work.
 
 ### `story_characters`
 
@@ -77,13 +86,66 @@ Important columns:
 
 - `id`
 - `story_id`
+- `character_type`
 - `name`
 - `description`
 - `personality`
 - `background`
+- `goals`
+- `secrets`
 - `initial_stats`
+- `initial_state`
+- `initial_location`
+- `metadata`
 - `created_at`
 - `updated_at`
+
+`character_type` uses `story_character_type`: `playable`, `npc`.
+
+Session creation accepts only `playable` templates as the selected player character. NPC initialization clones only `npc` templates into `npcs`. This replaces the previous temporary policy that inferred NPCs from all non-selected characters.
+
+NPC template `secrets` are authoring/server data. They are copied into runtime NPC rows for NPC AI context but are not exposed through public story DTOs, session DTOs, logs, or browser APIs.
+
+### `story_factions`
+
+Represents authored faction templates for a story.
+
+Important columns:
+
+- `id`
+- `story_id`
+- `faction_key`
+- `name`
+- `description`
+- `initial_status`
+- `initial_influence`
+- `resources`
+- `goals`
+- `state`
+- `created_at`
+- `updated_at`
+
+`(story_id, faction_key)` is unique. `initial_influence` is constrained to `0..100`.
+
+When a session starts, `FactionInitializationService` clones these rows into session-owned `factions`. A story with no faction templates creates zero runtime factions and remains playable.
+
+### `story_faction_relationships`
+
+Represents optional authored directed initial relationships between story faction templates.
+
+Important columns:
+
+- `id`
+- `story_id`
+- `source_faction_id`
+- `target_faction_id`
+- `affinity`
+- `tension`
+- `metadata`
+- `created_at`
+- `updated_at`
+
+The application clones these relationships into runtime `faction_relationships` after faction templates are cloned. Self-edges are rejected and values are constrained to `-100..100`.
 
 ### `game_sessions`
 
@@ -140,15 +202,15 @@ Important columns:
 
 `session_id` is unique so each session has one current state row. `version` is reserved for optimistic state versioning.
 
-When a session is created from a published story, the API creates the `game_sessions` row and first `game_states` row in one transaction. The initial state is deterministic and uses safe defaults:
+When a session is created from a published story, the API creates the `game_sessions` row and first `game_states` row in one transaction. The initial state is deterministic and uses authored story settings where available:
 
-- `location`: `Điểm khởi đầu`
-- `world_time`: `NULL`
+- `location`: selected character `initial_location`, then story `settings.initialLocation`, then legacy fallback `Điểm khởi đầu`
+- `world_time`: story `settings.initialWorldTime` or `NULL`
 - `player_stats`: deep copy of the selected story character's `initial_stats`
 - `flags`: selected story/character markers and `aiEnabled: false`
-- `state_data`: initialization metadata and `gameplayEnabled: false`
+- `state_data`: initialization metadata, copied story settings, copied character initial state, and `gameplayEnabled: false`
 
-The current schema does not yet include authored public initial location/world-time fields on story templates. That is an intentional technical debt for the story-authoring phase, not a reason to expose internal prompts.
+The fallback exists only for legacy data. New publish validation requires an authored initial location.
 
 ### `npcs`
 
@@ -171,7 +233,7 @@ Important columns:
 
 The current schema is sufficient for the NPC runtime intelligence foundation, so no migration was added for this step. `personality`, `goals`, and `secrets` hold runtime NPC identity, while `current_state` stores safe server-owned runtime fields such as location, mood, stance, current goal, attention, and last interaction turn.
 
-When a session starts, the application can clone non-selected story character templates into session-owned NPC rows. Because `story_characters` does not yet distinguish playable templates from NPC templates, the current policy clones every non-selected character template. A future story-authoring schema should add an explicit template role instead of inferring it.
+When a session starts, the application clones only `story_characters.character_type = npc` templates into session-owned NPC rows.
 
 NPC secrets are never returned to browser DTOs and are not written into messages, world events, or usage records by default.
 
@@ -288,7 +350,7 @@ Important columns:
 
 `resources`, `goals`, and `state` are JSONB, but the world simulation layer treats them as bounded server-owned runtime state. MVP resource keys are `wealth`, `manpower`, `supplies`, and `politicalPower`; broader economy simulation is future work.
 
-Because story faction templates do not exist yet, session creation currently creates a small deterministic default faction set per session. Future playable content authoring should replace this with authored faction templates.
+Runtime factions are cloned from `story_factions`. Application runtime logic should not create factions based on hardcoded story slugs.
 
 ### `faction_relationships`
 
@@ -846,6 +908,7 @@ Current migration:
 - `0003_salty_mimic.sql`
 - `0004_careless_yellow_claw.sql`
 - `0005_curvy_gressill.sql`
+- `0006_grey_nekra.sql`
 
 Migration generation does not require a local PostgreSQL server. Applying migrations will require a target database and should not be done against production manually.
 
@@ -870,6 +933,8 @@ Repository groups:
 - `UserRepository`
 - `AuthSessionRepository`
 - `StoryRepository`
+- `StoryFactionRepository`
+- `StoryFactionRelationshipRepository`
 - `GameSessionRepository`
 - `GameMessageRepository`
 - `GameStateRepository`
@@ -927,8 +992,12 @@ Current repository query patterns include:
 - user lookup by ID or email
 - auth session create/validate/revoke/touch
 - story lookup by ID or slug
+- story create/update for owner authoring
 - published story listing
 - story listing by genre or creator
+- character template create/update/delete/list by type
+- story faction template create/update/delete/list
+- story faction relationship template list/create/delete
 - session create/get/list/touch/status update/turn increment
 - message append/recent/page/last turn lookup
 - current state create/get/versioned update

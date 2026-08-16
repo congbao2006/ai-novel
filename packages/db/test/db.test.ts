@@ -26,6 +26,9 @@ import {
   sessionStatusEnum,
   stories,
   storyCharacters,
+  storyCharacterTypeEnum,
+  storyFactionRelationships,
+  storyFactions,
   storyStatusEnum,
   users,
   worldEvents,
@@ -46,6 +49,8 @@ describe("db package", () => {
     expect(aiUsageRecords).toBeDefined();
     expect(stories).toBeDefined();
     expect(storyCharacters).toBeDefined();
+    expect(storyFactions).toBeDefined();
+    expect(storyFactionRelationships).toBeDefined();
     expect(gameSessions).toBeDefined();
     expect(gameMessages).toBeDefined();
     expect(gameStates).toBeDefined();
@@ -68,6 +73,7 @@ describe("db package", () => {
       "published",
       "archived"
     ]);
+    expect(storyCharacterTypeEnum.enumValues).toEqual(["playable", "npc"]);
     expect(sessionStatusEnum.enumValues).toEqual([
       "active",
       "completed",

@@ -61,6 +61,7 @@ Current application services:
 
 - `AuthService` owns registration, login, logout, password hashing, and session cookie identity.
 - `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
+- `StoryAuthoringService` owns authenticated story draft creation, owner-only editing, template management, publish validation, publish/archive transitions, and published runtime-config locking.
 - `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
 - `GameplayService` owns authenticated turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
 - `BudgetService` owns server-side preflight budget checks before paid AI calls.
@@ -138,7 +139,28 @@ Browser
   -> session detail DTO
 ```
 
-The initial state builder is deterministic and does not call an LLM. It copies public character template stats and fills safe defaults until authored public initial world fields are introduced.
+The initial state builder is deterministic and does not call an LLM. It copies public playable character template stats and uses authored initial world settings when present, with legacy safe fallbacks only for older data.
+
+Playable content authoring keeps templates separate from runtime state:
+
+```text
+Author
+  -> story draft
+      -> world config
+      -> playable character templates
+      -> NPC templates
+      -> faction templates
+  -> publish validation
+  -> published story
+  -> player creates session
+      -> game state initialized from story settings
+      -> NPC templates cloned into runtime NPCs
+      -> faction templates cloned into runtime factions
+```
+
+Templates define initial conditions. Runtime tables own evolving state and never write changes back to story authoring data.
+
+The current MVP uses a conservative immutability policy: after publish, runtime-critical fields are locked, including world instructions, opening setup, initial settings, character templates, and faction templates. Public metadata can still change. Full story versioning and runtime story snapshots are the next hardening step.
 
 The current deterministic turn flow uses the same boundary:
 

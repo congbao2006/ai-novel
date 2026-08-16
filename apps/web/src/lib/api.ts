@@ -27,6 +27,55 @@ export type StoryDetail = StoryListItem & {
   readonly characters: StoryCharacter[];
 };
 
+export type AuthorStoryCharacter = {
+  readonly id: string;
+  readonly type: "playable" | "npc";
+  readonly name: string;
+  readonly description: string;
+  readonly personality: string;
+  readonly background: string;
+  readonly goals: readonly unknown[];
+  readonly secrets: Record<string, unknown>;
+  readonly initialStats: Record<string, unknown>;
+  readonly initialState: Record<string, unknown>;
+  readonly initialLocation: string | null;
+  readonly metadata: Record<string, unknown>;
+};
+
+export type AuthorStoryFaction = {
+  readonly id: string;
+  readonly factionKey: string;
+  readonly name: string;
+  readonly description: string;
+  readonly initialStatus: string;
+  readonly initialInfluence: number;
+  readonly resources: Record<string, unknown>;
+  readonly goals: readonly unknown[];
+  readonly state: Record<string, unknown>;
+};
+
+export type AuthorStorySummary = StoryListItem & {
+  readonly status: string;
+  readonly updatedAt: string;
+};
+
+export type AuthorStoryDetail = AuthorStorySummary & {
+  readonly worldPrompt: string;
+  readonly openingPrompt: string;
+  readonly settings: Record<string, unknown>;
+  readonly characters: readonly AuthorStoryCharacter[];
+  readonly factions: readonly AuthorStoryFaction[];
+};
+
+export type AuthorStoryListResponse = {
+  readonly stories: readonly AuthorStorySummary[];
+};
+
+export type PublishValidationResponse = {
+  readonly valid: boolean;
+  readonly issues: readonly { readonly field: string; readonly message: string }[];
+};
+
 export type SessionListItem = {
   readonly id: string;
   readonly story: StoryListItem;

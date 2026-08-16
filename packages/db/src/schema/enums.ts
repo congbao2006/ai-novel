@@ -8,10 +8,15 @@ import {
   messageRoles,
   questStatuses,
   sessionStatuses,
+  storyCharacterTypes,
   storyStatuses
 } from "@ai-novel/domain";
 
 export const storyStatusEnum = pgEnum("story_status", storyStatuses);
+export const storyCharacterTypeEnum = pgEnum(
+  "story_character_type",
+  storyCharacterTypes
+);
 export const sessionStatusEnum = pgEnum("session_status", sessionStatuses);
 export const messageRoleEnum = pgEnum("message_role", messageRoles);
 export const questStatusEnum = pgEnum("quest_status", questStatuses);

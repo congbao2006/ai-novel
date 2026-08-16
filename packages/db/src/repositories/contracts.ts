@@ -14,6 +14,10 @@ import type {
   CreateNpcInput,
   CreateQuestInput,
   CreateSessionInput,
+  CreateStoryInput,
+  CreateStoryCharacterInput,
+  CreateStoryFactionInput,
+  CreateStoryFactionRelationshipInput,
   CreateUserInput,
   CreateWorldSimulationStateInput,
   EntityRef,
@@ -35,7 +39,12 @@ import type {
   SessionSummaryRecord,
   StoryRecord,
   StoryCharacterRecord,
+  StoryFactionRecord,
+  StoryFactionRelationshipRecord,
   StoryListPageInput,
+  UpdateStoryCharacterInput,
+  UpdateStoryFactionInput,
+  UpdateStoryInput,
   UpdateNpcRuntimeStateInput,
   UpdateQuestInput,
   UpdateSessionMetadataInput,
@@ -69,17 +78,43 @@ export type AuthSessionRepository = {
 };
 
 export type StoryRepository = {
+  create(input: CreateStoryInput): Promise<StoryRecord>;
   getById(id: string): Promise<StoryRecord | null>;
   getBySlug(slug: string): Promise<StoryRecord | null>;
+  update(storyId: string, input: UpdateStoryInput): Promise<StoryRecord>;
   listPublishedPage(input: StoryListPageInput): Promise<StoryRecord[]>;
   listPublished(limit?: number): Promise<StoryRecord[]>;
   listByGenre(genre: string, limit?: number): Promise<StoryRecord[]>;
   listCreatedByUser(userId: string): Promise<StoryRecord[]>;
   listCharactersForStory(storyId: string): Promise<StoryCharacterRecord[]>;
+  listCharactersForStoryByType(
+    storyId: string,
+    characterType: StoryCharacterRecord["characterType"]
+  ): Promise<StoryCharacterRecord[]>;
+  createCharacter(input: CreateStoryCharacterInput): Promise<StoryCharacterRecord>;
+  updateCharacter(input: UpdateStoryCharacterInput): Promise<StoryCharacterRecord>;
+  deleteCharacter(storyId: string, characterId: string): Promise<void>;
   getCharacterForStory(
     storyId: string,
     characterId: string
   ): Promise<StoryCharacterRecord | null>;
+};
+
+export type StoryFactionRepository = {
+  create(input: CreateStoryFactionInput): Promise<StoryFactionRecord>;
+  listForStory(storyId: string): Promise<StoryFactionRecord[]>;
+  getForStory(storyId: string, factionId: string): Promise<StoryFactionRecord | null>;
+  getByKey(storyId: string, factionKey: string): Promise<StoryFactionRecord | null>;
+  update(input: UpdateStoryFactionInput): Promise<StoryFactionRecord>;
+  delete(storyId: string, factionId: string): Promise<void>;
+};
+
+export type StoryFactionRelationshipRepository = {
+  create(
+    input: CreateStoryFactionRelationshipInput
+  ): Promise<StoryFactionRelationshipRecord>;
+  listForStory(storyId: string): Promise<StoryFactionRelationshipRecord[]>;
+  delete(storyId: string, relationshipId: string): Promise<void>;
 };
 
 export type GameSessionRepository = {

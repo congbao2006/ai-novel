@@ -15,7 +15,8 @@ export class NPCInitializationService {
       input.story.id
     );
     const npcTemplates = templates.filter(
-      (template) => template.id !== input.selectedCharacterId
+      (template) =>
+        template.characterType === "npc" && template.id !== input.selectedCharacterId
     );
 
     for (const template of npcTemplates) {
@@ -33,10 +34,11 @@ function buildRuntimeNPC(sessionId: string, template: StoryCharacterRecord) {
     name: template.name,
     description: template.description,
     personality: normalizePersonality(template.personality),
-    goals: [],
-    secrets: {},
+    goals: JSON.parse(JSON.stringify(template.goals)) as unknown[],
+    secrets: copyJsonObject(template.secrets),
     currentState: {
-      location: "Điểm khởi đầu",
+      ...copyJsonObject(template.initialState),
+      location: template.initialLocation ?? "Điểm khởi đầu",
       mood: "neutral",
       stance: "observing",
       currentGoal: null,
@@ -44,6 +46,10 @@ function buildRuntimeNPC(sessionId: string, template: StoryCharacterRecord) {
     },
     alive: true
   };
+}
+
+function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
 function normalizePersonality(value: unknown): Record<string, unknown> {

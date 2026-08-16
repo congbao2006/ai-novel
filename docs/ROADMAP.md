@@ -402,7 +402,7 @@ Completed:
 - Added `FactionRepository`, `FactionRelationshipRepository`, and `WorldSimulationStateRepository`.
 - Added provider-neutral domain contracts for faction runtime, faction relations, world signals, world simulation context, and world tick plans.
 - Added deterministic `runWorldSimulation`, `shouldRunWorldTick`, and explicit signal derivation from safe metadata.
-- Added `FactionInitializationService` with deterministic default factions until authored faction templates exist.
+- Added `FactionInitializationService` for deterministic runtime faction cloning. The temporary default faction policy has been superseded by authored faction templates in the playable content authoring phase.
 - Added `WorldSimulationService` with post-turn/manual explicit tick execution and optimistic tick state concurrency.
 - Added protected `GET /sessions/:id/factions` and `POST /sessions/:id/world-tick`.
 - Added minimal play-page faction status display.
@@ -411,6 +411,44 @@ Completed:
 Next step:
 
 - Playable Content Authoring Foundation. This should replace default runtime faction/quest setup with authored templates and validation before deeper world event propagation or NPC affiliation features.
+
+## Phase 4.12: Playable Content Authoring Foundation
+
+Status: completed.
+
+Goals:
+
+- Add owner-managed story drafts.
+- Let authenticated authors edit story metadata, public description, internal world instructions, opening setup, playable character templates, NPC templates, faction templates, and initial world settings.
+- Validate drafts before publishing.
+- Ensure published stories can be played by the existing runtime engine without hardcoded story slugs.
+- Keep template data separate from runtime data.
+
+Completed:
+
+- Added `story_character_type` with explicit `playable` and `npc` template roles.
+- Added bounded `stories.settings` for initial location and world time.
+- Added NPC-template fields on `story_characters`: goals, secrets, initial state, initial location, and metadata.
+- Added `story_factions` and `story_faction_relationships` for authored faction templates and initial faction relations.
+- Added `StoryAuthoringService` with create draft, owner-only read/update, character/faction template management, publish validation, publish, and archive.
+- Added protected `/author/stories` authoring APIs.
+- Added minimal `/author`, `/author/stories/new`, and `/author/stories/[id]` web routes.
+- Updated session creation so selected player characters must be `playable`.
+- Updated NPC initialization to clone only `npc` templates.
+- Updated faction initialization to clone authored faction templates instead of hardcoded seed-story defaults.
+- Updated initial game state to use authored initial world settings.
+- Updated seed data with explicit playable/NPC templates, story settings, and faction templates.
+
+Policy:
+
+- Drafts are freely editable by the owner.
+- Published runtime-critical fields are locked in the MVP: world instructions, opening setup, initial settings, character templates, and faction templates.
+- Public metadata may still be edited.
+- Runtime state never writes back to story authoring templates.
+
+Next step:
+
+- Story Versioning + Runtime Snapshot Hardening. This should introduce durable runtime story snapshots or version records so future published changes can coexist safely with active sessions.
 
 ## Phase 5: Story Creation Tools
 
