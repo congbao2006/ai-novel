@@ -73,6 +73,21 @@ export type ConsequenceSummary = {
   readonly description: string;
 };
 
+export type Faction = {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly description: string;
+  readonly status: string;
+  readonly influence: number;
+  readonly resources: Record<string, unknown>;
+  readonly goals: readonly unknown[];
+};
+
+export type FactionListResponse = {
+  readonly factions: Faction[];
+};
+
 export type SessionDetail = SessionListItem & {
   readonly currentState: GameState | null;
   readonly recentMessages: GameMessage[];

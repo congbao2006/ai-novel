@@ -55,6 +55,7 @@ import type { MemoryContextBuilder } from "./memory-context-builder.js";
 import type { NPCReactionService } from "./npc-reaction-service.js";
 import type { SummaryService } from "./summary-service.js";
 import type { TransactionRunner } from "./service.js";
+import type { WorldSimulationService } from "./world-simulation-service.js";
 
 export type SubmitTurnInputDto = {
   readonly action: string;
@@ -70,6 +71,7 @@ export type GameplayServiceOptions = {
   readonly summaryService?: SummaryService;
   readonly npcReactionService?: NPCReactionService;
   readonly consequenceEngine?: ConsequenceEngine;
+  readonly worldSimulationService?: WorldSimulationService;
 };
 
 type PersistedTurnResult = {
@@ -86,6 +88,7 @@ export class GameplayService {
   private readonly summaryService: SummaryService | undefined;
   private readonly npcReactionService: NPCReactionService | undefined;
   private readonly consequenceEngine: ConsequenceEngine;
+  private readonly worldSimulationService: WorldSimulationService | undefined;
 
   constructor(
     private readonly repositories: Repositories,
@@ -100,6 +103,7 @@ export class GameplayService {
     this.summaryService = options.summaryService;
     this.npcReactionService = options.npcReactionService;
     this.consequenceEngine = options.consequenceEngine ?? new ConsequenceEngine();
+    this.worldSimulationService = options.worldSimulationService;
     this.runInTransaction =
       transactionRunner ??
       (database
@@ -131,7 +135,7 @@ export class GameplayService {
     action: string
   ): Promise<GameplayTurnResponseDto> {
     try {
-      return await this.runInTransaction(async (context) => {
+      const persisted = await this.runInTransaction(async (context) => {
         const { session, state, story, character } =
           await loadOwnedActiveTurnSnapshot(context, user, sessionId);
 
@@ -174,7 +178,7 @@ export class GameplayService {
           baseEvents: engineResult.events
         });
 
-        const persisted = await persistTurn(context, {
+        return persistTurn(context, {
           sessionId: session.id,
           expectedVersion: state.version,
           turnNumber,
@@ -182,9 +186,22 @@ export class GameplayService {
           plan,
           preAppendedPlayerMessage: playerMessage
         });
-
-        return persisted.response;
       });
+
+      await this.runWorldTickAfterTurn({
+        userId: user.userId,
+        sessionId,
+        turnNumber: persisted.response.turnNumber,
+        events: persisted.response.events.map((event) => ({
+          eventType: event.eventType,
+          title: event.title,
+          description: event.description,
+          importance: event.importance,
+          payload: event.payload
+        }))
+      });
+
+      return persisted.response;
     } catch (error) {
       if (error instanceof StateVersionConflictError) {
         throw new ConflictApplicationError("Game state changed before this turn was saved.");
@@ -306,6 +323,18 @@ export class GameplayService {
         sessionId,
         memories: persisted.memories
       });
+      await this.runWorldTickAfterTurn({
+        userId: user.userId,
+        sessionId,
+        turnNumber: persisted.response.turnNumber,
+        events: persisted.response.events.map((event) => ({
+          eventType: event.eventType,
+          title: event.title,
+          description: event.description,
+          importance: event.importance,
+          payload: event.payload
+        }))
+      });
       await this.refreshSummaryAfterTurn(user, sessionId, persisted.response.turnNumber);
 
       return persisted.response;
@@ -379,6 +408,32 @@ export class GameplayService {
     } catch {
       // Summary refresh is best-effort in the request path. Gameplay persistence
       // has already completed and must not be rolled back by memory maintenance.
+    }
+  }
+
+  private async runWorldTickAfterTurn(input: {
+    readonly userId: string;
+    readonly sessionId: string;
+    readonly turnNumber: number;
+    readonly events: readonly {
+      readonly eventType: string;
+      readonly title: string;
+      readonly description: string;
+      readonly importance: number;
+      readonly payload: Record<string, unknown>;
+    }[];
+  }): Promise<void> {
+    try {
+      await this.worldSimulationService?.runIfDue({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        turnNumber: input.turnNumber,
+        reason: "gameplay_turn",
+        turnEvents: input.events
+      });
+    } catch {
+      // World simulation is post-turn maintenance. A completed gameplay turn
+      // must remain committed if a bounded world tick fails.
     }
   }
 }

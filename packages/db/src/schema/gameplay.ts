@@ -17,6 +17,7 @@ import {
   aiUsagePurposeEnum,
   aiUsageStatusEnum,
   entityTypeEnum,
+  factionStatusEnum,
   memoryTypeEnum,
   messageRoleEnum,
   questStatusEnum,
@@ -369,6 +370,138 @@ export const worldEvents = pgTable(
   ]
 );
 
+export const factions = pgTable(
+  "factions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => gameSessions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    factionKey: text("faction_key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    status: factionStatusEnum("status").notNull().default("active"),
+    influence: integer("influence").notNull().default(50),
+    resources: jsonb("resources")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    goals: jsonb("goals").$type<unknown[]>().notNull().default([]),
+    state: jsonb("state")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("factions_session_key_unique").on(
+      table.sessionId,
+      table.factionKey
+    ),
+    index("factions_session_status_idx").on(table.sessionId, table.status),
+    check("factions_influence_range", sql`${table.influence} between 0 and 100`),
+    check("factions_key_non_empty", sql`${table.factionKey} <> ''`)
+  ]
+);
+
+export const factionRelationships = pgTable(
+  "faction_relationships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => gameSessions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    sourceFactionId: uuid("source_faction_id")
+      .notNull()
+      .references(() => factions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    targetFactionId: uuid("target_faction_id")
+      .notNull()
+      .references(() => factions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    affinity: integer("affinity").notNull().default(0),
+    tension: integer("tension").notNull().default(0),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("faction_relationships_unique_edge_idx").on(
+      table.sessionId,
+      table.sourceFactionId,
+      table.targetFactionId
+    ),
+    index("faction_relationships_session_source_idx").on(
+      table.sessionId,
+      table.sourceFactionId
+    ),
+    index("faction_relationships_session_target_idx").on(
+      table.sessionId,
+      table.targetFactionId
+    ),
+    check(
+      "faction_relationships_affinity_range",
+      sql`${table.affinity} between -100 and 100`
+    ),
+    check(
+      "faction_relationships_tension_range",
+      sql`${table.tension} between -100 and 100`
+    ),
+    check(
+      "faction_relationships_no_self_edge",
+      sql`${table.sourceFactionId} <> ${table.targetFactionId}`
+    )
+  ]
+);
+
+export const worldSimulationStates = pgTable(
+  "world_simulation_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => gameSessions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    lastTickTurn: integer("last_tick_turn").notNull().default(0),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("world_simulation_states_session_unique").on(table.sessionId),
+    check(
+      "world_simulation_states_last_tick_non_negative",
+      sql`${table.lastTickTurn} >= 0`
+    ),
+    check("world_simulation_states_version_positive", sql`${table.version} > 0`)
+  ]
+);
+
 export const aiUsageRecords = pgTable(
   "ai_usage_records",
   {
@@ -592,6 +725,9 @@ export const gameSessionsRelations = relations(gameSessions, ({ one, many }) => 
   inventoryItems: many(inventoryItems),
   quests: many(quests),
   worldEvents: many(worldEvents),
+  factions: many(factions),
+  factionRelationships: many(factionRelationships),
+  worldSimulationState: one(worldSimulationStates),
   aiUsageRecords: many(aiUsageRecords),
   summary: one(sessionSummaries),
   memories: many(sessionMemories)
@@ -650,6 +786,49 @@ export const worldEventsRelations = relations(worldEvents, ({ one }) => ({
   })
 }));
 
+export const factionsRelations = relations(factions, ({ one, many }) => ({
+  session: one(gameSessions, {
+    fields: [factions.sessionId],
+    references: [gameSessions.id]
+  }),
+  outgoingRelations: many(factionRelationships, {
+    relationName: "sourceFaction"
+  }),
+  incomingRelations: many(factionRelationships, {
+    relationName: "targetFaction"
+  })
+}));
+
+export const factionRelationshipsRelations = relations(
+  factionRelationships,
+  ({ one }) => ({
+    session: one(gameSessions, {
+      fields: [factionRelationships.sessionId],
+      references: [gameSessions.id]
+    }),
+    sourceFaction: one(factions, {
+      fields: [factionRelationships.sourceFactionId],
+      references: [factions.id],
+      relationName: "sourceFaction"
+    }),
+    targetFaction: one(factions, {
+      fields: [factionRelationships.targetFactionId],
+      references: [factions.id],
+      relationName: "targetFaction"
+    })
+  })
+);
+
+export const worldSimulationStatesRelations = relations(
+  worldSimulationStates,
+  ({ one }) => ({
+    session: one(gameSessions, {
+      fields: [worldSimulationStates.sessionId],
+      references: [gameSessions.id]
+    })
+  })
+);
+
 export const aiUsageRecordsRelations = relations(aiUsageRecords, ({ one }) => ({
   user: one(users, {
     fields: [aiUsageRecords.userId],
@@ -699,6 +878,12 @@ export type Quest = typeof quests.$inferSelect;
 export type NewQuest = typeof quests.$inferInsert;
 export type WorldEvent = typeof worldEvents.$inferSelect;
 export type NewWorldEvent = typeof worldEvents.$inferInsert;
+export type Faction = typeof factions.$inferSelect;
+export type NewFaction = typeof factions.$inferInsert;
+export type FactionRelationship = typeof factionRelationships.$inferSelect;
+export type NewFactionRelationship = typeof factionRelationships.$inferInsert;
+export type WorldSimulationState = typeof worldSimulationStates.$inferSelect;
+export type NewWorldSimulationState = typeof worldSimulationStates.$inferInsert;
 export type AIUsageRecord = typeof aiUsageRecords.$inferSelect;
 export type NewAIUsageRecord = typeof aiUsageRecords.$inferInsert;
 export type SessionSummary = typeof sessionSummaries.$inferSelect;

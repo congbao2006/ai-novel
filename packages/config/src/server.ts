@@ -50,6 +50,9 @@ const serverConfigSchema = z.object({
   gameplay: z.object({
     engineMode: z.enum(["deterministic", "ai"]).default("deterministic"),
     maxNpcReactionsPerTurn: z.coerce.number().int().min(0).max(5).default(2)
+  }),
+  world: z.object({
+    tickIntervalTurns: z.coerce.number().int().positive().default(5)
   })
 }).superRefine((config, context) => {
   if (config.ai.provider === "openai") {
@@ -198,6 +201,9 @@ export function getServerConfig(
     gameplay: {
       engineMode: env.GAMEPLAY_ENGINE_MODE,
       maxNpcReactionsPerTurn: env.AI_MAX_NPC_REACTIONS_PER_TURN
+    },
+    world: {
+      tickIntervalTurns: env.WORLD_TICK_INTERVAL_TURNS
     }
   });
 

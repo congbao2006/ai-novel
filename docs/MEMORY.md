@@ -269,6 +269,19 @@ NPC-specific consequence memories can be stored with `subject_type = npc` and `s
 
 Embedding remains best-effort after the gameplay transaction commits. If memory embedding fails, the quest/inventory/relationship/state consequence remains committed and deterministic memory retrieval still works.
 
+## World Simulation Memories
+
+World ticks can create server-generated `memory_type = world` memories for major faction/world changes:
+
+- faction weakened
+- faction collapsed
+- major influence shift
+- notable faction relationship tension
+
+Trivial numerical changes do not create memory spam. World memories are context for future AI turns; they do not override `game_states`, `factions`, or `faction_relationships`.
+
+A world memory does not automatically become knowledge for every NPC. NPC knowledge builders may include only public or explicitly relevant world events/memories according to the existing NPC knowledge boundary. Future event propagation can make this richer without changing the core memory storage model.
+
 ## Summary Output Contract
 
 Summary refresh uses structured output:

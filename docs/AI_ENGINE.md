@@ -200,6 +200,24 @@ The engine rejects arbitrary operation objects, direct IDs/timestamps/session ow
 
 Rule chaining is deterministic and capped. Current rules derive generic events and memory candidates for quest changes, inventory acquisition, and relationship threshold crossings. The rule registry does not call an LLM.
 
+## World And Faction Simulation
+
+World/faction simulation is intentionally not an AI planning system.
+
+```text
+Gameplay consequences
+  -> WorldTickPolicy
+  -> WorldSimulationEngine
+  -> WorldRuleRegistry
+  -> WorldTickPlan
+  -> server validation
+  -> atomic world transaction
+```
+
+The simulation engine is deterministic and provider-neutral. It consumes bounded explicit signals from validated consequences/world events, such as `faction_helped`, `faction_harmed`, `quest_completed`, or `major_loss`. It does not infer faction effects from raw narrative prose and does not call `AIGateway`.
+
+AI narrates. NPC AI proposes. Consequence engine resolves player-turn effects. World simulation resolves bounded world-level faction effects. The database remains authoritative.
+
 ## Prompt, Context, And Memory Strategy
 
 The prompt builder separates:

@@ -8,13 +8,17 @@ import type {
   AuthUserRecord,
   ChangeInventoryQuantityInput,
   CreateAuthSessionInput,
+  CreateFactionInput,
   CreateInitialStateInput,
+  CreateMemoryInput,
   CreateNpcInput,
   CreateQuestInput,
   CreateSessionInput,
   CreateUserInput,
-  CreateMemoryInput,
+  CreateWorldSimulationStateInput,
   EntityRef,
+  FactionRecord,
+  FactionRelationshipRecord,
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
@@ -38,11 +42,15 @@ import type {
   UpdateStateInput,
   UpdateMemoryInput,
   UpdateSessionSummaryWithVersionInput,
+  UpdateWorldSimulationStateInput,
+  UpsertFactionRelationshipInput,
   UpsertMemoryEmbeddingInput,
   UpsertSessionSummaryInput,
   UpsertRelationshipInput,
   UserRecord,
-  WorldEventRecord
+  UpdateFactionInput,
+  WorldEventRecord,
+  WorldSimulationStateRecord
 } from "./types.js";
 
 export type UserRepository = {
@@ -150,6 +158,36 @@ export type WorldEventRepository = {
     minimumImportance: number,
     limit?: number
   ): Promise<WorldEventRecord[]>;
+};
+
+export type FactionRepository = {
+  create(input: CreateFactionInput): Promise<FactionRecord>;
+  listBySession(sessionId: string): Promise<FactionRecord[]>;
+  getByKey(sessionId: string, factionKey: string): Promise<FactionRecord | null>;
+  getByIdForSession(sessionId: string, factionId: string): Promise<FactionRecord | null>;
+  updateRuntimeState(input: UpdateFactionInput): Promise<FactionRecord>;
+};
+
+export type FactionRelationshipRepository = {
+  listForSession(sessionId: string): Promise<FactionRelationshipRecord[]>;
+  getRelation(
+    sessionId: string,
+    sourceFactionId: string,
+    targetFactionId: string
+  ): Promise<FactionRelationshipRecord | null>;
+  upsertRelation(
+    input: UpsertFactionRelationshipInput
+  ): Promise<FactionRelationshipRecord>;
+};
+
+export type WorldSimulationStateRepository = {
+  getForSession(sessionId: string): Promise<WorldSimulationStateRecord | null>;
+  createInitial(
+    input: CreateWorldSimulationStateInput
+  ): Promise<WorldSimulationStateRecord>;
+  updateAfterTickWithVersion(
+    input: UpdateWorldSimulationStateInput
+  ): Promise<WorldSimulationStateRecord>;
 };
 
 export type AIUsageRepository = {

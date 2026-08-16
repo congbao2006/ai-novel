@@ -6,6 +6,9 @@ import {
   aiUsageStatusEnum,
   developmentSeedData,
   entityTypeEnum,
+  factionRelationships,
+  factionStatusEnum,
+  factions,
   gameMessages,
   gameSessions,
   gameStates,
@@ -25,7 +28,8 @@ import {
   storyCharacters,
   storyStatusEnum,
   users,
-  worldEvents
+  worldEvents,
+  worldSimulationStates
 } from "../src/index.js";
 
 describe("db package", () => {
@@ -45,6 +49,9 @@ describe("db package", () => {
     expect(gameSessions).toBeDefined();
     expect(gameMessages).toBeDefined();
     expect(gameStates).toBeDefined();
+    expect(factions).toBeDefined();
+    expect(factionRelationships).toBeDefined();
+    expect(worldSimulationStates).toBeDefined();
     expect(npcs).toBeDefined();
     expect(relationships).toBeDefined();
     expect(inventoryItems).toBeDefined();
@@ -78,6 +85,12 @@ describe("db package", () => {
       "failed"
     ]);
     expect(entityTypeEnum.enumValues).toEqual(["player", "npc"]);
+    expect(factionStatusEnum.enumValues).toEqual([
+      "active",
+      "weakened",
+      "collapsed",
+      "hidden"
+    ]);
     expect(memoryTypeEnum.enumValues).toEqual([
       "fact",
       "relationship",

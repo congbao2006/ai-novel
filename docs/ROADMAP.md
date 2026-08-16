@@ -384,6 +384,34 @@ Next step:
 
 - World/Faction Simulation Foundation. This should add explicit world-level systems and faction state without introducing autonomous background ticks until the simulation boundaries are designed.
 
+## Phase 4.11: World/Faction Simulation Foundation
+
+Status: completed.
+
+Goals:
+
+- Add session-owned runtime factions.
+- Add faction relationship and world tick persistence.
+- Keep world simulation deterministic, explicit, bounded, and testable.
+- Let important consequences/world events affect faction/world state through server rules.
+- Avoid background schedulers, autonomous NPC turns, and AI faction planning.
+
+Completed:
+
+- Added `faction_status`, `factions`, `faction_relationships`, and `world_simulation_states`.
+- Added `FactionRepository`, `FactionRelationshipRepository`, and `WorldSimulationStateRepository`.
+- Added provider-neutral domain contracts for faction runtime, faction relations, world signals, world simulation context, and world tick plans.
+- Added deterministic `runWorldSimulation`, `shouldRunWorldTick`, and explicit signal derivation from safe metadata.
+- Added `FactionInitializationService` with deterministic default factions until authored faction templates exist.
+- Added `WorldSimulationService` with post-turn/manual explicit tick execution and optimistic tick state concurrency.
+- Added protected `GET /sessions/:id/factions` and `POST /sessions/:id/world-tick`.
+- Added minimal play-page faction status display.
+- Added tests for domain rules, repository exports/validation, session initialization, faction DTOs, and world tick behavior.
+
+Next step:
+
+- Playable Content Authoring Foundation. This should replace default runtime faction/quest setup with authored templates and validation before deeper world event propagation or NPC affiliation features.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

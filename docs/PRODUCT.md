@@ -38,6 +38,7 @@ In scope:
 - Semantic memory retrieval for persistent memories using deterministic filtering, embeddings, importance, and recency.
 - NPC runtime intelligence foundation for session-owned NPC identity, bounded NPC knowledge context, and optional AI-driven NPC reactions during player turns.
 - Quest/consequence engine expansion for validated quest lifecycle changes, inventory changes, relationship deltas, reputation-like state flags, NPC runtime state patches, memories, and meaningful world events.
+- World/faction simulation foundation with session-owned factions, faction relationships, explicit deterministic ticks, bounded rule outputs, and server-owned persistence.
 
 Out of scope:
 
@@ -46,7 +47,7 @@ Out of scope:
 - User-visible token/cost dashboard.
 - Admin dashboard implementation.
 - Story creation implementation.
-- Autonomous NPC world simulation and runtime quest generation.
+- Autonomous NPC/world simulation, background world ticks, and runtime quest generation.
 
 ## Core Product Concepts
 
@@ -95,6 +96,14 @@ Quest state is session-owned runtime state with a small lifecycle: `inactive -> 
 Gameplay outcomes can now produce structured consequences. The AI and NPC reaction engines may suggest intent, but the server validates every target, key, delta, quantity, and quest transition before persistence. Consequences can affect quests, inventory, relationships, reputation-like state namespaces, NPC-owned runtime state, world events, and important memories.
 
 Consequence chaining is intentionally bounded and deterministic. For example, completing a quest can create a world event and quest memory, but it cannot recurse indefinitely or run another AI call.
+
+### Faction And World Simulation
+
+Factions are session-owned runtime entities with identity, status, influence, resources, goals, and state. Two users playing the same story receive separate faction runtime rows.
+
+World simulation is explicit and deterministic. It can run after gameplay turns when tick policy says it is due, or through a protected manual tick path. It does not run in the background and does not use AI for faction planning.
+
+Consequences and important world events may provide explicit faction signals such as a faction being helped or harmed. The world simulation engine turns those signals into bounded faction changes, faction relationship changes, world events, and world memories. The server validates and persists the result; AI never directly mutates faction or world state.
 
 ### Save
 

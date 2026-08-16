@@ -16,14 +16,17 @@ import {
 } from "../../errors.js";
 import type { CurrentUser } from "../auth/dto.js";
 import { buildInitialGameState } from "./initial-state.js";
+import type { FactionInitializationService } from "./faction-initialization-service.js";
 import type { NPCInitializationService } from "./npc-initialization-service.js";
 import {
   toGameMessageDto,
   toGameStateDto,
+  toFactionDto,
   toInventoryItemDto,
   toQuestDto,
   toSessionListItemDto,
   type CreateSessionResponseDto,
+  type FactionListResponseDto,
   type InventoryResponseDto,
   type QuestListResponseDto,
   type SessionDetailDto,
@@ -46,7 +49,8 @@ export class SessionService {
     private readonly repositories: Repositories,
     database?: DatabaseClient,
     transactionRunner?: TransactionRunner,
-    private readonly npcInitializationService?: NPCInitializationService
+    private readonly npcInitializationService?: NPCInitializationService,
+    private readonly factionInitializationService?: FactionInitializationService
   ) {
     this.runInTransaction =
       transactionRunner ??
@@ -89,6 +93,11 @@ export class SessionService {
         sessionId: createdSession.id,
         story,
         selectedCharacterId: character.id
+      });
+      await this.factionInitializationService?.initializeForSession({
+        context,
+        sessionId: createdSession.id,
+        story
       });
 
       return createdSession;
@@ -149,6 +158,18 @@ export class SessionService {
 
     return {
       items: items.map(toInventoryItemDto)
+    };
+  }
+
+  async listSessionFactions(
+    user: CurrentUser,
+    sessionId: string
+  ): Promise<FactionListResponseDto> {
+    await this.requireOwnedSession(user.userId, sessionId);
+    const factions = await this.repositories.factions.listBySession(sessionId);
+
+    return {
+      factions: factions.map(toFactionDto)
     };
   }
 

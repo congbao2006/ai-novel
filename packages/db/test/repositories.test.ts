@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   ConflictError,
   DrizzleAIUsageRepository,
+  DrizzleFactionRelationshipRepository,
+  DrizzleFactionRepository,
   DrizzleGameStateRepository,
   DrizzleInventoryRepository,
   DrizzleMemoryRepository,
   DrizzleSemanticMemoryRepository,
   DrizzleSessionSummaryRepository,
+  DrizzleWorldSimulationStateRepository,
   StateVersionConflictError,
   ValidationError,
   assertEntityRefShape,
@@ -41,6 +44,8 @@ describe("repository layer", () => {
     expect(Object.keys(repositories).sort()).toEqual([
       "aiUsage",
       "authSessions",
+      "factionRelationships",
+      "factions",
       "gameMessages",
       "gameSessions",
       "gameStates",
@@ -53,8 +58,55 @@ describe("repository layer", () => {
       "sessionSummaries",
       "stories",
       "users",
-      "worldEvents"
+      "worldEvents",
+      "worldSimulationStates"
     ]);
+  });
+
+  it("validates faction runtime and relation inputs before querying", async () => {
+    const factionRepository = new DrizzleFactionRepository({} as DbExecutor);
+    const relationRepository = new DrizzleFactionRelationshipRepository(
+      {} as DbExecutor
+    );
+
+    await expect(
+      factionRepository.create({
+        sessionId: "session-1",
+        factionKey: "",
+        name: "Faction",
+        description: "A faction.",
+        status: "active",
+        influence: 50,
+        resources: {},
+        goals: [],
+        state: {}
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    await expect(
+      relationRepository.upsertRelation({
+        sessionId: "session-1",
+        sourceFactionId: "faction-1",
+        targetFactionId: "faction-1",
+        affinity: 0,
+        tension: 0,
+        metadata: {}
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("throws ConflictError when world tick optimistic update affects no rows", async () => {
+    const repository = new DrizzleWorldSimulationStateRepository(
+      createEmptyUpdateDb()
+    );
+
+    await expect(
+      repository.updateAfterTickWithVersion({
+        sessionId: "session-1",
+        expectedVersion: 1,
+        lastTickTurn: 5
+      })
+    ).rejects.toBeInstanceOf(ConflictError);
   });
 
   it("rejects malformed embedding vectors before querying", async () => {

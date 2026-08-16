@@ -2,6 +2,7 @@ import type {
   AIUsagePurpose,
   AIUsageStatus,
   EntityType,
+  FactionStatus,
   MemoryType,
   MessageRole,
   QuestStatus,
@@ -14,6 +15,8 @@ import type {
   GameMessage,
   GameSession,
   GameState,
+  Faction,
+  FactionRelationship,
   InventoryItem,
   MemoryEmbedding,
   NewMemoryEmbedding,
@@ -22,12 +25,15 @@ import type {
   NewInventoryItem,
   NewAuthSession,
   NewAIUsageRecord,
+  NewFaction,
+  NewFactionRelationship,
   NewNpc,
   NewQuest,
   NewRelationship,
   NewStory,
   NewUser,
   NewWorldEvent,
+  NewWorldSimulationState,
   Npc,
   Quest,
   Relationship,
@@ -36,11 +42,19 @@ import type {
   Story,
   StoryCharacter,
   User,
-  WorldEvent
+  WorldEvent,
+  WorldSimulationState
 } from "../schema/index.js";
 
-export type { EntityType, MemoryType, MessageRole, QuestStatus, SessionStatus, StoryStatus };
-export type { AIUsagePurpose, AIUsageStatus };
+export type {
+  EntityType,
+  MemoryType,
+  MessageRole,
+  QuestStatus,
+  SessionStatus,
+  StoryStatus
+};
+export type { AIUsagePurpose, AIUsageStatus, FactionStatus };
 
 export type JsonObject = Record<string, unknown>;
 
@@ -183,6 +197,51 @@ export type AppendWorldEventInput = Pick<
   "sessionId" | "eventType" | "title" | "description" | "payload" | "turnNumber"
 > & {
   readonly importance: number;
+};
+
+export type FactionRecord = Faction;
+export type CreateFactionInput = Pick<
+  NewFaction,
+  | "sessionId"
+  | "factionKey"
+  | "name"
+  | "description"
+  | "status"
+  | "influence"
+  | "resources"
+  | "goals"
+  | "state"
+>;
+export type UpdateFactionInput = {
+  readonly sessionId: string;
+  readonly factionId: string;
+  readonly status?: FactionStatus;
+  readonly influence?: number;
+  readonly resources?: JsonObject;
+  readonly goals?: unknown[];
+  readonly state?: JsonObject;
+};
+
+export type FactionRelationshipRecord = FactionRelationship;
+export type UpsertFactionRelationshipInput = Pick<
+  NewFactionRelationship,
+  | "sessionId"
+  | "sourceFactionId"
+  | "targetFactionId"
+  | "affinity"
+  | "tension"
+  | "metadata"
+>;
+
+export type WorldSimulationStateRecord = WorldSimulationState;
+export type CreateWorldSimulationStateInput = Pick<
+  NewWorldSimulationState,
+  "sessionId" | "lastTickTurn"
+>;
+export type UpdateWorldSimulationStateInput = {
+  readonly sessionId: string;
+  readonly expectedVersion: number;
+  readonly lastTickTurn: number;
 };
 
 export type AIUsageRecordRecord = SchemaAIUsageRecord;

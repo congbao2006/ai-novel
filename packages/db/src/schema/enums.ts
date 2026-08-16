@@ -3,6 +3,7 @@ import {
   aiUsagePurposes,
   aiUsageStatuses,
   entityTypes,
+  factionStatuses,
   memoryTypes,
   messageRoles,
   questStatuses,
@@ -15,6 +16,7 @@ export const sessionStatusEnum = pgEnum("session_status", sessionStatuses);
 export const messageRoleEnum = pgEnum("message_role", messageRoles);
 export const questStatusEnum = pgEnum("quest_status", questStatuses);
 export const entityTypeEnum = pgEnum("entity_type", entityTypes);
+export const factionStatusEnum = pgEnum("faction_status", factionStatuses);
 export const aiUsagePurposeEnum = pgEnum("ai_usage_purpose", aiUsagePurposes);
 export const aiUsageStatusEnum = pgEnum("ai_usage_status", aiUsageStatuses);
 export const memoryTypeEnum = pgEnum("memory_type", memoryTypes);

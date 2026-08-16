@@ -7,6 +7,8 @@ import {
   ApiRequestError,
   authRequest,
   type ConsequenceSummary,
+  type Faction,
+  type FactionListResponse,
   type GameMessage,
   type GameplayTurnResponse,
   type SessionDetail
@@ -21,6 +23,7 @@ export default function PlayShellPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [consequences, setConsequences] = useState<ConsequenceSummary[]>([]);
+  const [factions, setFactions] = useState<Faction[]>([]);
 
   useEffect(() => {
     if (!params.sessionId) {
@@ -40,6 +43,10 @@ export default function PlayShellPage() {
       );
       setSession(result);
       setMessages(result.recentMessages);
+      const factionResult = await authRequest<FactionListResponse>(
+        `/sessions/${params.sessionId}/factions`
+      );
+      setFactions(factionResult.factions);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Request failed.");
     } finally {
@@ -67,6 +74,7 @@ export default function PlayShellPage() {
         result.resultMessage
       ]);
       setConsequences([...(result.consequences ?? [])]);
+      void refreshFactions();
       setSession((current) =>
         current
           ? {
@@ -81,6 +89,17 @@ export default function PlayShellPage() {
       setError(formatPlayError(caught));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function refreshFactions() {
+    try {
+      const factionResult = await authRequest<FactionListResponse>(
+        `/sessions/${params.sessionId}/factions`
+      );
+      setFactions(factionResult.factions);
+    } catch {
+      // Faction display is supplemental; gameplay UI should remain usable.
     }
   }
 
@@ -138,6 +157,27 @@ export default function PlayShellPage() {
                 Gameplay engine đang xử lý ở server. Streaming chưa được bật.
               </p>
             </div>
+
+            {factions.length > 0 ? (
+              <section className="mt-6">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                  Thế lực
+                </h2>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  {factions.map((faction) => (
+                    <article className="surface-card" key={faction.id}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{faction.name}</p>
+                        <span className="status-pill">{faction.status}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        Ảnh hưởng {faction.influence}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             {consequences.length > 0 ? (
               <div className="mt-6 grid gap-2">

@@ -49,6 +49,9 @@ export const memoryTypes = [
 ] as const;
 export type MemoryType = (typeof memoryTypes)[number];
 
+export const factionStatuses = ["active", "weakened", "collapsed", "hidden"] as const;
+export type FactionStatus = (typeof factionStatuses)[number];
+
 export type PlayerAction = {
   readonly text: string;
 };
@@ -371,6 +374,88 @@ export type TurnPersistencePlan = {
   readonly assistantNarrative: string;
 };
 
+export type FactionGoal = {
+  readonly key: string;
+  readonly status: "active" | "completed" | "failed";
+  readonly progress: number;
+};
+
+export type FactionRuntime = {
+  readonly id: EntityId;
+  readonly sessionId: SessionId;
+  readonly factionKey: string;
+  readonly name: string;
+  readonly description: string;
+  readonly status: FactionStatus;
+  readonly influence: number;
+  readonly resources: Record<string, unknown>;
+  readonly goals: readonly FactionGoal[];
+  readonly state: Record<string, unknown>;
+};
+
+export type FactionRelation = {
+  readonly id: EntityId;
+  readonly sessionId: SessionId;
+  readonly sourceFactionId: EntityId;
+  readonly targetFactionId: EntityId;
+  readonly affinity: number;
+  readonly tension: number;
+  readonly metadata: Record<string, unknown>;
+};
+
+export type FactionChange = {
+  readonly factionId: EntityId;
+  readonly factionKey: string;
+  readonly influenceDelta?: number;
+  readonly resourcesDelta?: Record<string, number>;
+  readonly statePatch?: Record<string, unknown>;
+};
+
+export type FactionRelationChange = {
+  readonly sourceFactionId: EntityId;
+  readonly targetFactionId: EntityId;
+  readonly affinityDelta?: number;
+  readonly tensionDelta?: number;
+};
+
+export type WorldSimulationSignal = {
+  readonly type:
+    | "faction_helped"
+    | "faction_harmed"
+    | "quest_completed"
+    | "crime"
+    | "important_item_acquired"
+    | "territory_changed"
+    | "major_loss";
+  readonly factionKey?: string;
+  readonly targetFactionKey?: string;
+  readonly importance: number;
+  readonly metadata?: Record<string, unknown>;
+};
+
+export type WorldSimulationContext = {
+  readonly sessionId: SessionId;
+  readonly currentTurn: number;
+  readonly factions: readonly FactionRuntime[];
+  readonly factionRelations: readonly FactionRelation[];
+  readonly recentWorldEvents: readonly MemoryContextWorldEvent[];
+  readonly state: Pick<GameStateSnapshot, "location" | "worldTime" | "flags" | "stateData">;
+  readonly signals: readonly WorldSimulationSignal[];
+};
+
+export type WorldTickPlan = {
+  readonly factionChanges: readonly FactionChange[];
+  readonly factionRelationChanges: readonly FactionRelationChange[];
+  readonly statePatch: StatePatch;
+  readonly events: readonly GeneratedWorldEvent[];
+  readonly memories: readonly MemoryCandidate[];
+};
+
+export type WorldSimulationResult = {
+  readonly plan: WorldTickPlan;
+  readonly appliedRuleCount: number;
+};
+
 export class AITurnProposalValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -396,6 +481,13 @@ export class ConsequenceValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ConsequenceValidationError";
+  }
+}
+
+export class WorldSimulationValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorldSimulationValidationError";
   }
 }
 
@@ -440,6 +532,21 @@ export const consequenceLimits = {
   maxConsequencesPerTurn: 20,
   maxChainDepth: 3,
   stateKeyMaxLength: 80
+} as const;
+
+export const worldSimulationLimits = {
+  influenceMin: 0,
+  influenceMax: 100,
+  weakenedThreshold: 20,
+  collapsedThreshold: 0,
+  resourceMin: 0,
+  resourceMax: 1000,
+  maxResourceDeltaAbs: 100,
+  maxRelationDeltaAbs: 20,
+  maxSignalsPerTick: 20,
+  maxRuleDepth: 2,
+  maxEventsPerTick: 8,
+  maxMemoriesPerTick: 8
 } as const;
 
 export const summaryOutputJsonSchema = {
@@ -1077,6 +1184,332 @@ export function buildDeterministicConsequenceProposals(
   }
 
   return [];
+}
+
+export function shouldRunWorldTick(input: {
+  readonly turnCount: number;
+  readonly intervalTurns: number;
+  readonly lastTickTurn: number;
+  readonly forced?: boolean;
+}): boolean {
+  if (!Number.isInteger(input.intervalTurns) || input.intervalTurns < 1) {
+    throw new WorldSimulationValidationError("World tick interval is invalid.");
+  }
+
+  if (input.forced) {
+    return input.turnCount > input.lastTickTurn;
+  }
+
+  return (
+    input.turnCount > 0 &&
+    input.turnCount > input.lastTickTurn &&
+    input.turnCount % input.intervalTurns === 0
+  );
+}
+
+export function runWorldSimulation(
+  context: WorldSimulationContext
+): WorldSimulationResult {
+  if (context.signals.length > worldSimulationLimits.maxSignalsPerTick) {
+    throw new WorldSimulationValidationError("Too many world simulation signals.");
+  }
+
+  const factionsByKey = new Map(
+    context.factions.map((faction) => [faction.factionKey, faction])
+  );
+  const changes = new Map<string, MutableFactionChange>();
+  const events: GeneratedWorldEvent[] = [];
+  const memories: MemoryCandidate[] = [];
+  let appliedRuleCount = 0;
+
+  for (const signal of context.signals) {
+    validateWorldSimulationSignal(signal);
+    const factionKey = signal.factionKey;
+
+    if (!factionKey) {
+      continue;
+    }
+
+    const faction = factionsByKey.get(factionKey);
+
+    if (!faction || faction.status === "hidden" || faction.status === "collapsed") {
+      continue;
+    }
+
+    const delta = influenceDeltaForSignal(signal);
+
+    if (delta === 0) {
+      continue;
+    }
+
+    const change = getMutableFactionChange(changes, faction);
+    change.influenceDelta += delta;
+    appliedRuleCount += 1;
+  }
+
+  for (const change of changes.values()) {
+    const faction = factionsByKey.get(change.factionKey);
+
+    if (!faction) {
+      continue;
+    }
+
+    const nextInfluence = clampWorldInteger(
+      faction.influence + change.influenceDelta,
+      worldSimulationLimits.influenceMin,
+      worldSimulationLimits.influenceMax
+    );
+    const nextStatus = statusForInfluence(faction.status, nextInfluence);
+
+    if (nextStatus !== faction.status) {
+      change.statePatch = {
+        ...(change.statePatch ?? {}),
+        lastStatusChangeTurn: context.currentTurn
+      };
+      events.push({
+        eventType: "faction_status_changed",
+        title: "Thế lực biến động",
+        description: `${faction.name} chuyển sang trạng thái ${nextStatus}.`,
+        importance: nextStatus === "collapsed" ? 5 : 4,
+        payload: {
+          factionKey: faction.factionKey,
+          previousStatus: faction.status,
+          nextStatus
+        }
+      });
+      memories.push({
+        memoryType: "world",
+        key: `world:faction:${faction.factionKey}:${nextStatus}`,
+        content: `${faction.name} chuyển sang trạng thái ${nextStatus}.`,
+        importance: nextStatus === "collapsed" ? 5 : 4,
+        metadata: {
+          source: "world_simulation",
+          factionKey: faction.factionKey,
+          status: nextStatus
+        }
+      });
+    }
+
+    if (Math.abs(change.influenceDelta) >= 5) {
+      events.push({
+        eventType: "faction_influence_changed",
+        title: "Ảnh hưởng thế lực thay đổi",
+        description: `${faction.name} ${change.influenceDelta > 0 ? "tăng" : "giảm"} ảnh hưởng.`,
+        importance: Math.abs(change.influenceDelta) >= 10 ? 4 : 3,
+        payload: {
+          factionKey: faction.factionKey,
+          influenceDelta: change.influenceDelta,
+          nextInfluence
+        }
+      });
+    }
+  }
+
+  return {
+    appliedRuleCount,
+    plan: {
+      factionChanges: [...changes.values()].map((change) => ({
+        factionId: change.factionId,
+        factionKey: change.factionKey,
+        influenceDelta: change.influenceDelta,
+        ...(change.resourcesDelta ? { resourcesDelta: change.resourcesDelta } : {}),
+        ...(change.statePatch ? { statePatch: change.statePatch } : {})
+      })),
+      factionRelationChanges: deriveFactionRelationChanges(context),
+      statePatch: {},
+      events: events.slice(0, worldSimulationLimits.maxEventsPerTick),
+      memories: memories.slice(0, worldSimulationLimits.maxMemoriesPerTick)
+    }
+  };
+}
+
+export function nextFactionStatusForInfluence(
+  current: FactionStatus,
+  influence: number
+): FactionStatus {
+  return statusForInfluence(current, influence);
+}
+
+export function deriveWorldSimulationSignals(input: {
+  readonly events: readonly GeneratedWorldEvent[];
+  readonly consequences: readonly ValidatedConsequence[];
+}): WorldSimulationSignal[] {
+  const signals: WorldSimulationSignal[] = [];
+
+  for (const event of input.events) {
+    const factionKey = stringFromMetadata(event.payload.factionKey);
+    const signalType = stringFromMetadata(event.payload.worldSignal);
+
+    if (factionKey && isWorldSimulationSignalType(signalType)) {
+      signals.push({
+        type: signalType,
+        factionKey,
+        importance: event.importance,
+        ...(event.payload ? { metadata: event.payload } : {})
+      });
+      continue;
+    }
+
+    if (factionKey && event.eventType === "quest_complete") {
+      signals.push({
+        type: "quest_completed",
+        factionKey,
+        importance: event.importance,
+        ...(event.payload ? { metadata: event.payload } : {})
+      });
+    }
+  }
+
+  for (const consequence of input.consequences) {
+    const factionKey = stringFromMetadata(consequence.metadata?.factionKey);
+    const signalType = stringFromMetadata(consequence.metadata?.worldSignal);
+
+    if (factionKey && isWorldSimulationSignalType(signalType)) {
+      signals.push({
+        type: signalType,
+        factionKey,
+        importance:
+          typeof consequence.importance === "number"
+            ? consequence.importance
+            : 3,
+        ...(consequence.metadata ? { metadata: consequence.metadata } : {})
+      });
+    }
+  }
+
+  return signals;
+}
+
+type MutableFactionChange = {
+  factionId: EntityId;
+  factionKey: string;
+  influenceDelta: number;
+  resourcesDelta?: Record<string, number>;
+  statePatch?: Record<string, unknown>;
+};
+
+function validateWorldSimulationSignal(signal: WorldSimulationSignal): void {
+  if (!isWorldSimulationSignalType(signal.type)) {
+    throw new WorldSimulationValidationError("World simulation signal type is invalid.");
+  }
+
+  if (!Number.isInteger(signal.importance) || signal.importance < 1 || signal.importance > 5) {
+    throw new WorldSimulationValidationError("World simulation signal importance is invalid.");
+  }
+
+  if (signal.factionKey !== undefined) {
+    validateSafeKey(signal.factionKey, "factionKey");
+  }
+
+  if (signal.targetFactionKey !== undefined) {
+    validateSafeKey(signal.targetFactionKey, "targetFactionKey");
+  }
+}
+
+function isWorldSimulationSignalType(value: unknown): value is WorldSimulationSignal["type"] {
+  return (
+    value === "faction_helped" ||
+    value === "faction_harmed" ||
+    value === "quest_completed" ||
+    value === "crime" ||
+    value === "important_item_acquired" ||
+    value === "territory_changed" ||
+    value === "major_loss"
+  );
+}
+
+function influenceDeltaForSignal(signal: WorldSimulationSignal): number {
+  const importanceWeight = Math.max(1, Math.min(5, signal.importance));
+
+  switch (signal.type) {
+    case "faction_helped":
+    case "quest_completed":
+      return importanceWeight >= 4 ? 8 : 5;
+    case "faction_harmed":
+    case "major_loss":
+      return importanceWeight >= 4 ? -8 : -5;
+    case "crime":
+      return -3;
+    case "important_item_acquired":
+      return importanceWeight >= 4 ? 3 : 1;
+    case "territory_changed":
+      return importanceWeight >= 4 ? 10 : 5;
+  }
+}
+
+function getMutableFactionChange(
+  changes: Map<string, MutableFactionChange>,
+  faction: FactionRuntime
+): MutableFactionChange {
+  const existing = changes.get(faction.id);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created = {
+    factionId: faction.id,
+    factionKey: faction.factionKey,
+    influenceDelta: 0
+  };
+  changes.set(faction.id, created);
+  return created;
+}
+
+function statusForInfluence(current: FactionStatus, influence: number): FactionStatus {
+  if (current === "hidden") {
+    return current;
+  }
+
+  if (influence <= worldSimulationLimits.collapsedThreshold) {
+    return "collapsed";
+  }
+
+  if (influence <= worldSimulationLimits.weakenedThreshold) {
+    return "weakened";
+  }
+
+  return "active";
+}
+
+function deriveFactionRelationChanges(
+  context: WorldSimulationContext
+): FactionRelationChange[] {
+  const factionsByKey = new Map(
+    context.factions.map((faction) => [faction.factionKey, faction])
+  );
+  const changes: FactionRelationChange[] = [];
+
+  for (const signal of context.signals) {
+    if (!signal.factionKey || !signal.targetFactionKey) {
+      continue;
+    }
+
+    const source = factionsByKey.get(signal.factionKey);
+    const target = factionsByKey.get(signal.targetFactionKey);
+
+    if (!source || !target || source.id === target.id) {
+      continue;
+    }
+
+    const hostile = signal.type === "faction_harmed" || signal.type === "crime";
+    changes.push({
+      sourceFactionId: source.id,
+      targetFactionId: target.id,
+      affinityDelta: hostile ? -5 : 3,
+      tensionDelta: hostile ? 5 : -2
+    });
+  }
+
+  return changes;
+}
+
+function clampWorldInteger(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function stringFromMetadata(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function validateMemoryCandidate(value: unknown, index: number): MemoryCandidate {

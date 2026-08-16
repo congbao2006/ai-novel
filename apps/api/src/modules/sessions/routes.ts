@@ -78,6 +78,52 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
     return sessionService.listPlayerInventory(getRequiredUser(request), params.id);
   });
 
+  app.get("/:id/factions", { preHandler: requireUser }, async (request) => {
+    const sessionService = app.dependencies.sessionService;
+
+    if (!sessionService) {
+      throw new ServiceUnavailableError("Session service is unavailable.");
+    }
+
+    const params = sessionParamsSchema.parse(request.params);
+    return sessionService.listSessionFactions(getRequiredUser(request), params.id);
+  });
+
+  app.post("/:id/world-tick", { preHandler: requireUser }, async (request) => {
+    const sessionService = app.dependencies.sessionService;
+    const worldSimulationService = app.dependencies.worldSimulationService;
+
+    if (!sessionService || !worldSimulationService) {
+      throw new ServiceUnavailableError("World simulation service is unavailable.");
+    }
+
+    const params = sessionParamsSchema.parse(request.params);
+    const user = getRequiredUser(request);
+    const session = await sessionService.getSession(user, params.id);
+    const result = await worldSimulationService.runIfDue({
+      userId: user.userId,
+      sessionId: params.id,
+      turnNumber: session.turnCount,
+      reason: "manual"
+    });
+
+    return {
+      triggered: result.triggered,
+      skippedReason: result.skippedReason,
+      factionsChanged: result.factionsChanged,
+      rulesApplied: result.rulesApplied,
+      events: result.events.map((event) => ({
+        id: event.id,
+        eventType: event.eventType,
+        title: event.title,
+        description: event.description,
+        importance: event.importance,
+        turnNumber: event.turnNumber,
+        createdAt: event.createdAt.toISOString()
+      }))
+    };
+  });
+
   app.get("/:id", { preHandler: requireUser }, async (request) => {
     const sessionService = app.dependencies.sessionService;
 

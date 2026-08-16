@@ -2,6 +2,8 @@ import type { DbExecutor } from "./context.js";
 import type {
   AIUsageRepository,
   AuthSessionRepository,
+  FactionRelationshipRepository,
+  FactionRepository,
   GameMessageRepository,
   GameSessionRepository,
   GameStateRepository,
@@ -14,10 +16,13 @@ import type {
   SessionSummaryRepository,
   StoryRepository,
   UserRepository,
-  WorldEventRepository
+  WorldEventRepository,
+  WorldSimulationStateRepository
 } from "./contracts.js";
 import {
   DrizzleAIUsageRepository,
+  DrizzleFactionRelationshipRepository,
+  DrizzleFactionRepository,
   DrizzleGameMessageRepository,
   DrizzleGameSessionRepository,
   DrizzleGameStateRepository,
@@ -31,7 +36,8 @@ import {
   DrizzleSessionSummaryRepository,
   DrizzleStoryRepository,
   DrizzleUserRepository,
-  DrizzleWorldEventRepository
+  DrizzleWorldEventRepository,
+  DrizzleWorldSimulationStateRepository
 } from "./implementations.js";
 
 export type Repositories = {
@@ -50,6 +56,9 @@ export type Repositories = {
   readonly semanticMemories: SemanticMemoryRepository;
   readonly quests: QuestRepository;
   readonly worldEvents: WorldEventRepository;
+  readonly factions: FactionRepository;
+  readonly factionRelationships: FactionRelationshipRepository;
+  readonly worldSimulationStates: WorldSimulationStateRepository;
 };
 
 export function createRepositories(db: DbExecutor): Repositories {
@@ -68,6 +77,9 @@ export function createRepositories(db: DbExecutor): Repositories {
     memories: new DrizzleMemoryRepository(db),
     semanticMemories: new DrizzleSemanticMemoryRepository(db),
     quests: new DrizzleQuestRepository(db),
-    worldEvents: new DrizzleWorldEventRepository(db)
+    worldEvents: new DrizzleWorldEventRepository(db),
+    factions: new DrizzleFactionRepository(db),
+    factionRelationships: new DrizzleFactionRelationshipRepository(db),
+    worldSimulationStates: new DrizzleWorldSimulationStateRepository(db)
   };
 }

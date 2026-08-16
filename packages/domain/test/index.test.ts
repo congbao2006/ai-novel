@@ -12,7 +12,11 @@ import {
   storyStatuses,
   assertQuestStatusTransition,
   buildDeterministicConsequenceProposals,
+  deriveWorldSimulationSignals,
   expandConsequenceChain,
+  factionStatuses,
+  runWorldSimulation,
+  shouldRunWorldTick,
   validateConsequenceProposal,
   validateSummaryOutput,
   validateAITurnProposal,
@@ -67,6 +71,12 @@ describe("domain package", () => {
       "failed"
     ]);
     expect(entityTypes).toEqual(["player", "npc"]);
+    expect(factionStatuses).toEqual([
+      "active",
+      "weakened",
+      "collapsed",
+      "hidden"
+    ]);
     expect(memoryTypes).toEqual([
       "fact",
       "relationship",
@@ -464,5 +474,179 @@ describe("domain package", () => {
     });
     expect(consequences.some((item) => item.type === "world_event")).toBe(true);
     expect(consequences.length).toBeLessThanOrEqual(20);
+  });
+
+  it("applies deterministic world simulation signals to factions", () => {
+    const first = runWorldSimulation({
+      sessionId: "session-1",
+      currentTurn: 5,
+      factions: [
+        {
+          id: "faction-1",
+          sessionId: "session-1",
+          factionKey: "guard",
+          name: "Guard",
+          description: "Keeps order.",
+          status: "active",
+          influence: 50,
+          resources: { wealth: 10 },
+          goals: [],
+          state: {}
+        }
+      ],
+      factionRelations: [],
+      recentWorldEvents: [],
+      state: {
+        location: "Gate",
+        worldTime: null,
+        flags: {},
+        stateData: {}
+      },
+      signals: [
+        {
+          type: "faction_helped",
+          factionKey: "guard",
+          importance: 3
+        }
+      ]
+    });
+    const second = runWorldSimulation({
+      sessionId: "session-1",
+      currentTurn: 5,
+      factions: [
+        {
+          id: "faction-1",
+          sessionId: "session-1",
+          factionKey: "guard",
+          name: "Guard",
+          description: "Keeps order.",
+          status: "active",
+          influence: 50,
+          resources: { wealth: 10 },
+          goals: [],
+          state: {}
+        }
+      ],
+      factionRelations: [],
+      recentWorldEvents: [],
+      state: {
+        location: "Gate",
+        worldTime: null,
+        flags: {},
+        stateData: {}
+      },
+      signals: [
+        {
+          type: "faction_helped",
+          factionKey: "guard",
+          importance: 3
+        }
+      ]
+    });
+
+    expect(first).toEqual(second);
+    expect(first.plan.factionChanges[0]).toMatchObject({
+      factionKey: "guard",
+      influenceDelta: 5
+    });
+  });
+
+  it("emits status events and memories when a faction collapses", () => {
+    const result = runWorldSimulation({
+      sessionId: "session-1",
+      currentTurn: 10,
+      factions: [
+        {
+          id: "faction-1",
+          sessionId: "session-1",
+          factionKey: "guard",
+          name: "Guard",
+          description: "Keeps order.",
+          status: "weakened",
+          influence: 4,
+          resources: {},
+          goals: [],
+          state: {}
+        }
+      ],
+      factionRelations: [],
+      recentWorldEvents: [],
+      state: {
+        location: "Gate",
+        worldTime: null,
+        flags: {},
+        stateData: {}
+      },
+      signals: [
+        {
+          type: "major_loss",
+          factionKey: "guard",
+          importance: 5
+        }
+      ]
+    });
+
+    expect(result.plan.events[0]).toMatchObject({
+      eventType: "faction_status_changed",
+      importance: 5
+    });
+    expect(result.plan.memories[0]).toMatchObject({
+      memoryType: "world",
+      importance: 5
+    });
+  });
+
+  it("uses explicit bounded world tick policy", () => {
+    expect(
+      shouldRunWorldTick({
+        turnCount: 4,
+        intervalTurns: 5,
+        lastTickTurn: 0
+      })
+    ).toBe(false);
+    expect(
+      shouldRunWorldTick({
+        turnCount: 5,
+        intervalTurns: 5,
+        lastTickTurn: 0
+      })
+    ).toBe(true);
+    expect(
+      shouldRunWorldTick({
+        turnCount: 5,
+        intervalTurns: 5,
+        lastTickTurn: 5
+      })
+    ).toBe(false);
+  });
+
+  it("derives world simulation signals only from explicit metadata", () => {
+    const signals = deriveWorldSimulationSignals({
+      events: [
+        {
+          eventType: "world_event",
+          title: "Guard helped",
+          description: "The player helped the guard.",
+          importance: 4,
+          payload: {
+            worldSignal: "faction_helped",
+            factionKey: "guard"
+          }
+        }
+      ],
+      consequences: []
+    });
+
+    expect(signals).toEqual([
+      {
+        type: "faction_helped",
+        factionKey: "guard",
+        importance: 4,
+        metadata: {
+          worldSignal: "faction_helped",
+          factionKey: "guard"
+        }
+      }
+    ]);
   });
 });

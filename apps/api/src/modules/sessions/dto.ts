@@ -2,6 +2,7 @@ import type {
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
+  FactionRecord,
   InventoryItemRecord,
   QuestRecord,
   StoryCharacterRecord,
@@ -71,6 +72,17 @@ export type InventoryItemDto = {
   readonly metadata: Record<string, unknown>;
 };
 
+export type FactionDto = {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly description: string;
+  readonly status: string;
+  readonly influence: number;
+  readonly resources: Record<string, unknown>;
+  readonly goals: readonly unknown[];
+};
+
 export type SessionDetailDto = SessionListItemDto & {
   readonly currentState: GameStateDto | null;
   readonly recentMessages: GameMessageDto[];
@@ -99,6 +111,10 @@ export type QuestListResponseDto = {
 
 export type InventoryResponseDto = {
   readonly items: InventoryItemDto[];
+};
+
+export type FactionListResponseDto = {
+  readonly factions: FactionDto[];
 };
 
 export function toSessionListItemDto(input: {
@@ -173,6 +189,19 @@ export function toInventoryItemDto(item: InventoryItemRecord): InventoryItemDto 
     description: item.description ?? null,
     quantity: item.quantity,
     metadata: copyJsonObject(item.metadata)
+  };
+}
+
+export function toFactionDto(faction: FactionRecord): FactionDto {
+  return {
+    id: faction.id,
+    key: faction.factionKey,
+    name: faction.name,
+    description: faction.description,
+    status: faction.status,
+    influence: faction.influence,
+    resources: copyJsonObject(faction.resources),
+    goals: JSON.parse(JSON.stringify(faction.goals)) as unknown[]
   };
 }
 

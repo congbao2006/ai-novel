@@ -10,6 +10,7 @@ import { RepositoryAIUsageLedger } from "./modules/ai/usage-ledger.js";
 import { Argon2PasswordHasher } from "./modules/auth/password.js";
 import { AuthService } from "./modules/auth/service.js";
 import { GameplayService } from "./modules/sessions/gameplay-service.js";
+import { FactionInitializationService } from "./modules/sessions/faction-initialization-service.js";
 import { MemoryEmbeddingService } from "./modules/sessions/memory-embedding-service.js";
 import { MemoryContextBuilder } from "./modules/sessions/memory-context-builder.js";
 import { SemanticMemoryService } from "./modules/sessions/semantic-memory-service.js";
@@ -21,6 +22,7 @@ import { NPCReactionService } from "./modules/sessions/npc-reaction-service.js";
 import { SessionService } from "./modules/sessions/service.js";
 import { SummaryService } from "./modules/sessions/summary-service.js";
 import { StoryService } from "./modules/stories/service.js";
+import { WorldSimulationService } from "./modules/sessions/world-simulation-service.js";
 
 const config = getServerConfig();
 const database = config.database.url ? getDatabaseClient(config.database.url) : undefined;
@@ -38,12 +40,16 @@ const storyService = repositories ? new StoryService(repositories) : undefined;
 const npcInitializationService = repositories
   ? new NPCInitializationService()
   : undefined;
+const factionInitializationService = repositories
+  ? new FactionInitializationService()
+  : undefined;
 const sessionService = repositories
   ? new SessionService(
       repositories,
       database,
       undefined,
-      npcInitializationService
+      npcInitializationService,
+      factionInitializationService
     )
   : undefined;
 const aiUsageLedger = repositories
@@ -154,6 +160,17 @@ const npcReactionService =
         memoryEmbeddingService
       )
     : undefined;
+const worldSimulationService = repositories
+  ? new WorldSimulationService(
+      repositories,
+      database,
+      undefined,
+      {
+        tickIntervalTurns: config.world.tickIntervalTurns,
+        ...(memoryEmbeddingService ? { memoryEmbeddingService } : {})
+      }
+    )
+  : undefined;
 const gameplayService = repositories
   ? new GameplayService(repositories, database, undefined, {
       engineMode: config.gameplay.engineMode,
@@ -161,7 +178,8 @@ const gameplayService = repositories
       ...(budgetService ? { budgetService } : {}),
       ...(memoryContextBuilder ? { memoryContextBuilder } : {}),
       ...(summaryService ? { summaryService } : {}),
-      ...(npcReactionService ? { npcReactionService } : {})
+      ...(npcReactionService ? { npcReactionService } : {}),
+      ...(worldSimulationService ? { worldSimulationService } : {})
     })
   : undefined;
 const dependencies = {
@@ -170,6 +188,7 @@ const dependencies = {
   ...(storyService ? { storyService } : {}),
   ...(sessionService ? { sessionService } : {}),
   ...(gameplayService ? { gameplayService } : {}),
+  ...(worldSimulationService ? { worldSimulationService } : {}),
   ...(aiGateway ? { aiGateway } : {})
 };
 const app = await buildApp({

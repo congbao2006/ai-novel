@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CreateInitialStateInput,
   CreateSessionInput,
+  FactionRecord,
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
@@ -16,6 +17,7 @@ import { buildApp } from "../src/app.js";
 import { ResourceNotFoundError } from "../src/errors.js";
 import { UnauthenticatedError } from "../src/modules/auth/errors.js";
 import type { AuthService } from "../src/modules/auth/service.js";
+import { FactionInitializationService } from "../src/modules/sessions/faction-initialization-service.js";
 import { buildInitialGameState } from "../src/modules/sessions/initial-state.js";
 import { SessionService } from "../src/modules/sessions/service.js";
 import { StoryService } from "../src/modules/stories/service.js";
@@ -107,18 +109,20 @@ function createStateRecord(input: CreateInitialStateInput): GameStateRecord {
 function createRepositoriesFixture(options: {
   readonly failStateCreate?: boolean;
   readonly ownerUserId?: string;
-	} = {}): {
-	  readonly repositories: Repositories;
-	  readonly sessions: GameSessionRecord[];
-	  readonly states: GameStateRecord[];
-	  readonly quests: QuestRecord[];
-	  readonly inventory: InventoryItemRecord[];
-	} {
+} = {}): {
+  readonly repositories: Repositories;
+  readonly sessions: GameSessionRecord[];
+  readonly states: GameStateRecord[];
+  readonly quests: QuestRecord[];
+  readonly inventory: InventoryItemRecord[];
+  readonly factions: FactionRecord[];
+} {
   const sessions: GameSessionRecord[] = [];
   const states: GameStateRecord[] = [];
   const messages: GameMessageRecord[] = [];
   const quests: QuestRecord[] = [];
   const inventory: InventoryItemRecord[] = [];
+  const factions: FactionRecord[] = [];
 
   const repositories = {
     stories: {
@@ -202,6 +206,45 @@ function createRepositoriesFixture(options: {
             item.ownerId === (owner.id ?? null)
         );
       }
+    },
+    factions: {
+      async create(input: Parameters<Repositories["factions"]["create"]>[0]) {
+        if (
+          factions.some(
+            (faction) =>
+              faction.sessionId === input.sessionId &&
+              faction.factionKey === input.factionKey
+          )
+        ) {
+          throw new Error("duplicate faction");
+        }
+
+        const faction = {
+          id: `550e8400-e29b-41d4-a716-44665544013${factions.length}`,
+          createdAt: new Date("2026-01-02T00:00:00Z"),
+          updatedAt: new Date("2026-01-02T00:00:00Z"),
+          ...input
+        } as FactionRecord;
+        factions.push(faction);
+        return faction;
+      },
+      async listBySession(sessionId: string) {
+        return factions.filter((faction) => faction.sessionId === sessionId);
+      }
+    },
+    worldSimulationStates: {
+      async createInitial(
+        input: Parameters<Repositories["worldSimulationStates"]["createInitial"]>[0]
+      ) {
+        return {
+          id: "550e8400-e29b-41d4-a716-446655440140",
+          sessionId: input.sessionId,
+          lastTickTurn: 0,
+          version: 1,
+          createdAt: new Date("2026-01-02T00:00:00Z"),
+          updatedAt: new Date("2026-01-02T00:00:00Z")
+        };
+      }
     }
   } as unknown as Repositories;
 
@@ -241,9 +284,23 @@ function createRepositoriesFixture(options: {
       createdAt: new Date("2026-01-02T00:00:00Z"),
       updatedAt: new Date("2026-01-02T00:00:00Z")
     });
+    factions.push({
+      id: "550e8400-e29b-41d4-a716-446655440122",
+      sessionId: seeded.id,
+      factionKey: "dai-viet-1288.city_guard",
+      name: "Đội Tuần Thành",
+      description: "A visible faction.",
+      status: "active",
+      influence: 55,
+      resources: { manpower: 60 },
+      goals: [],
+      state: {},
+      createdAt: new Date("2026-01-02T00:00:00Z"),
+      updatedAt: new Date("2026-01-02T00:00:00Z")
+    });
   }
 
-  return { repositories, sessions, states, quests, inventory };
+  return { repositories, sessions, states, quests, inventory, factions };
 }
 
 function createTransactionRunner(
@@ -318,11 +375,13 @@ describe("StoryService", () => {
 
 describe("SessionService", () => {
   it("creates a session and initial state in a transaction", async () => {
-    const { repositories, sessions, states } = createRepositoriesFixture();
+    const { repositories, sessions, states, factions } = createRepositoriesFixture();
     const service = new SessionService(
       repositories,
       undefined,
-      createTransactionRunner(repositories)
+      createTransactionRunner(repositories),
+      undefined,
+      new FactionInitializationService()
     );
 
     const result = await service.createSession(user, {
@@ -332,6 +391,8 @@ describe("SessionService", () => {
 
     expect(sessions).toHaveLength(1);
     expect(states).toHaveLength(1);
+    expect(factions).toHaveLength(3);
+    expect(factions.every((faction) => faction.sessionId === sessions[0]?.id)).toBe(true);
     expect(result.session.currentState?.playerStats).toEqual(character.initialStats);
     expect(result.session.recentMessages).toEqual([]);
   });
@@ -502,7 +563,7 @@ describe("story/session API routes", () => {
     await app.close();
   });
 
-  it("serves protected quest and inventory DTOs for the owning user", async () => {
+  it("serves protected quest, inventory, and faction DTOs for the owning user", async () => {
     const { repositories, sessions } = createRepositoriesFixture({
       ownerUserId: user.userId
     });
@@ -528,6 +589,11 @@ describe("story/session API routes", () => {
       url: `/sessions/${sessionId}/inventory`,
       cookies: { ai_novel_session: "valid-token" }
     });
+    const factionResponse = await app.inject({
+      method: "GET",
+      url: `/sessions/${sessionId}/factions`,
+      cookies: { ai_novel_session: "valid-token" }
+    });
 
     expect(questsResponse.statusCode).toBe(200);
     expect(questsResponse.json().quests[0]).toMatchObject({
@@ -538,6 +604,11 @@ describe("story/session API routes", () => {
     expect(inventoryResponse.json().items[0]).toMatchObject({
       itemKey: "demo_item",
       quantity: 2
+    });
+    expect(factionResponse.statusCode).toBe(200);
+    expect(factionResponse.json().factions[0]).toMatchObject({
+      key: "dai-viet-1288.city_guard",
+      influence: 55
     });
 
     await app.close();

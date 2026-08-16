@@ -26,13 +26,17 @@ import type {
   AuthUserRecord,
   ChangeInventoryQuantityInput,
   CreateAuthSessionInput,
+  CreateFactionInput,
   CreateInitialStateInput,
   CreateMemoryInput,
   CreateNpcInput,
   CreateQuestInput,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorldSimulationStateInput,
   EntityRef,
+  FactionRecord,
+  FactionRelationshipRecord,
   GameMessageRecord,
   GameSessionRecord,
   GameStateRecord,
@@ -56,15 +60,21 @@ import type {
   UpdateStateInput,
   UpdateMemoryInput,
   UpdateSessionSummaryWithVersionInput,
+  UpdateWorldSimulationStateInput,
+  UpsertFactionRelationshipInput,
   UpsertMemoryEmbeddingInput,
   UpsertSessionSummaryInput,
   UpsertRelationshipInput,
   UserRecord,
-  WorldEventRecord
+  UpdateFactionInput,
+  WorldEventRecord,
+  WorldSimulationStateRecord
 } from "./types.js";
 import {
   aiUsageRecords,
   authSessions,
+  factionRelationships,
+  factions,
   gameMessages,
   gameSessions,
   gameStates,
@@ -78,11 +88,14 @@ import {
   stories,
   storyCharacters,
   users,
-  worldEvents
+  worldEvents,
+  worldSimulationStates
 } from "../schema/index.js";
 import type {
   AIUsageRepository,
   AuthSessionRepository,
+  FactionRelationshipRepository,
+  FactionRepository,
   GameMessageRepository,
   GameSessionRepository,
   GameStateRepository,
@@ -95,7 +108,8 @@ import type {
   SessionSummaryRepository,
   StoryRepository,
   UserRepository,
-  WorldEventRepository
+  WorldEventRepository,
+  WorldSimulationStateRepository
 } from "./contracts.js";
 
 const publicUserColumns = {
@@ -977,6 +991,228 @@ export class DrizzleWorldEventRepository
   }
 }
 
+export class DrizzleFactionRepository
+  extends BaseRepository
+  implements FactionRepository
+{
+  create(input: CreateFactionInput): Promise<FactionRecord> {
+    return this.run(async () => {
+      validateFactionInput(input);
+
+      return firstOrThrow(
+        await this.db.insert(factions).values(input).returning(),
+        new ConflictError("Faction could not be created.")
+      );
+    });
+  }
+
+  listBySession(sessionId: string): Promise<FactionRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(factions)
+        .where(eq(factions.sessionId, sessionId))
+        .orderBy(factions.factionKey)
+    );
+  }
+
+  getByKey(sessionId: string, factionKey: string): Promise<FactionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(factions)
+          .where(and(eq(factions.sessionId, sessionId), eq(factions.factionKey, factionKey)))
+          .limit(1)
+      )
+    );
+  }
+
+  getByIdForSession(
+    sessionId: string,
+    factionId: string
+  ): Promise<FactionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(factions)
+          .where(and(eq(factions.sessionId, sessionId), eq(factions.id, factionId)))
+          .limit(1)
+      )
+    );
+  }
+
+  updateRuntimeState(input: UpdateFactionInput): Promise<FactionRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof factions.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.status !== undefined) {
+        updates.status = input.status;
+      }
+
+      if (input.influence !== undefined) {
+        validateFactionInfluence(input.influence);
+        updates.influence = input.influence;
+      }
+
+      if (input.resources !== undefined) {
+        updates.resources = input.resources;
+      }
+
+      if (input.goals !== undefined) {
+        updates.goals = input.goals;
+      }
+
+      if (input.state !== undefined) {
+        updates.state = input.state;
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(factions)
+          .set(updates)
+          .where(and(eq(factions.sessionId, input.sessionId), eq(factions.id, input.factionId)))
+          .returning(),
+        new NotFoundError("Faction")
+      );
+    });
+  }
+}
+
+export class DrizzleFactionRelationshipRepository
+  extends BaseRepository
+  implements FactionRelationshipRepository
+{
+  listForSession(sessionId: string): Promise<FactionRelationshipRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(factionRelationships)
+        .where(eq(factionRelationships.sessionId, sessionId))
+    );
+  }
+
+  getRelation(
+    sessionId: string,
+    sourceFactionId: string,
+    targetFactionId: string
+  ): Promise<FactionRelationshipRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(factionRelationships)
+          .where(
+            and(
+              eq(factionRelationships.sessionId, sessionId),
+              eq(factionRelationships.sourceFactionId, sourceFactionId),
+              eq(factionRelationships.targetFactionId, targetFactionId)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  upsertRelation(
+    input: UpsertFactionRelationshipInput
+  ): Promise<FactionRelationshipRecord> {
+    return this.run(async () => {
+      validateFactionRelationInput(input);
+      const existing = await this.getRelation(
+        input.sessionId,
+        input.sourceFactionId,
+        input.targetFactionId
+      );
+      const values = {
+        ...input,
+        updatedAt: new Date()
+      };
+
+      if (existing) {
+        return firstOrThrow(
+          await this.db
+            .update(factionRelationships)
+            .set(values)
+            .where(eq(factionRelationships.id, existing.id))
+            .returning(),
+          new ConflictError("Faction relationship could not be updated.")
+        );
+      }
+
+      return firstOrThrow(
+        await this.db.insert(factionRelationships).values(values).returning(),
+        new ConflictError("Faction relationship could not be created.")
+      );
+    });
+  }
+}
+
+export class DrizzleWorldSimulationStateRepository
+  extends BaseRepository
+  implements WorldSimulationStateRepository
+{
+  getForSession(sessionId: string): Promise<WorldSimulationStateRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(worldSimulationStates)
+          .where(eq(worldSimulationStates.sessionId, sessionId))
+          .limit(1)
+      )
+    );
+  }
+
+  createInitial(
+    input: CreateWorldSimulationStateInput
+  ): Promise<WorldSimulationStateRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db
+          .insert(worldSimulationStates)
+          .values(input)
+          .onConflictDoNothing({
+            target: worldSimulationStates.sessionId
+          })
+          .returning(),
+        new ConflictError("World simulation state already exists.")
+      )
+    );
+  }
+
+  updateAfterTickWithVersion(
+    input: UpdateWorldSimulationStateInput
+  ): Promise<WorldSimulationStateRecord> {
+    return this.run(async () => {
+      if (!Number.isInteger(input.lastTickTurn) || input.lastTickTurn < 0) {
+        throw new ValidationError("World tick turn must be non-negative.");
+      }
+
+      return firstOrThrow(
+        await this.db
+          .update(worldSimulationStates)
+          .set({
+            lastTickTurn: input.lastTickTurn,
+            version: sql`${worldSimulationStates.version} + 1`,
+            updatedAt: new Date()
+          })
+          .where(
+            and(
+              eq(worldSimulationStates.sessionId, input.sessionId),
+              eq(worldSimulationStates.version, input.expectedVersion)
+            )
+          )
+          .returning(),
+        new ConflictError("World simulation state version conflict.")
+      );
+    });
+  }
+}
+
 export class DrizzleAIUsageRepository
   extends BaseRepository
   implements AIUsageRepository
@@ -1449,6 +1685,44 @@ function validateAIUsageInput(input: RecordAIUsageInput): void {
     if (value !== null && value !== undefined && value < 0) {
       throw new ValidationError(`AI usage ${field} must be non-negative.`);
     }
+  }
+}
+
+function validateFactionInput(input: CreateFactionInput): void {
+  if (!input.factionKey.trim() || !input.name.trim() || !input.description.trim()) {
+    throw new ValidationError("Faction key, name, and description are required.");
+  }
+
+  validateFactionInfluence(input.influence);
+}
+
+function validateFactionInfluence(influence: number | undefined): void {
+  if (
+    influence !== undefined &&
+    (!Number.isInteger(influence) || influence < 0 || influence > 100)
+  ) {
+    throw new ValidationError("Faction influence must be between 0 and 100.");
+  }
+}
+
+function validateFactionRelationInput(input: UpsertFactionRelationshipInput): void {
+  if (input.sourceFactionId === input.targetFactionId) {
+    throw new ValidationError("Faction relationship cannot target itself.");
+  }
+
+  validateFactionRelationValue(input.affinity, "affinity");
+  validateFactionRelationValue(input.tension, "tension");
+}
+
+function validateFactionRelationValue(
+  value: number | undefined,
+  field: string
+): void {
+  if (
+    value !== undefined &&
+    (!Number.isInteger(value) || value < -100 || value > 100)
+  ) {
+    throw new ValidationError(`Faction relationship ${field} must be between -100 and 100.`);
   }
 }
 
