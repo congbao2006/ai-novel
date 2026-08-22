@@ -33,6 +33,7 @@ describe("config package", () => {
     expect(getServerConfig(env).api.allowedOrigins).toEqual([
       "http://localhost:3000"
     ]);
+    expect(getServerConfig(env).auth.cookieSameSite).toBe("lax");
   });
 
   it("parses production API and database hardening knobs", () => {
@@ -40,6 +41,7 @@ describe("config package", () => {
       NODE_ENV: "production",
       WEB_APP_URL: "https://app.example.com",
       API_ALLOWED_ORIGINS: "https://app.example.com,https://admin.example.com",
+      PORT: "4567",
       DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel",
       DATABASE_POOL_MAX: "8",
       DATABASE_POOL_IDLE_TIMEOUT_MS: "20000",
@@ -54,6 +56,7 @@ describe("config package", () => {
       "https://app.example.com",
       "https://admin.example.com"
     ]);
+    expect(config.api.port).toBe(4567);
     expect(config.database.poolMax).toBe(8);
     expect(config.database.poolIdleTimeoutMs).toBe(20_000);
     expect(config.database.poolConnectionTimeoutMs).toBe(5000);
@@ -81,6 +84,18 @@ describe("config package", () => {
         DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel"
       })
     ).toThrow("HTTPS");
+  });
+
+  it("allows explicit cross-site secure cookie policy for Vercel/Railway beta", () => {
+    const config = getServerConfig({
+      NODE_ENV: "production",
+      WEB_APP_URL: "https://ai-novel.vercel.app",
+      API_ALLOWED_ORIGINS: "https://ai-novel.vercel.app",
+      DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel",
+      AUTH_COOKIE_SAME_SITE: "none"
+    });
+
+    expect(config.auth.cookieSameSite).toBe("none");
   });
 
   it("parses semantic memory configuration", () => {

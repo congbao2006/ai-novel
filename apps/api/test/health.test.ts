@@ -116,4 +116,33 @@ describe("GET /health", () => {
 
     await app.close();
   });
+
+  it("allows credentialed CORS preflight for configured web origin", async () => {
+    const config = getServerConfig({
+      NODE_ENV: "test",
+      WEB_APP_URL: "http://localhost:3000",
+      API_ALLOWED_ORIGINS: "http://localhost:3000"
+    });
+    const app = await buildApp({
+      config,
+      dependencies: {}
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/auth/login",
+      headers: {
+        origin: "http://localhost:3000",
+        "access-control-request-method": "POST"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe(
+      "http://localhost:3000"
+    );
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
+
+    await app.close();
+  });
 });

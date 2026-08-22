@@ -443,6 +443,15 @@ The Fastify process uses structured Pino logs with request IDs, safe redaction f
 
 Graceful shutdown handles `SIGTERM` and `SIGINT` by closing Fastify first and then closing the shared PostgreSQL pool. The application does not create a database connection per request and does not run migrations automatically at startup.
 
+Closed beta deployment targets Vercel for web, Railway for API, and Supabase PostgreSQL with pgvector for the database. The API uses `API_PORT` when configured and otherwise accepts platform `PORT`, which Railway provides.
+
+Cookie policy depends on topology:
+
+- Same-site custom domains such as `app.example.com` and `api.example.com` should use `AUTH_COOKIE_SAME_SITE=lax`.
+- Cross-site default hostnames such as `*.vercel.app` and `*.up.railway.app` require `AUTH_COOKIE_SAME_SITE=none` with production Secure cookies.
+
+Both modes keep explicit credentialed CORS and Origin validation for mutating browser requests. Wildcard credentialed CORS is not allowed.
+
 Migrations and backfills are explicit operational steps:
 
 - `pnpm db:migrate`

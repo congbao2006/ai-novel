@@ -25,7 +25,8 @@ const serverConfigSchema = z.object({
   }),
   auth: z.object({
     cookieName: z.string().min(1).default("ai_novel_session"),
-    sessionTtlSeconds: z.coerce.number().int().positive().default(60 * 60 * 24 * 14)
+    sessionTtlSeconds: z.coerce.number().int().positive().default(60 * 60 * 24 * 14),
+    cookieSameSite: z.enum(["lax", "strict", "none"]).default("lax")
   }),
   ai: z.object({
     provider: z.enum(["disabled", "openai"]).default("disabled"),
@@ -93,6 +94,19 @@ const serverConfigSchema = z.object({
           path: ["api", "allowedOrigins"],
           message: "API_ALLOWED_ORIGINS must contain only HTTPS origins in production."
         });
+      }
+    }
+
+    if (config.auth.cookieSameSite === "none") {
+      for (const origin of config.api.allowedOrigins) {
+        if (!origin.startsWith("https://")) {
+          context.addIssue({
+            code: "custom",
+            path: ["auth", "cookieSameSite"],
+            message:
+              "AUTH_COOKIE_SAME_SITE=none requires HTTPS allowed origins."
+          });
+        }
       }
     }
   }
@@ -205,7 +219,7 @@ export function getServerConfig(
     webAppUrl: env.WEB_APP_URL,
     api: {
       host: env.API_HOST,
-      port: env.API_PORT,
+      port: env.API_PORT ?? env.PORT,
       allowedOrigins: parseAllowedOriginsEnv(
         env.API_ALLOWED_ORIGINS,
         env.WEB_APP_URL
@@ -223,7 +237,8 @@ export function getServerConfig(
     },
     auth: {
       cookieName: env.AUTH_COOKIE_NAME,
-      sessionTtlSeconds: env.AUTH_SESSION_TTL_SECONDS
+      sessionTtlSeconds: env.AUTH_SESSION_TTL_SECONDS,
+      cookieSameSite: env.AUTH_COOKIE_SAME_SITE
     },
     ai: {
       provider: env.AI_PROVIDER,

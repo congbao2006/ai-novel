@@ -26,6 +26,7 @@ export const registerAuthRoutes: FastifyPluginAsync = async (app) => {
   const cookieOptions = {
     cookieName: config.auth.cookieName,
     secure: config.nodeEnv === "production",
+    sameSite: config.auth.cookieSameSite,
     maxAgeSeconds: config.auth.sessionTtlSeconds
   };
 

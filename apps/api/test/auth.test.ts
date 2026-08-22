@@ -166,4 +166,37 @@ describe("auth routes", () => {
 
     await app.close();
   });
+
+  it("can set SameSite=None for cross-site HTTPS deployments", async () => {
+    const app = await buildApp({
+      config: getServerConfig({
+        NODE_ENV: "production",
+        WEB_APP_URL: "https://ai-novel.vercel.app",
+        API_ALLOWED_ORIGINS: "https://ai-novel.vercel.app",
+        DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel",
+        AUTH_COOKIE_SAME_SITE: "none"
+      }),
+      dependencies: {
+        authService: createFakeAuthService()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        origin: "https://ai-novel.vercel.app"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "password123"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["set-cookie"]).toContain("Secure");
+    expect(response.headers["set-cookie"]).toContain("SameSite=None");
+
+    await app.close();
+  });
 });

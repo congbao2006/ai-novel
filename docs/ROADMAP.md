@@ -529,6 +529,46 @@ Recommendation:
 
 - Product/UI polish + closed beta should come next. The platform now has a large amount of runtime infrastructure; a controlled beta surface will reveal the highest-value UX and operational fixes before introducing payment, streaming, or creator AI.
 
+## Phase 4.15: Closed Beta Deployment Readiness
+
+Status: completed.
+
+Goals:
+
+- Verify the project against the closed beta topology: Vercel web, Railway API, Supabase PostgreSQL with pgvector, and OpenAI API.
+- Document exact environment variables by platform.
+- Resolve cross-site cookie behavior for Vercel/Railway default domains.
+- Keep deployment portable and avoid vendor-specific runtime coupling.
+- Provide a human closed beta test plan.
+
+Completed:
+
+- Audited web build/start, API Dockerfile assumptions, Railway `PORT` behavior, health/readiness, migration/backfill flow, pgvector migration, CORS, cookies, and production smoke scripts.
+- Added `PORT` fallback for API production hosts while preserving `API_PORT` override.
+- Added configurable `AUTH_COOKIE_SAME_SITE` with default `lax` and support for `none` on cross-site HTTPS deployments.
+- Updated production smoke script with optional login/me/logout checks using an existing test user only.
+- Rewrote `docs/DEPLOYMENT.md` as an executable Supabase/Railway/Vercel closed beta runbook.
+- Expanded `docs/PRODUCTION_CHECKLIST.md` for Git/CI, database, API, web, cookie/CORS, gameplay, AI activation, and beta observability.
+- Added `docs/CLOSED_BETA_TEST.md` with a 30-50 turn human test scenario and issue report template.
+
+Policy:
+
+- First beta deploy should use deterministic gameplay and semantic memory disabled.
+- AI and semantic memory should be activated only after infra/auth/session persistence smoke checks pass.
+- Vercel/Railway default domains require `AUTH_COOKIE_SAME_SITE=none`; same-site custom domains should use `lax`.
+
+Next candidates:
+
+- Product/UI polish + closed beta.
+- Payment/Xu + hard quota.
+- Streaming AI responses.
+- Creator AI Assistance.
+- Moderation/reporting.
+
+Recommendation:
+
+- Product/UI polish + closed beta remains the next best step. The deploy path is ready enough to put real testers through the existing flows and collect UX/operational issues before adding paid systems or more AI surface area.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

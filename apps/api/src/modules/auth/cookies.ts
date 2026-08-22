@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 export type AuthCookieOptions = {
   readonly cookieName: string;
   readonly secure: boolean;
+  readonly sameSite: "lax" | "strict" | "none";
   readonly maxAgeSeconds: number;
 };
 
@@ -20,7 +21,7 @@ export function setAuthCookie(
 ): void {
   reply.setCookie(options.cookieName, token, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: options.sameSite,
     secure: options.secure,
     path: "/",
     maxAge: options.maxAgeSeconds
@@ -29,11 +30,11 @@ export function setAuthCookie(
 
 export function clearAuthCookie(
   reply: FastifyReply,
-  options: Pick<AuthCookieOptions, "cookieName" | "secure">
+  options: Pick<AuthCookieOptions, "cookieName" | "secure" | "sameSite">
 ): void {
   reply.clearCookie(options.cookieName, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: options.sameSite,
     secure: options.secure,
     path: "/"
   });

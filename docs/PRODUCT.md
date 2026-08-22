@@ -141,6 +141,8 @@ The current product foundation is designed for a closed beta style deployment:
 - API owns cookies, server-side sessions, database access, AI provider secrets, usage budgets, and runtime state.
 - Public story browsing must not expose internal prompts.
 - Health/readiness checks and smoke checks must pass before traffic is routed.
+- The first beta rollout should use deterministic gameplay before enabling OpenAI and semantic memory.
+- Cross-site Vercel/Railway default hostnames require `SameSite=None; Secure` cookies; same-site custom domains should use `SameSite=Lax`.
 - Payment, marketplace, creator AI, streaming, and moderation workflows remain out of scope until explicitly implemented.
 
 ## Future Monetization
