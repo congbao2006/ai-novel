@@ -6,7 +6,7 @@ Memory keeps long-running AI gameplay coherent without sending the full transcri
 
 Memory is context, not authority. `game_states` remains the source of truth.
 
-Story authoring templates are also not memory. They define initial runtime conditions at session creation time. Runtime memory, summaries, NPC state, factions, inventory, quests, and relationships evolve inside session-owned tables and never mutate story authoring data.
+Story authoring templates and story-version templates are also not memory. Authoring templates define the working copy; story-version templates define immutable initial runtime conditions at session creation time. Runtime memory, summaries, NPC state, factions, inventory, quests, and relationships evolve inside session-owned tables and never mutate story authoring or version data.
 
 ## Current Memory Hierarchy
 

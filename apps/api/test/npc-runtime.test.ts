@@ -9,6 +9,8 @@ import type {
   SessionMemoryRecord,
   StoryCharacterRecord,
   StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionRecord,
   WorldEventRecord
 } from "@ai-novel/db";
 import type {
@@ -31,9 +33,23 @@ const story: StoryRecord = {
   worldPrompt: "secret world prompt",
   openingPrompt: "secret opening prompt",
   settings: {},
+  currentPublishedVersionId: "version-1",
   createdByUserId: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
+};
+
+const storyVersion: StoryVersionRecord = {
+  id: "version-1",
+  storyId: story.id,
+  versionNumber: 1,
+  status: "published",
+  worldPrompt: story.worldPrompt,
+  openingPrompt: story.openingPrompt,
+  settings: story.settings,
+  createdByUserId: null,
+  publishedAt: new Date("2026-01-01T00:00:00Z"),
+  createdAt: new Date("2026-01-01T00:00:00Z")
 };
 
 const playerTemplate: StoryCharacterRecord = {
@@ -61,6 +77,34 @@ const npcTemplate: StoryCharacterRecord = {
   name: "Lý Thanh",
   description: "A cautious ally.",
   personality: "careful"
+};
+
+const playerVersionTemplate: StoryVersionCharacterRecord = {
+  id: "version-character-player",
+  storyVersionId: storyVersion.id,
+  sourceCharacterId: playerTemplate.id,
+  characterType: "playable",
+  name: playerTemplate.name,
+  description: playerTemplate.description,
+  personality: playerTemplate.personality,
+  background: playerTemplate.background,
+  goals: playerTemplate.goals,
+  secrets: playerTemplate.secrets,
+  initialState: playerTemplate.initialState,
+  initialLocation: playerTemplate.initialLocation,
+  metadata: playerTemplate.metadata,
+  initialStats: playerTemplate.initialStats,
+  createdAt: new Date("2026-01-01T00:00:00Z")
+};
+
+const npcVersionTemplate: StoryVersionCharacterRecord = {
+  ...playerVersionTemplate,
+  id: "version-character-ly-thanh",
+  sourceCharacterId: npcTemplate.id,
+  characterType: "npc",
+  name: npcTemplate.name,
+  description: npcTemplate.description,
+  personality: npcTemplate.personality
 };
 
 const state: GameStateRecord = {
@@ -158,6 +202,13 @@ function createFixture() {
     stories: {
       async listCharactersForStory() {
         return [playerTemplate, npcTemplate];
+      }
+    },
+    storyVersionCharacters: {
+      async listForVersion(versionId: string) {
+        return versionId === storyVersion.id
+          ? [playerVersionTemplate, npcVersionTemplate]
+          : [];
       }
     },
     npcs: {
@@ -273,8 +324,8 @@ describe("NPC runtime foundation", () => {
     await service.initializeForSession({
       context: { db: {} as RepositoryContext["db"], repositories },
       sessionId: "new-session",
-      story,
-      selectedCharacterId: playerTemplate.id
+      storyVersionId: storyVersion.id,
+      selectedVersionCharacterId: playerVersionTemplate.id
     });
 
     expect(npcs.some((npc) => npc.sessionId === "new-session" && npc.name === "Lý Thanh")).toBe(true);

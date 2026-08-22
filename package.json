@@ -17,6 +17,7 @@
     "ai:summary-smoke": "pnpm --filter @ai-novel/api ai:summary-smoke",
     "ai:embedding-smoke": "pnpm --filter @ai-novel/api ai:embedding-smoke",
     "memory:embed-backfill": "pnpm --filter @ai-novel/api memory:embed-backfill",
+    "story:version-backfill": "pnpm --filter @ai-novel/db story:version-backfill",
     "check": "pnpm check:structure && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "check:structure": "node scripts/check-structure.mjs"
   },

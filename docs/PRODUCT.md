@@ -39,7 +39,7 @@ In scope:
 - NPC runtime intelligence foundation for session-owned NPC identity, bounded NPC knowledge context, and optional AI-driven NPC reactions during player turns.
 - Quest/consequence engine expansion for validated quest lifecycle changes, inventory changes, relationship deltas, reputation-like state flags, NPC runtime state patches, memories, and meaningful world events.
 - World/faction simulation foundation with session-owned factions, faction relationships, explicit deterministic ticks, bounded rule outputs, and server-owned persistence.
-- Playable content authoring foundation for owner-managed story drafts, world instructions, opening setup, playable/NPC character templates, faction templates, initial settings, validation, and publishing.
+- Playable content authoring foundation for owner-managed story drafts, world instructions, opening setup, playable/NPC character templates, faction templates, initial settings, validation, publishing, and immutable runtime versions.
 
 Out of scope:
 
@@ -60,9 +60,9 @@ A registered account that owns characters, sessions, saves, inventory progress, 
 
 A playable narrative world with metadata, genre, entry points, rules, character options, world state templates, NPC definitions, and quest/event configuration.
 
-Authors can now create story drafts, edit owner-only authoring fields, validate them, and publish playable content. Public catalog endpoints expose only published metadata and playable character templates; internal world instructions, opening setup, NPC secrets, and authoring-only template data remain server-side.
+Authors can now create story drafts, edit owner-only authoring fields, validate them, and publish playable content. Publishing creates an immutable story version containing runtime-critical prompts, settings, playable/NPC templates, faction templates, and faction relation templates. Public catalog endpoints expose only story metadata and playable character templates from the current published version; internal world instructions, opening setup, NPC secrets, and authoring-only template data remain server-side.
 
-Published stories use a conservative mutation policy. Public metadata may be edited, but runtime-critical fields such as world instructions, opening setup, initial settings, characters, and factions are locked after publish. Structural changes should be made through future story versioning rather than mutating active published content in place.
+Published versions are never mutated by normal application APIs. Creators can create a new working revision, edit runtime-critical fields there, and publish a new version. Existing game sessions stay pinned to the story version they were created with, while new sessions use the latest current published version.
 
 ### Character
 

@@ -6,7 +6,9 @@ import type {
   RepositoryContext,
   Repositories,
   StoryCharacterRecord,
-  StoryRecord
+  StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionRecord
 } from "@ai-novel/db";
 import { withTransaction } from "@ai-novel/db";
 import {
@@ -67,9 +69,9 @@ export class SessionService {
     user: CurrentUser,
     input: CreateSessionInputDto
   ): Promise<CreateSessionResponseDto> {
-    const story = await this.getPublishedStory(input.storyId);
-    const character = await this.repositories.stories.getCharacterForStory(
-      story.id,
+    const { story, version } = await this.getPlayableStoryVersion(input.storyId);
+    const character = await this.repositories.storyVersionCharacters.getForVersion(
+      version.id,
       input.characterId
     );
 
@@ -85,23 +87,35 @@ export class SessionService {
       const createdSession = await context.repositories.gameSessions.create({
         userId: user.userId,
         storyId: story.id,
-        selectedCharacterId: character.id,
+        storyVersionId: version.id,
+        selectedCharacterId: character.sourceCharacterId,
+        selectedVersionCharacterId: character.id,
         title: story.title
       });
 
       await context.repositories.gameStates.createInitialState(
-        buildInitialGameState(createdSession.id, story, character)
+        buildInitialGameState(
+          createdSession.id,
+          {
+            storyId: story.id,
+            storySlug: story.slug,
+            storyVersionId: version.id,
+            storyVersionNumber: version.versionNumber,
+            settings: version.settings
+          },
+          character
+        )
       );
       await this.npcInitializationService?.initializeForSession({
         context,
         sessionId: createdSession.id,
-        story,
-        selectedCharacterId: character.id
+        storyVersionId: version.id,
+        selectedVersionCharacterId: character.id
       });
       await this.factionInitializationService?.initializeForSession({
         context,
         sessionId: createdSession.id,
-        story
+        storyVersionId: version.id
       });
 
       return createdSession;
@@ -118,8 +132,9 @@ export class SessionService {
     const sessions = await this.repositories.gameSessions.listForUser(user.userId);
     const items = await Promise.all(
       sessions.map(async (session) => {
-        const { story, character } = await this.loadSessionReferences(session);
-        return toSessionListItemDto({ session, story, character });
+        const { story, storyVersion, character } =
+          await this.loadSessionReferences(session);
+        return toSessionListItemDto({ session, story, character, storyVersion });
       })
     );
 
@@ -177,14 +192,24 @@ export class SessionService {
     };
   }
 
-  private async getPublishedStory(storyId: string): Promise<StoryRecord> {
+  private async getPlayableStoryVersion(storyId: string): Promise<{
+    readonly story: StoryRecord;
+    readonly version: StoryVersionRecord;
+  }> {
     const story = await this.repositories.stories.getById(storyId);
 
-    if (!story || story.status !== "published") {
+    if (!story || story.status === "archived") {
       throw new ResourceNotFoundError("Story was not found.");
     }
 
-    return story;
+    const version = await this.repositories.storyVersions.getCurrentPublishedVersion(
+      story.id
+    );
+    if (!version) {
+      throw new ResourceNotFoundError("Story was not found.");
+    }
+
+    return { story, version };
   }
 
   private async requireOwnedSession(
@@ -202,7 +227,8 @@ export class SessionService {
 
   private async loadSessionReferences(session: GameSessionRecord): Promise<{
     readonly story: StoryRecord;
-    readonly character: StoryCharacterRecord | null;
+    readonly storyVersion: StoryVersionRecord | null;
+    readonly character: StoryCharacterRecord | StoryVersionCharacterRecord | null;
   }> {
     const story = await this.repositories.stories.getById(session.storyId);
 
@@ -210,14 +236,23 @@ export class SessionService {
       throw new ResourceNotFoundError("Story was not found.");
     }
 
-    const character = session.selectedCharacterId
-      ? await this.repositories.stories.getCharacterForStory(
-          session.storyId,
-          session.selectedCharacterId
-        )
+    const storyVersion = session.storyVersionId
+      ? await this.repositories.storyVersions.getById(session.storyVersionId)
       : null;
+    const character =
+      storyVersion && session.selectedVersionCharacterId
+        ? await this.repositories.storyVersionCharacters.getForVersion(
+            storyVersion.id,
+            session.selectedVersionCharacterId
+          )
+        : session.selectedCharacterId
+          ? await this.repositories.stories.getCharacterForStory(
+              session.storyId,
+              session.selectedCharacterId
+            )
+          : null;
 
-    return { story, character };
+    return { story, storyVersion, character };
   }
 
   private async buildSessionDetail(
@@ -228,14 +263,16 @@ export class SessionService {
       throw new ResourceNotFoundError("Game session was not found.");
     }
 
-    const { story, character } = await this.loadSessionReferences(session);
+    const { story, storyVersion, character } = await this.loadSessionReferences(
+      session
+    );
     const [currentState, recentMessages] = await Promise.all([
       this.repositories.gameStates.getCurrentState(session.id),
       this.repositories.gameMessages.getRecentMessages(session.id, 50)
     ]);
 
     return {
-      ...toSessionListItemDto({ session, story, character }),
+      ...toSessionListItemDto({ session, story, character, storyVersion }),
       currentState: currentState
         ? toGameStateDto(currentState as GameStateRecord)
         : null,

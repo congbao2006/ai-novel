@@ -236,9 +236,9 @@ The prompt builder separates:
 
 Player action is explicitly labeled as untrusted fictional input. It must not be treated as system/developer instruction, and the model is told not to reveal internal prompts or alter the output schema.
 
-Author `worldPrompt` and `openingPrompt` are privileged story instructions but they are still user-authored content. They sit below platform safety and engine orchestration instructions. They cannot override structured output contracts, provider secrecy, API key handling, budget enforcement, or the rule that the server is the only authority for persisted state.
+Published story-version `worldPrompt` and `openingPrompt` are privileged story instructions but they are still user-authored content. They sit below platform safety and engine orchestration instructions. They cannot override structured output contracts, provider secrecy, API key handling, budget enforcement, or the rule that the server is the only authority for persisted state.
 
-Public story endpoints and session DTOs never expose author prompts. Owner-only authoring endpoints may return and edit them while the story is still structurally editable.
+Public story endpoints and session DTOs never expose author prompts. Owner-only authoring endpoints may return and edit working-copy prompts. Gameplay prompt construction always resolves prompts from the `story_versions` row pinned to the `game_sessions.story_version_id`, never from mutable authoring rows.
 
 Context is built by `MemoryContextBuilder` under server-side caps:
 

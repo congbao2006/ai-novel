@@ -43,7 +43,10 @@ export default function AuthorDashboardPage() {
           >
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-lg font-medium">{story.title}</h2>
-              <span className="text-sm text-zinc-600">{story.status}</span>
+              <span className="text-sm text-zinc-600">
+                {story.status}
+                {story.currentPublishedVersionId ? " · live" : ""}
+              </span>
             </div>
             <p className="mt-1 text-sm text-zinc-600">{story.genre}</p>
           </Link>

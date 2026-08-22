@@ -8,6 +8,7 @@ import type {
   QuestStatus,
   SessionStatus,
   StoryCharacterType,
+  StoryVersionStatus,
   StoryStatus
 } from "@ai-novel/domain";
 import type {
@@ -35,6 +36,10 @@ import type {
   NewStoryCharacter,
   NewStoryFaction,
   NewStoryFactionRelationship,
+  NewStoryVersion,
+  NewStoryVersionCharacter,
+  NewStoryVersionFaction,
+  NewStoryVersionFactionRelationship,
   NewUser,
   NewWorldEvent,
   NewWorldSimulationState,
@@ -47,6 +52,10 @@ import type {
   StoryCharacter,
   StoryFaction,
   StoryFactionRelationship,
+  StoryVersion,
+  StoryVersionCharacter,
+  StoryVersionFaction,
+  StoryVersionFactionRelationship,
   User,
   WorldEvent,
   WorldSimulationState
@@ -64,7 +73,8 @@ export type {
   AIUsagePurpose,
   AIUsageStatus,
   FactionStatus,
-  StoryCharacterType
+  StoryCharacterType,
+  StoryVersionStatus
 };
 
 export type JsonObject = Record<string, unknown>;
@@ -94,6 +104,7 @@ export type UpdateStoryInput = {
   readonly worldPrompt?: string;
   readonly openingPrompt?: string;
   readonly settings?: JsonObject;
+  readonly currentPublishedVersionId?: string | null;
 };
 export type CreateStoryCharacterInput = Omit<
   NewStoryCharacter,
@@ -121,6 +132,27 @@ export type CreateStoryFactionRelationshipInput = Omit<
   NewStoryFactionRelationship,
   "id" | "createdAt" | "updatedAt"
 >;
+export type StoryVersionRecord = StoryVersion;
+export type StoryVersionCharacterRecord = StoryVersionCharacter;
+export type StoryVersionFactionRecord = StoryVersionFaction;
+export type StoryVersionFactionRelationshipRecord =
+  StoryVersionFactionRelationship;
+export type CreateStoryVersionInput = Omit<
+  NewStoryVersion,
+  "id" | "createdAt" | "publishedAt"
+>;
+export type CreateStoryVersionCharacterInput = Omit<
+  NewStoryVersionCharacter,
+  "id" | "createdAt"
+>;
+export type CreateStoryVersionFactionInput = Omit<
+  NewStoryVersionFaction,
+  "id" | "createdAt"
+>;
+export type CreateStoryVersionFactionRelationshipInput = Omit<
+  NewStoryVersionFactionRelationship,
+  "id" | "createdAt"
+>;
 export type StoryListPageInput = {
   readonly genre?: string | undefined;
   readonly limit: number;
@@ -130,7 +162,12 @@ export type StoryListPageInput = {
 export type GameSessionRecord = GameSession;
 export type CreateSessionInput = Pick<
   NewGameSession,
-  "userId" | "storyId" | "selectedCharacterId" | "title"
+  | "userId"
+  | "storyId"
+  | "selectedCharacterId"
+  | "storyVersionId"
+  | "selectedVersionCharacterId"
+  | "title"
 >;
 export type UpdateSessionMetadataInput = {
   readonly title?: string | null;

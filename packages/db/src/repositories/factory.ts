@@ -17,6 +17,10 @@ import type {
   StoryFactionRelationshipRepository,
   StoryFactionRepository,
   StoryRepository,
+  StoryVersionCharacterRepository,
+  StoryVersionFactionRelationshipRepository,
+  StoryVersionFactionRepository,
+  StoryVersionRepository,
   UserRepository,
   WorldEventRepository,
   WorldSimulationStateRepository
@@ -39,6 +43,10 @@ import {
   DrizzleStoryFactionRelationshipRepository,
   DrizzleStoryFactionRepository,
   DrizzleStoryRepository,
+  DrizzleStoryVersionCharacterRepository,
+  DrizzleStoryVersionFactionRelationshipRepository,
+  DrizzleStoryVersionFactionRepository,
+  DrizzleStoryVersionRepository,
   DrizzleUserRepository,
   DrizzleWorldEventRepository,
   DrizzleWorldSimulationStateRepository
@@ -51,6 +59,10 @@ export type Repositories = {
   readonly stories: StoryRepository;
   readonly storyFactions: StoryFactionRepository;
   readonly storyFactionRelationships: StoryFactionRelationshipRepository;
+  readonly storyVersions: StoryVersionRepository;
+  readonly storyVersionCharacters: StoryVersionCharacterRepository;
+  readonly storyVersionFactions: StoryVersionFactionRepository;
+  readonly storyVersionFactionRelationships: StoryVersionFactionRelationshipRepository;
   readonly gameSessions: GameSessionRepository;
   readonly gameMessages: GameMessageRepository;
   readonly gameStates: GameStateRepository;
@@ -75,6 +87,11 @@ export function createRepositories(db: DbExecutor): Repositories {
     stories: new DrizzleStoryRepository(db),
     storyFactions: new DrizzleStoryFactionRepository(db),
     storyFactionRelationships: new DrizzleStoryFactionRelationshipRepository(db),
+    storyVersions: new DrizzleStoryVersionRepository(db),
+    storyVersionCharacters: new DrizzleStoryVersionCharacterRepository(db),
+    storyVersionFactions: new DrizzleStoryVersionFactionRepository(db),
+    storyVersionFactionRelationships:
+      new DrizzleStoryVersionFactionRelationshipRepository(db),
     gameSessions: new DrizzleGameSessionRepository(db),
     gameMessages: new DrizzleGameMessageRepository(db),
     gameStates: new DrizzleGameStateRepository(db),

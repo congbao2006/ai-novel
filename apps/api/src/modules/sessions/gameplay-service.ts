@@ -23,7 +23,9 @@ import type {
   Repositories,
   SessionMemoryRecord,
   StoryCharacterRecord,
-  StoryRecord
+  StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionRecord
 } from "@ai-novel/db";
 import {
   ConflictError,
@@ -45,7 +47,11 @@ import {
   toWorldEventDto,
   type GameplayTurnResponseDto
 } from "./dto.js";
-import { buildAITurnGenerationRequest } from "./ai-turn-prompt.js";
+import {
+  buildAITurnGenerationRequest,
+  type RuntimeCharacterPromptContext,
+  type RuntimeStoryPromptContext
+} from "./ai-turn-prompt.js";
 import {
   ConsequenceEngine,
   type InternalTurnPersistencePlan
@@ -363,8 +369,8 @@ export class GameplayService {
   ): Promise<{
     readonly session: Awaited<ReturnType<Repositories["gameSessions"]["getById"]>> & {};
     readonly state: GameStateRecord;
-    readonly story: StoryRecord;
-    readonly character: StoryCharacterRecord | null;
+    readonly story: RuntimeStoryPromptContext;
+    readonly character: RuntimeCharacterPromptContext | null;
   }> {
     const session = await this.repositories.gameSessions.getById(sessionId);
 
@@ -384,7 +390,9 @@ export class GameplayService {
 
     const { story, character } = await loadTurnReferences(this.repositories, {
       storyId: session.storyId,
-      selectedCharacterId: session.selectedCharacterId
+      storyVersionId: session.storyVersionId,
+      selectedCharacterId: session.selectedCharacterId,
+      selectedVersionCharacterId: session.selectedVersionCharacterId
     });
     return {
       session,
@@ -458,11 +466,13 @@ async function loadTurnReferences(
   source: RepositoryContext | Repositories,
   input: {
     readonly storyId: string;
+    readonly storyVersionId: string | null;
     readonly selectedCharacterId: string | null;
+    readonly selectedVersionCharacterId: string | null;
   }
 ): Promise<{
-  readonly story: StoryRecord;
-  readonly character: StoryCharacterRecord | null;
+  readonly story: RuntimeStoryPromptContext;
+  readonly character: RuntimeCharacterPromptContext | null;
 }> {
   const repositories = "repositories" in source ? source.repositories : source;
   const story = await repositories.stories.getById(input.storyId);
@@ -471,14 +481,31 @@ async function loadTurnReferences(
     throw new ResourceNotFoundError("Story was not found.");
   }
 
-  const character = input.selectedCharacterId
-    ? await repositories.stories.getCharacterForStory(
-        story.id,
-        input.selectedCharacterId
-      )
-    : null;
+  const version = input.storyVersionId
+    ? await repositories.storyVersions.getById(input.storyVersionId)
+    : await repositories.storyVersions.getCurrentPublishedVersion(story.id);
 
-  return { story, character };
+  if (!version) {
+    throw new ResourceNotFoundError("Story version was not found.");
+  }
+
+  const character =
+    input.selectedVersionCharacterId
+      ? await repositories.storyVersionCharacters.getForVersion(
+          version.id,
+          input.selectedVersionCharacterId
+        )
+      : input.selectedCharacterId
+        ? await repositories.stories.getCharacterForStory(
+            story.id,
+            input.selectedCharacterId
+          )
+        : null;
+
+  return {
+    story: toRuntimeStoryPromptContext(story, version),
+    character: character ? toRuntimeCharacterPromptContext(character) : null
+  };
 }
 
 async function loadOwnedActiveTurnSnapshot(
@@ -490,8 +517,8 @@ async function loadOwnedActiveTurnSnapshot(
     Awaited<ReturnType<Repositories["gameSessions"]["getById"]>>
   >;
   readonly state: GameStateRecord;
-  readonly story: StoryRecord;
-  readonly character: StoryCharacterRecord | null;
+  readonly story: RuntimeStoryPromptContext;
+  readonly character: RuntimeCharacterPromptContext | null;
 }> {
   const session = await context.repositories.gameSessions.getById(sessionId);
 
@@ -511,10 +538,41 @@ async function loadOwnedActiveTurnSnapshot(
 
   const { story, character } = await loadTurnReferences(context, {
     storyId: session.storyId,
-    selectedCharacterId: session.selectedCharacterId
+    storyVersionId: session.storyVersionId,
+    selectedCharacterId: session.selectedCharacterId,
+    selectedVersionCharacterId: session.selectedVersionCharacterId
   });
 
   return { session, state, story, character };
+}
+
+function toRuntimeStoryPromptContext(
+  story: StoryRecord,
+  version: StoryVersionRecord
+): RuntimeStoryPromptContext {
+  return {
+    id: story.id,
+    title: story.title,
+    slug: story.slug,
+    description: story.description,
+    genre: story.genre,
+    storyVersionId: version.id,
+    storyVersionNumber: version.versionNumber,
+    worldPrompt: version.worldPrompt,
+    openingPrompt: version.openingPrompt
+  };
+}
+
+function toRuntimeCharacterPromptContext(
+  character: StoryCharacterRecord | StoryVersionCharacterRecord
+): RuntimeCharacterPromptContext {
+  return {
+    id: character.id,
+    name: character.name,
+    description: character.description,
+    background: character.background,
+    initialStats: copyJsonObject(character.initialStats)
+  };
 }
 
 async function persistTurn(

@@ -442,13 +442,49 @@ Completed:
 Policy:
 
 - Drafts are freely editable by the owner.
-- Published runtime-critical fields are locked in the MVP: world instructions, opening setup, initial settings, character templates, and faction templates.
-- Public metadata may still be edited.
-- Runtime state never writes back to story authoring templates.
+- Publishing creates immutable runtime story versions.
+- Public metadata can remain available while a creator edits a new working revision.
+- Runtime state never writes back to story authoring templates or story version templates.
 
 Next step:
 
-- Story Versioning + Runtime Snapshot Hardening. This should introduce durable runtime story snapshots or version records so future published changes can coexist safely with active sessions.
+- Completed by Phase 4.13.
+
+## Phase 4.13: Story Versioning + Runtime Snapshot Hardening
+
+Status: completed.
+
+Goals:
+
+- Add explicit immutable story versions for published runtime configuration.
+- Pin each game session to a story version and selected version character.
+- Let creators create and publish new revisions without changing existing sessions.
+- Ensure gameplay prompts and runtime initialization no longer depend on mutable authoring rows.
+
+Completed:
+
+- Added `story_versions`, `story_version_characters`, `story_version_factions`, and `story_version_faction_relationships`.
+- Added `stories.current_published_version_id`.
+- Added nullable legacy-safe `game_sessions.story_version_id` and `game_sessions.selected_version_character_id`.
+- Updated publish flow to atomically create version snapshots and move the current published version pointer.
+- Added author APIs for version history and revision creation.
+- Updated public story detail to return playable characters from the current published version.
+- Updated session creation to pin `storyVersionId`, initialize state from version settings, clone NPC templates from version characters, and clone factions from version faction templates.
+- Updated AI gameplay prompt resolution to use pinned story-version prompts.
+- Added `pnpm story:version-backfill` for legacy published stories and sessions.
+- Updated seed data with published version snapshots.
+- Added tests for v1/v2 session pinning.
+
+Policy:
+
+- Published story versions are immutable through normal application APIs.
+- Older versions may be marked `retired`; existing sessions continue to load them.
+- New sessions resolve only the current published version.
+- A game session must never change story version after creation.
+
+Next step:
+
+- Production Hardening / Deployment Foundation. The product now has enough runtime and authoring surface that deployment, migrations, backups, operational checks, and security review should be hardened before creator AI assistance or marketplace features.
 
 ## Phase 5: Story Creation Tools
 

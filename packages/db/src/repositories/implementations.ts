@@ -1,4 +1,16 @@
-import { and, desc, eq, gt, gte, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  isNotNull,
+  isNull,
+  lte,
+  max,
+  ne,
+  sql
+} from "drizzle-orm";
 import type { DbExecutor } from "./context.js";
 import {
   ConflictError,
@@ -35,6 +47,10 @@ import type {
   CreateStoryCharacterInput,
   CreateStoryFactionInput,
   CreateStoryFactionRelationshipInput,
+  CreateStoryVersionInput,
+  CreateStoryVersionCharacterInput,
+  CreateStoryVersionFactionInput,
+  CreateStoryVersionFactionRelationshipInput,
   CreateStoryInput,
   CreateUserInput,
   CreateWorldSimulationStateInput,
@@ -59,6 +75,10 @@ import type {
   StoryCharacterRecord,
   StoryFactionRecord,
   StoryFactionRelationshipRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionFactionRecord,
+  StoryVersionFactionRelationshipRecord,
+  StoryVersionRecord,
   StoryListPageInput,
   UpdateStoryCharacterInput,
   UpdateStoryFactionInput,
@@ -98,6 +118,10 @@ import {
   storyCharacters,
   storyFactionRelationships,
   storyFactions,
+  storyVersionCharacters,
+  storyVersionFactionRelationships,
+  storyVersionFactions,
+  storyVersions,
   users,
   worldEvents,
   worldSimulationStates
@@ -119,6 +143,10 @@ import type {
   SessionSummaryRepository,
   StoryFactionRelationshipRepository,
   StoryFactionRepository,
+  StoryVersionCharacterRepository,
+  StoryVersionFactionRelationshipRepository,
+  StoryVersionFactionRepository,
+  StoryVersionRepository,
   StoryRepository,
   UserRepository,
   WorldEventRepository,
@@ -312,6 +340,9 @@ export class DrizzleStoryRepository
       if (input.worldPrompt !== undefined) updates.worldPrompt = input.worldPrompt;
       if (input.openingPrompt !== undefined) updates.openingPrompt = input.openingPrompt;
       if (input.settings !== undefined) updates.settings = input.settings;
+      if (input.currentPublishedVersionId !== undefined) {
+        updates.currentPublishedVersionId = input.currentPublishedVersionId;
+      }
 
       return firstOrThrow(
         await this.db
@@ -331,7 +362,10 @@ export class DrizzleStoryRepository
       throw new ValidationError("Offset must be non-negative.");
     }
 
-    const predicates = [eq(stories.status, "published")];
+    const predicates = [
+      isNotNull(stories.currentPublishedVersionId),
+      ne(stories.status, "archived")
+    ];
 
     if (input.genre) {
       predicates.push(eq(stories.genre, input.genre));
@@ -354,7 +388,12 @@ export class DrizzleStoryRepository
       this.db
         .select()
         .from(stories)
-        .where(eq(stories.status, "published"))
+        .where(
+          and(
+            isNotNull(stories.currentPublishedVersionId),
+            ne(stories.status, "archived")
+          )
+        )
         .limit(limit)
     );
   }
@@ -365,7 +404,13 @@ export class DrizzleStoryRepository
       this.db
         .select()
         .from(stories)
-        .where(and(eq(stories.genre, genre), eq(stories.status, "published")))
+        .where(
+          and(
+            eq(stories.genre, genre),
+            isNotNull(stories.currentPublishedVersionId),
+            ne(stories.status, "archived")
+          )
+        )
         .limit(limit)
     );
   }
@@ -626,6 +671,247 @@ export class DrizzleStoryFactionRelationshipRepository
           )
         );
     });
+  }
+}
+
+export class DrizzleStoryVersionRepository
+  extends BaseRepository
+  implements StoryVersionRepository
+{
+  create(input: CreateStoryVersionInput): Promise<StoryVersionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyVersions).values(input).returning(),
+        new ConflictError("Story version could not be created.")
+      )
+    );
+  }
+
+  getById(versionId: string): Promise<StoryVersionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyVersions)
+          .where(eq(storyVersions.id, versionId))
+          .limit(1)
+      )
+    );
+  }
+
+  async getCurrentPublishedVersion(
+    storyId: string
+  ): Promise<StoryVersionRecord | null> {
+    return this.run(async () => {
+      const story = firstOrNull(
+        await this.db
+          .select({ currentPublishedVersionId: stories.currentPublishedVersionId })
+          .from(stories)
+          .where(eq(stories.id, storyId))
+          .limit(1)
+      );
+
+      if (!story?.currentPublishedVersionId) {
+        return this.getLatestPublishedVersion(storyId);
+      }
+
+      const current = firstOrNull(
+        await this.db
+          .select()
+          .from(storyVersions)
+          .where(
+            and(
+              eq(storyVersions.id, story.currentPublishedVersionId),
+              eq(storyVersions.storyId, storyId),
+              eq(storyVersions.status, "published")
+            )
+          )
+          .limit(1)
+      );
+
+      return current ?? this.getLatestPublishedVersion(storyId);
+    });
+  }
+
+  getLatestPublishedVersion(storyId: string): Promise<StoryVersionRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyVersions)
+          .where(
+            and(
+              eq(storyVersions.storyId, storyId),
+              eq(storyVersions.status, "published")
+            )
+          )
+          .orderBy(desc(storyVersions.versionNumber))
+          .limit(1)
+      )
+    );
+  }
+
+  listForStory(storyId: string): Promise<StoryVersionRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersions)
+        .where(eq(storyVersions.storyId, storyId))
+        .orderBy(desc(storyVersions.versionNumber))
+    );
+  }
+
+  async getNextVersionNumber(storyId: string): Promise<number> {
+    return this.run(async () => {
+      const row = firstOrNull(
+        await this.db
+          .select({ value: max(storyVersions.versionNumber) })
+          .from(storyVersions)
+          .where(eq(storyVersions.storyId, storyId))
+      );
+
+      return (row?.value ?? 0) + 1;
+    });
+  }
+
+  async retireOtherPublishedVersions(
+    storyId: string,
+    currentVersionId: string
+  ): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .update(storyVersions)
+        .set({ status: "retired" })
+        .where(
+          and(
+            eq(storyVersions.storyId, storyId),
+            eq(storyVersions.status, "published"),
+            sql`${storyVersions.id} <> ${currentVersionId}`
+          )
+        );
+    });
+  }
+}
+
+export class DrizzleStoryVersionCharacterRepository
+  extends BaseRepository
+  implements StoryVersionCharacterRepository
+{
+  create(
+    input: CreateStoryVersionCharacterInput
+  ): Promise<StoryVersionCharacterRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyVersionCharacters).values(input).returning(),
+        new ConflictError("Story version character could not be created.")
+      )
+    );
+  }
+
+  listForVersion(versionId: string): Promise<StoryVersionCharacterRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionCharacters)
+        .where(eq(storyVersionCharacters.storyVersionId, versionId))
+        .orderBy(storyVersionCharacters.createdAt, storyVersionCharacters.id)
+    );
+  }
+
+  listForVersionByType(
+    versionId: string,
+    characterType: StoryVersionCharacterRecord["characterType"]
+  ): Promise<StoryVersionCharacterRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionCharacters)
+        .where(
+          and(
+            eq(storyVersionCharacters.storyVersionId, versionId),
+            eq(storyVersionCharacters.characterType, characterType)
+          )
+        )
+        .orderBy(storyVersionCharacters.createdAt, storyVersionCharacters.id)
+    );
+  }
+
+  getForVersion(
+    versionId: string,
+    characterId: string
+  ): Promise<StoryVersionCharacterRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyVersionCharacters)
+          .where(
+            and(
+              eq(storyVersionCharacters.storyVersionId, versionId),
+              eq(storyVersionCharacters.id, characterId)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+}
+
+export class DrizzleStoryVersionFactionRepository
+  extends BaseRepository
+  implements StoryVersionFactionRepository
+{
+  create(input: CreateStoryVersionFactionInput): Promise<StoryVersionFactionRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyVersionFactions).values(input).returning(),
+        new ConflictError("Story version faction could not be created.")
+      )
+    );
+  }
+
+  listForVersion(versionId: string): Promise<StoryVersionFactionRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionFactions)
+        .where(eq(storyVersionFactions.storyVersionId, versionId))
+        .orderBy(storyVersionFactions.createdAt, storyVersionFactions.id)
+    );
+  }
+}
+
+export class DrizzleStoryVersionFactionRelationshipRepository
+  extends BaseRepository
+  implements StoryVersionFactionRelationshipRepository
+{
+  create(
+    input: CreateStoryVersionFactionRelationshipInput
+  ): Promise<StoryVersionFactionRelationshipRecord> {
+    return this.run(async () => {
+      if (input.sourceVersionFactionId === input.targetVersionFactionId) {
+        throw new ValidationError("Faction relationship cannot target itself.");
+      }
+
+      return firstOrThrow(
+        await this.db
+          .insert(storyVersionFactionRelationships)
+          .values(input)
+          .returning(),
+        new ConflictError("Story version faction relationship could not be created.")
+      );
+    });
+  }
+
+  listForVersion(
+    versionId: string
+  ): Promise<StoryVersionFactionRelationshipRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionFactionRelationships)
+        .where(eq(storyVersionFactionRelationships.storyVersionId, versionId))
+    );
   }
 }
 

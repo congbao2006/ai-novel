@@ -9,6 +9,9 @@ export type StoryStatus = (typeof storyStatuses)[number];
 export const storyCharacterTypes = ["playable", "npc"] as const;
 export type StoryCharacterType = (typeof storyCharacterTypes)[number];
 
+export const storyVersionStatuses = ["published", "retired"] as const;
+export type StoryVersionStatus = (typeof storyVersionStatuses)[number];
+
 export const sessionStatuses = ["active", "completed", "abandoned"] as const;
 export type SessionStatus = (typeof sessionStatuses)[number];
 

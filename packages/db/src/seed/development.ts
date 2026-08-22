@@ -2,13 +2,22 @@ import type { DatabaseClient } from "../client.js";
 import {
   storyCharacters,
   storyFactions,
+  storyVersionCharacters,
+  storyVersionFactions,
+  storyVersions,
   stories,
   users,
   type NewStory,
   type NewStoryCharacter,
   type NewStoryFaction,
+  type NewStoryVersion,
+  type NewStoryVersionCharacter,
+  type NewStoryVersionFaction,
   type NewUser
 } from "../schema/index.js";
+
+const daiVietVersionId = "00000000-0000-4000-8000-000000000401";
+const ngayThuNhatVersionId = "00000000-0000-4000-8000-000000000402";
 
 export const developmentSeedUser = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -32,6 +41,7 @@ export const developmentSeedStories = [
       initialLocation: "Bến sông Vân Đồn",
       initialWorldTime: "Đêm trước trận thủy chiến"
     },
+    currentPublishedVersionId: daiVietVersionId,
     createdByUserId: developmentSeedUser.id
   },
   {
@@ -47,6 +57,7 @@ export const developmentSeedStories = [
       initialLocation: "Trạm điện Bắc Quận",
       initialWorldTime: "06:12 ngày thứ nhất"
     },
+    currentPublishedVersionId: ngayThuNhatVersionId,
     createdByUserId: developmentSeedUser.id
   },
   {
@@ -62,6 +73,7 @@ export const developmentSeedStories = [
       initialLocation: "Căn phòng khóa kín",
       initialWorldTime: "Không rõ"
     },
+    currentPublishedVersionId: null,
     createdByUserId: developmentSeedUser.id
   }
 ] satisfies NewStory[];
@@ -177,11 +189,101 @@ export const developmentSeedStoryFactions = [
   }
 ] satisfies NewStoryFaction[];
 
+export const developmentSeedStoryVersions = [
+  {
+    id: daiVietVersionId,
+    storyId: "00000000-0000-4000-8000-000000000101",
+    versionNumber: 1,
+    status: "published",
+    worldPrompt: "Đại Việt cuối thế kỷ 13, căng thẳng trước trận thủy chiến.",
+    openingPrompt: "Trống canh vang bên bến sông, và tin báo quân thù đã đến gần.",
+    settings: {
+      initialLocation: "Bến sông Vân Đồn",
+      initialWorldTime: "Đêm trước trận thủy chiến"
+    },
+    createdByUserId: developmentSeedUser.id
+  },
+  {
+    id: ngayThuNhatVersionId,
+    storyId: "00000000-0000-4000-8000-000000000102",
+    versionNumber: 1,
+    status: "published",
+    worldPrompt: "Một đô thị hiện đại bị chia cắt sau biến cố siêu nhiên.",
+    openingPrompt: "Điện tắt. Sóng mất. Ngoài cửa sổ, bầu trời có hai mặt trời.",
+    settings: {
+      initialLocation: "Trạm điện Bắc Quận",
+      initialWorldTime: "06:12 ngày thứ nhất"
+    },
+    createdByUserId: developmentSeedUser.id
+  }
+] satisfies NewStoryVersion[];
+
+export const developmentSeedStoryVersionCharacters =
+  developmentSeedStoryCharacters
+    .filter((character) =>
+      [
+        "00000000-0000-4000-8000-000000000101",
+        "00000000-0000-4000-8000-000000000102"
+      ].includes(character.storyId)
+    )
+    .map((character, index): NewStoryVersionCharacter => ({
+      id: `00000000-0000-4000-8000-0000000005${String(index + 1).padStart(2, "0")}`,
+      storyVersionId:
+        character.storyId === "00000000-0000-4000-8000-000000000101"
+          ? daiVietVersionId
+          : ngayThuNhatVersionId,
+      sourceCharacterId: character.id,
+      characterType: character.characterType,
+      name: character.name,
+      description: character.description,
+      personality: character.personality,
+      background: character.background,
+      initialStats: (character.initialStats ?? {}) as Record<string, unknown>,
+      goals: character.goals ?? [],
+      secrets: (character.secrets ?? {}) as Record<string, unknown>,
+      initialState:
+        "initialState" in character && character.initialState
+          ? (character.initialState as Record<string, unknown>)
+          : ({} as Record<string, unknown>),
+      initialLocation: character.initialLocation ?? null,
+      metadata:
+        "metadata" in character && character.metadata
+          ? (character.metadata as Record<string, unknown>)
+          : ({} as Record<string, unknown>)
+    }));
+
+export const developmentSeedStoryVersionFactions = developmentSeedStoryFactions
+  .filter((faction) =>
+    [
+      "00000000-0000-4000-8000-000000000101",
+      "00000000-0000-4000-8000-000000000102"
+    ].includes(faction.storyId)
+  )
+  .map((faction, index) => ({
+    id: `00000000-0000-4000-8000-0000000006${String(index + 1).padStart(2, "0")}`,
+    storyVersionId:
+      faction.storyId === "00000000-0000-4000-8000-000000000101"
+        ? daiVietVersionId
+        : ngayThuNhatVersionId,
+    sourceFactionId: faction.id,
+    factionKey: faction.factionKey,
+    name: faction.name,
+    description: faction.description,
+    initialStatus: faction.initialStatus,
+    initialInfluence: faction.initialInfluence,
+    resources: faction.resources ?? {},
+    goals: faction.goals ?? [],
+    state: faction.state ?? {}
+  })) satisfies NewStoryVersionFaction[];
+
 export const developmentSeedData = {
   user: developmentSeedUser,
   stories: developmentSeedStories,
   storyCharacters: developmentSeedStoryCharacters,
-  storyFactions: developmentSeedStoryFactions
+  storyFactions: developmentSeedStoryFactions,
+  storyVersions: developmentSeedStoryVersions,
+  storyVersionCharacters: developmentSeedStoryVersionCharacters,
+  storyVersionFactions: developmentSeedStoryVersionFactions
 } as const;
 
 export async function seedDevelopmentDatabase(db: DatabaseClient): Promise<void> {
@@ -204,4 +306,19 @@ export async function seedDevelopmentDatabase(db: DatabaseClient): Promise<void>
     .insert(storyFactions)
     .values(developmentSeedStoryFactions)
     .onConflictDoNothing({ target: storyFactions.id });
+
+  await db
+    .insert(storyVersions)
+    .values(developmentSeedStoryVersions)
+    .onConflictDoNothing({ target: storyVersions.id });
+
+  await db
+    .insert(storyVersionCharacters)
+    .values(developmentSeedStoryVersionCharacters)
+    .onConflictDoNothing({ target: storyVersionCharacters.id });
+
+  await db
+    .insert(storyVersionFactions)
+    .values(developmentSeedStoryVersionFactions)
+    .onConflictDoNothing({ target: storyVersionFactions.id });
 }

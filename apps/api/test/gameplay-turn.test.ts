@@ -28,6 +28,8 @@ import type {
   SessionMemoryRecord,
   StoryCharacterRecord,
   StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionRecord,
   WorldEventRecord
 } from "@ai-novel/db";
 import { ConflictError, StateVersionConflictError } from "@ai-novel/db";
@@ -66,9 +68,23 @@ const story: StoryRecord = {
   worldPrompt: "internal world prompt",
   openingPrompt: "internal opening prompt",
   settings: {},
+  currentPublishedVersionId: "550e8400-e29b-41d4-a716-446655440100",
   createdByUserId: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
+};
+
+const storyVersion: StoryVersionRecord = {
+  id: story.currentPublishedVersionId!,
+  storyId: story.id,
+  versionNumber: 1,
+  status: "published",
+  worldPrompt: story.worldPrompt,
+  openingPrompt: story.openingPrompt,
+  settings: story.settings,
+  createdByUserId: null,
+  publishedAt: new Date("2026-01-01T00:00:00Z"),
+  createdAt: new Date("2026-01-01T00:00:00Z")
 };
 
 const character: StoryCharacterRecord = {
@@ -89,6 +105,24 @@ const character: StoryCharacterRecord = {
   updatedAt: new Date("2026-01-01T00:00:00Z")
 };
 
+const versionCharacter: StoryVersionCharacterRecord = {
+  id: "550e8400-e29b-41d4-a716-446655440101",
+  storyVersionId: storyVersion.id,
+  sourceCharacterId: character.id,
+  characterType: character.characterType,
+  name: character.name,
+  description: character.description,
+  personality: character.personality,
+  background: character.background,
+  goals: character.goals,
+  secrets: character.secrets,
+  initialState: character.initialState,
+  initialLocation: character.initialLocation,
+  metadata: character.metadata,
+  initialStats: character.initialStats,
+  createdAt: new Date("2026-01-01T00:00:00Z")
+};
+
 function createFixture(options: {
   readonly failStateUpdate?: boolean;
   readonly sessionUserId?: string;
@@ -98,7 +132,9 @@ function createFixture(options: {
       id: "550e8400-e29b-41d4-a716-446655440002",
       userId: options.sessionUserId ?? user.userId,
       storyId: story.id,
+      storyVersionId: storyVersion.id,
       selectedCharacterId: character.id,
+      selectedVersionCharacterId: versionCharacter.id,
       title: story.title,
       status: "active",
       turnCount: 0,
@@ -154,6 +190,21 @@ function createFixture(options: {
       async getCharacterForStory(storyId: string, characterId: string) {
         return storyId === story.id && characterId === character.id
           ? character
+          : null;
+      }
+    },
+    storyVersions: {
+      async getById(versionId: string) {
+        return versionId === storyVersion.id ? storyVersion : null;
+      },
+      async getCurrentPublishedVersion(storyId: string) {
+        return storyId === story.id ? storyVersion : null;
+      }
+    },
+    storyVersionCharacters: {
+      async getForVersion(versionId: string, characterId: string) {
+        return versionId === storyVersion.id && characterId === versionCharacter.id
+          ? versionCharacter
           : null;
       }
     },
@@ -1229,8 +1280,24 @@ describe("AI turn prompt builder", () => {
     const request = buildAITurnGenerationRequest({
       userId: user.userId,
       sessionId: "550e8400-e29b-41d4-a716-446655440002",
-      story,
-      character,
+      story: {
+        id: story.id,
+        title: story.title,
+        slug: story.slug,
+        description: story.description,
+        genre: story.genre,
+        storyVersionId: storyVersion.id,
+        storyVersionNumber: storyVersion.versionNumber,
+        worldPrompt: storyVersion.worldPrompt,
+        openingPrompt: storyVersion.openingPrompt
+      },
+      character: {
+        id: versionCharacter.id,
+        name: versionCharacter.name,
+        description: versionCharacter.description,
+        background: versionCharacter.background,
+        initialStats: versionCharacter.initialStats
+      },
       context: {
         state: {
           version: 1,

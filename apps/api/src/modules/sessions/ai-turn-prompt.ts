@@ -3,17 +3,33 @@ import {
   type AITurnProposal,
   type ContextBundle
 } from "@ai-novel/domain";
-import type {
-  StoryCharacterRecord,
-  StoryRecord
-} from "@ai-novel/db";
 import type { GenerationRequest } from "@ai-novel/ai-engine";
+
+export type RuntimeStoryPromptContext = {
+  readonly id: string;
+  readonly title: string;
+  readonly slug: string;
+  readonly description: string;
+  readonly genre: string;
+  readonly storyVersionId: string;
+  readonly storyVersionNumber: number;
+  readonly worldPrompt: string;
+  readonly openingPrompt: string;
+};
+
+export type RuntimeCharacterPromptContext = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly background: string;
+  readonly initialStats: Record<string, unknown>;
+};
 
 export type BuildAITurnPromptInput = {
   readonly userId: string;
   readonly sessionId: string;
-  readonly story: StoryRecord;
-  readonly character: StoryCharacterRecord | null;
+  readonly story: RuntimeStoryPromptContext;
+  readonly character: RuntimeCharacterPromptContext | null;
   readonly context: ContextBundle;
   readonly action: string;
 };
@@ -74,7 +90,9 @@ function buildContextMessage(input: BuildAITurnPromptInput): string {
   return [
     section("WORLD CONTEXT", {
       title: input.story.title,
+      slug: input.story.slug,
       genre: input.story.genre,
+      storyVersionNumber: input.story.storyVersionNumber,
       description: input.story.description,
       worldPrompt: input.story.worldPrompt,
       openingPrompt: input.story.openingPrompt

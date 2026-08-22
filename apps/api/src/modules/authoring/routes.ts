@@ -90,6 +90,15 @@ export const registerAuthoringRoutes: FastifyPluginAsync = async (app) => {
     return service.getOwnedStory(getRequiredUser(request), params.id);
   });
 
+  app.get("/stories/:id/versions", async (request) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = storyParamsSchema.parse(request.params);
+    return service.listVersions(getRequiredUser(request), params.id);
+  });
+
   app.patch("/stories/:id", async (request) => {
     const service = app.dependencies.storyAuthoringService;
     if (!service) {
@@ -195,6 +204,15 @@ export const registerAuthoringRoutes: FastifyPluginAsync = async (app) => {
     }
     const params = storyParamsSchema.parse(request.params);
     return service.publish(getRequiredUser(request), params.id);
+  });
+
+  app.post("/stories/:id/revisions", async (request) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = storyParamsSchema.parse(request.params);
+    return service.createRevision(getRequiredUser(request), params.id);
   });
 
   app.post("/stories/:id/archive", async (request) => {

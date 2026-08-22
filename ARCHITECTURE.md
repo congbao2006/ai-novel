@@ -61,7 +61,7 @@ Current application services:
 
 - `AuthService` owns registration, login, logout, password hashing, and session cookie identity.
 - `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
-- `StoryAuthoringService` owns authenticated story draft creation, owner-only editing, template management, publish validation, publish/archive transitions, and published runtime-config locking.
+- `StoryAuthoringService` owns authenticated story draft creation, owner-only editing, template management, publish validation, immutable version creation, revision workflow, and archive transitions.
 - `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
 - `GameplayService` owns authenticated turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
 - `BudgetService` owns server-side preflight budget checks before paid AI calls.
@@ -125,23 +125,27 @@ apps/api
 
 Repository contexts support shared transaction boundaries so a gameplay turn can persist messages, state, NPC updates, relationships, inventory, quests, events, memories, and turn counters in one transaction.
 
-The current session creation flow already uses that transaction boundary:
+The current session creation flow already uses that transaction boundary and pins immutable story versions:
 
 ```text
 Browser
   -> POST /sessions
   -> requireUser
   -> SessionService
-  -> StoryRepository validates published story and character membership
+  -> StoryRepository resolves public story catalog row
+  -> StoryVersionRepository resolves current published version
+  -> StoryVersionCharacterRepository validates playable version character
   -> withTransaction
-      -> GameSessionRepository.create
-      -> GameStateRepository.createInitialState
+      -> GameSessionRepository.create with storyVersionId
+      -> GameStateRepository.createInitialState from version settings
+      -> NPCInitializationService clones version NPC templates
+      -> FactionInitializationService clones version faction templates
   -> session detail DTO
 ```
 
 The initial state builder is deterministic and does not call an LLM. It copies public playable character template stats and uses authored initial world settings when present, with legacy safe fallbacks only for older data.
 
-Playable content authoring keeps templates separate from runtime state:
+Playable content authoring keeps authoring templates, immutable versions, and runtime state separate:
 
 ```text
 Author
@@ -151,16 +155,18 @@ Author
       -> NPC templates
       -> faction templates
   -> publish validation
-  -> published story
+  -> immutable story version
+  -> current published version pointer
   -> player creates session
-      -> game state initialized from story settings
-      -> NPC templates cloned into runtime NPCs
-      -> faction templates cloned into runtime factions
+      -> session pins storyVersionId
+      -> game state initialized from version settings
+      -> version NPC templates cloned into runtime NPCs
+      -> version faction templates cloned into runtime factions
 ```
 
 Templates define initial conditions. Runtime tables own evolving state and never write changes back to story authoring data.
 
-The current MVP uses a conservative immutability policy: after publish, runtime-critical fields are locked, including world instructions, opening setup, initial settings, character templates, and faction templates. Public metadata can still change. Full story versioning and runtime story snapshots are the next hardening step.
+Published versions are immutable. The `stories` row is the catalog plus owner working copy. A creator can create a new revision, edit the working copy, and publish a new version. Existing sessions continue to use their pinned `storyVersionId`; new sessions use the latest current published version. Runtime gameplay must never read mutable authoring rows for world prompts, opening prompts, initial settings, NPC templates, faction templates, or selected player template data.
 
 The current deterministic turn flow uses the same boundary:
 
@@ -195,7 +201,7 @@ Browser
   -> POST /sessions/:id/turns
   -> requireUser
   -> GameplayService
-      -> load session/state/story snapshot
+      -> load session/state/story-version snapshot
       -> MemoryContextBuilder loads bounded context layers
       -> BudgetService checks user/session usage aggregates
       -> build GenerationRequest with bounded context

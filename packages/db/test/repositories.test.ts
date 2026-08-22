@@ -59,6 +59,10 @@ describe("repository layer", () => {
       "stories",
       "storyFactionRelationships",
       "storyFactions",
+      "storyVersionCharacters",
+      "storyVersionFactionRelationships",
+      "storyVersionFactions",
+      "storyVersions",
       "users",
       "worldEvents",
       "worldSimulationStates"

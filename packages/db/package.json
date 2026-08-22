@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
-    "db:seed:dev": "tsx src/seed/run-development.ts"
+    "db:seed:dev": "tsx src/seed/run-development.ts",
+    "story:version-backfill": "tsx src/seed/story-version-backfill.ts"
   },
   "dependencies": {
     "@ai-novel/domain": "workspace:*",

@@ -1,4 +1,4 @@
-import type { StoryCharacterRecord, StoryRecord } from "@ai-novel/db";
+import type { StoryCharacterRecord, StoryRecord, StoryVersionCharacterRecord } from "@ai-novel/db";
 
 export type StoryListItemDto = {
   readonly id: string;
@@ -17,6 +17,8 @@ export type StoryCharacterDto = {
 };
 
 export type StoryDetailDto = StoryListItemDto & {
+  readonly storyVersionId: string;
+  readonly storyVersionNumber: number;
   readonly characters: StoryCharacterDto[];
 };
 
@@ -38,7 +40,7 @@ export function toStoryListItemDto(story: StoryRecord): StoryListItemDto {
 }
 
 export function toStoryCharacterDto(
-  character: StoryCharacterRecord
+  character: StoryCharacterRecord | StoryVersionCharacterRecord
 ): StoryCharacterDto {
   return {
     id: character.id,

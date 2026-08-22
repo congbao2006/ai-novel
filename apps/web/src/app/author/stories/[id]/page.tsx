@@ -116,6 +116,17 @@ export default function EditStoryPage({
     });
   }
 
+  async function createRevision() {
+    if (!storyId) return;
+    await runAction(setError, setMessage, async () => {
+      const updated = await authRequest<AuthorStoryDetail>(
+        `/author/stories/${storyId}/revisions`,
+        { method: "POST" }
+      );
+      setStory(updated);
+    });
+  }
+
   if (!story) {
     return (
       <main className="mx-auto min-h-screen max-w-4xl px-6 py-8">
@@ -131,7 +142,12 @@ export default function EditStoryPage({
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-8 px-6 py-8">
       <header>
         <h1 className="text-3xl font-semibold">{story.title}</h1>
-        <p className="text-sm text-zinc-600">Status: {story.status}</p>
+        <p className="text-sm text-zinc-600">
+          Status: {story.status}
+          {story.currentPublishedVersionNumber
+            ? ` · Live v${story.currentPublishedVersionNumber}`
+            : ""}
+        </p>
       </header>
 
       {error ? <p className="whitespace-pre-wrap text-sm text-red-600">{error}</p> : null}
@@ -232,10 +248,34 @@ export default function EditStoryPage({
           </button>
         ) : null}
         {story.status === "published" ? (
-          <button className="rounded bg-zinc-900 px-4 py-2 text-white" onClick={() => validateOrPublish("archive")} type="button">
-            Archive
-          </button>
+          <>
+            <button className="rounded bg-zinc-900 px-4 py-2 text-white" onClick={createRevision} type="button">
+              Create revision
+            </button>
+            <button className="rounded border px-4 py-2" onClick={() => validateOrPublish("archive")} type="button">
+              Archive
+            </button>
+          </>
         ) : null}
+      </section>
+
+      <section className="grid gap-3 rounded border border-zinc-200 p-4">
+        <h2 className="text-xl font-medium">Versions</h2>
+        {story.versions.length > 0 ? (
+          <div className="grid gap-2">
+            {story.versions.map((version) => (
+              <div className="flex items-center justify-between rounded border p-3 text-sm" key={version.id}>
+                <span>v{version.versionNumber}</span>
+                <span className="text-zinc-600">
+                  {version.status}
+                  {version.id === story.currentPublishedVersionId ? " · live" : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-600">Chưa có published version.</p>
+        )}
       </section>
     </main>
   );

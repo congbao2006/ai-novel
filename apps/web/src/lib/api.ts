@@ -24,6 +24,8 @@ export type StoryCharacter = {
 };
 
 export type StoryDetail = StoryListItem & {
+  readonly storyVersionId: string;
+  readonly storyVersionNumber: number;
   readonly characters: StoryCharacter[];
 };
 
@@ -56,15 +58,26 @@ export type AuthorStoryFaction = {
 
 export type AuthorStorySummary = StoryListItem & {
   readonly status: string;
+  readonly currentPublishedVersionId: string | null;
   readonly updatedAt: string;
 };
 
+export type AuthorStoryVersion = {
+  readonly id: string;
+  readonly versionNumber: number;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly publishedAt: string;
+};
+
 export type AuthorStoryDetail = AuthorStorySummary & {
+  readonly currentPublishedVersionNumber: number | null;
   readonly worldPrompt: string;
   readonly openingPrompt: string;
   readonly settings: Record<string, unknown>;
   readonly characters: readonly AuthorStoryCharacter[];
   readonly factions: readonly AuthorStoryFaction[];
+  readonly versions: readonly AuthorStoryVersion[];
 };
 
 export type AuthorStoryListResponse = {
@@ -81,6 +94,7 @@ export type SessionListItem = {
   readonly story: StoryListItem;
   readonly selectedCharacter: StoryCharacter | null;
   readonly status: string;
+  readonly storyVersionNumber: number | null;
   readonly turnCount: number;
   readonly lastPlayedAt: string;
   readonly createdAt: string;

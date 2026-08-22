@@ -1,13 +1,23 @@
 import type {
   CreateInitialStateInput,
   StoryCharacterRecord,
-  StoryRecord
+  StoryVersionCharacterRecord
 } from "@ai-novel/db";
+
+type RuntimeStoryConfig = {
+  readonly storyId: string;
+  readonly storySlug: string;
+  readonly storyVersionId: string;
+  readonly storyVersionNumber: number;
+  readonly settings: Record<string, unknown>;
+};
+
+type RuntimeCharacterConfig = StoryCharacterRecord | StoryVersionCharacterRecord;
 
 export function buildInitialGameState(
   sessionId: string,
-  story: StoryRecord,
-  character: StoryCharacterRecord
+  story: RuntimeStoryConfig,
+  character: RuntimeCharacterConfig
 ): CreateInitialStateInput {
   const playerStats = copyJsonObject(character.initialStats);
   const storySettings = copyJsonObject(story.settings);
@@ -31,13 +41,16 @@ export function buildInitialGameState(
     worldTime,
     playerStats,
     flags: {
-      storySlug: story.slug,
+      storySlug: story.storySlug,
       selectedCharacterId: character.id,
+      storyVersionId: story.storyVersionId,
+      storyVersionNumber: story.storyVersionNumber,
       aiEnabled: false
     },
     stateData: {
       initialized: true,
-      storyId: story.id,
+      storyId: story.storyId,
+      storyVersionId: story.storyVersionId,
       characterName: character.name,
       gameplayEnabled: false,
       initialSettings: storySettings,

@@ -7,7 +7,10 @@ import type {
   RepositoryContext,
   StoryCharacterRecord,
   StoryFactionRecord,
-  StoryRecord
+  StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionFactionRecord,
+  StoryVersionRecord
 } from "@ai-novel/db";
 import { AccessDeniedError, ConflictApplicationError, ResourceNotFoundError } from "../src/errors.js";
 import { StoryAuthoringService } from "../src/modules/authoring/service.js";
@@ -31,7 +34,7 @@ const otherUser = {
 describe("StoryAuthoringService", () => {
   it("creates an owned draft that is absent from the public catalog", async () => {
     const fixture = createAuthoringFixture();
-    const service = new StoryAuthoringService(fixture.repositories);
+    const service = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
     const publicStories = new StoryService(fixture.repositories);
 
     const draft = await service.createDraft(author, {
@@ -49,7 +52,7 @@ describe("StoryAuthoringService", () => {
 
   it("enforces owner-only authoring access", async () => {
     const fixture = createAuthoringFixture();
-    const service = new StoryAuthoringService(fixture.repositories);
+    const service = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
     const draft = await service.createDraft(author, {
       title: "Private Draft",
       genre: "test",
@@ -66,7 +69,7 @@ describe("StoryAuthoringService", () => {
 
   it("validates and publishes a playable story with authored templates", async () => {
     const fixture = createAuthoringFixture();
-    const authoring = new StoryAuthoringService(fixture.repositories);
+    const authoring = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
     const draft = await createPublishableStory(authoring);
 
     const validation = await authoring.validateForPublish(author, draft.id);
@@ -78,7 +81,7 @@ describe("StoryAuthoringService", () => {
 
   it("rejects publish when required runtime templates are missing", async () => {
     const fixture = createAuthoringFixture();
-    const service = new StoryAuthoringService(fixture.repositories);
+    const service = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
     const draft = await service.createDraft(author, {
       title: "Broken",
       genre: "test",
@@ -94,7 +97,7 @@ describe("StoryAuthoringService", () => {
 
   it("locks runtime-critical content after publish", async () => {
     const fixture = createAuthoringFixture();
-    const service = new StoryAuthoringService(fixture.repositories);
+    const service = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
     const draft = await createPublishableStory(service);
     const published = await service.publish(author, draft.id);
 
@@ -112,15 +115,21 @@ describe("StoryAuthoringService", () => {
 
   it("initializes sessions from authored playable, NPC, faction, and world settings", async () => {
     const fixture = createAuthoringFixture();
-    const authoring = new StoryAuthoringService(fixture.repositories);
+    const authoring = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
     const draft = await createPublishableStory(authoring);
     const published = await authoring.publish(author, draft.id);
-    const playable = fixture.characters.find(
-      (character) =>
-        character.storyId === published.id && character.characterType === "playable"
+    const liveVersion = fixture.storyVersions.find(
+      (version) => version.id === published.currentPublishedVersionId
     )!;
-    const npc = fixture.characters.find(
-      (character) => character.storyId === published.id && character.characterType === "npc"
+    const playable = fixture.storyVersionCharacters.find(
+      (character) =>
+        character.storyVersionId === liveVersion.id &&
+        character.characterType === "playable"
+    )!;
+    const npc = fixture.storyVersionCharacters.find(
+      (character) =>
+        character.storyVersionId === liveVersion.id &&
+        character.characterType === "npc"
     )!;
     const sessionService = new SessionService(
       fixture.repositories,
@@ -145,9 +154,73 @@ describe("StoryAuthoringService", () => {
 
     expect(result.session.currentState?.location).toBe("Cổng thành");
     expect(fixture.npcs).toHaveLength(1);
-    expect(fixture.npcs[0]?.templateCharacterId).toBe(npc.id);
+    expect(fixture.npcs[0]?.templateCharacterId).toBe(npc.sourceCharacterId);
     expect(fixture.factions).toHaveLength(1);
     expect(fixture.factions[0]?.factionKey).toBe("city_watch");
+  });
+
+  it("pins sessions to immutable story versions across revisions", async () => {
+    const fixture = createAuthoringFixture();
+    const authoring = new StoryAuthoringService(
+      fixture.repositories,
+      undefined,
+      fixture.transactionRunner
+    );
+    const draft = await createPublishableStory(authoring);
+    const publishedV1 = await authoring.publish(author, draft.id);
+    const version1 = fixture.storyVersions.find(
+      (version) => version.id === publishedV1.currentPublishedVersionId
+    )!;
+    const playableV1 = fixture.storyVersionCharacters.find(
+      (character) =>
+        character.storyVersionId === version1.id &&
+        character.characterType === "playable"
+    )!;
+    const sessionService = new SessionService(
+      fixture.repositories,
+      undefined,
+      async (work) =>
+        work({ db: {} as RepositoryContext["db"], repositories: fixture.repositories }),
+      new NPCInitializationService(),
+      new FactionInitializationService()
+    );
+
+    const sessionA = await sessionService.createSession(otherUser, {
+      storyId: publishedV1.id,
+      characterId: playableV1.id
+    });
+
+    await authoring.createRevision(author, publishedV1.id);
+    await authoring.updateStory(author, publishedV1.id, {
+      worldPrompt: "Version 2 world prompt.",
+      openingPrompt: "Version 2 opening prompt.",
+      settings: {
+        initialLocation: "Cầu cảng",
+        initialWorldTime: "Hoàng hôn"
+      }
+    });
+    const publishedV2 = await authoring.publish(author, publishedV1.id);
+    const version2 = fixture.storyVersions.find(
+      (version) => version.id === publishedV2.currentPublishedVersionId
+    )!;
+    const playableV2 = fixture.storyVersionCharacters.find(
+      (character) =>
+        character.storyVersionId === version2.id &&
+        character.characterType === "playable"
+    )!;
+
+    const sessionB = await sessionService.createSession(otherUser, {
+      storyId: publishedV2.id,
+      characterId: playableV2.id
+    });
+    const loadedA = await sessionService.getSession(otherUser, sessionA.session.id);
+
+    expect(version1.status).toBe("retired");
+    expect(version2.versionNumber).toBe(2);
+    expect(loadedA.storyVersionNumber).toBe(1);
+    expect(loadedA.currentState?.location).toBe("Cổng thành");
+    expect(sessionB.session.storyVersionNumber).toBe(2);
+    expect(sessionB.session.currentState?.location).toBe("Cầu cảng");
   });
 });
 
@@ -193,6 +266,9 @@ function createAuthoringFixture() {
   const stories: StoryRecord[] = [];
   const characters: StoryCharacterRecord[] = [];
   const storyFactions: StoryFactionRecord[] = [];
+  const storyVersions: StoryVersionRecord[] = [];
+  const storyVersionCharacters: StoryVersionCharacterRecord[] = [];
+  const storyVersionFactions: StoryVersionFactionRecord[] = [];
   const sessions: GameSessionRecord[] = [];
   const states: GameStateRecord[] = [];
   const npcs: Repositories["npcs"]["create"] extends (input: infer I) => Promise<infer R>
@@ -214,6 +290,7 @@ function createAuthoringFixture() {
           id: nextId(),
           createdAt: new Date("2026-01-01T00:00:00Z"),
           updatedAt: new Date("2026-01-01T00:00:00Z"),
+          currentPublishedVersionId: null,
           ...input
         } as StoryRecord;
         stories.push(story);
@@ -232,14 +309,21 @@ function createAuthoringFixture() {
         return stories[index]!;
       },
       async listPublishedPage() {
-        return stories.filter((story) => story.status === "published");
+        return stories.filter(
+          (story) => story.currentPublishedVersionId && story.status !== "archived"
+        );
       },
       async listPublished() {
-        return stories.filter((story) => story.status === "published");
+        return stories.filter(
+          (story) => story.currentPublishedVersionId && story.status !== "archived"
+        );
       },
       async listByGenre(genre: string) {
         return stories.filter(
-          (story) => story.status === "published" && story.genre === genre
+          (story) =>
+            story.currentPublishedVersionId &&
+            story.status !== "archived" &&
+            story.genre === genre
         );
       },
       async listCreatedByUser(userId: string) {
@@ -337,6 +421,117 @@ function createAuthoringFixture() {
         return [];
       }
     },
+    storyVersions: {
+      async create(input: Parameters<Repositories["storyVersions"]["create"]>[0]) {
+        const version = {
+          id: nextId(),
+          publishedAt: new Date("2026-01-01T00:00:00Z"),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryVersionRecord;
+        storyVersions.push(version);
+        return version;
+      },
+      async getById(versionId: string) {
+        return storyVersions.find((version) => version.id === versionId) ?? null;
+      },
+      async getCurrentPublishedVersion(storyId: string) {
+        const story = stories.find((item) => item.id === storyId);
+        return story?.currentPublishedVersionId
+          ? (storyVersions.find(
+              (version) => version.id === story.currentPublishedVersionId
+            ) ?? null)
+          : null;
+      },
+      async listForStory(storyId: string) {
+        return storyVersions
+          .filter((version) => version.storyId === storyId)
+          .sort((left, right) => right.versionNumber - left.versionNumber);
+      },
+      async getNextVersionNumber(storyId: string) {
+        return (
+          Math.max(
+            0,
+            ...storyVersions
+              .filter((version) => version.storyId === storyId)
+              .map((version) => version.versionNumber)
+          ) + 1
+        );
+      },
+      async retireOtherPublishedVersions(storyId: string, currentVersionId: string) {
+        for (const version of storyVersions) {
+          if (
+            version.storyId === storyId &&
+            version.id !== currentVersionId &&
+            version.status === "published"
+          ) {
+            Object.assign(version, { status: "retired" });
+          }
+        }
+      }
+    },
+    storyVersionCharacters: {
+      async create(
+        input: Parameters<Repositories["storyVersionCharacters"]["create"]>[0]
+      ) {
+        const character = {
+          id: nextId(),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryVersionCharacterRecord;
+        storyVersionCharacters.push(character);
+        return character;
+      },
+      async getForVersion(versionId: string, characterId: string) {
+        return (
+          storyVersionCharacters.find(
+            (character) =>
+              character.storyVersionId === versionId && character.id === characterId
+          ) ?? null
+        );
+      },
+      async listForVersion(versionId: string) {
+        return storyVersionCharacters.filter(
+          (character) => character.storyVersionId === versionId
+        );
+      },
+      async listForVersionByType(
+        versionId: string,
+        characterType: StoryVersionCharacterRecord["characterType"]
+      ) {
+        return storyVersionCharacters.filter(
+          (character) =>
+            character.storyVersionId === versionId &&
+            character.characterType === characterType
+        );
+      }
+    },
+    storyVersionFactions: {
+      async create(
+        input: Parameters<Repositories["storyVersionFactions"]["create"]>[0]
+      ) {
+        const faction = {
+          id: nextId(),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryVersionFactionRecord;
+        storyVersionFactions.push(faction);
+        return faction;
+      },
+      async listForVersion(versionId: string) {
+        return storyVersionFactions.filter(
+          (faction) => faction.storyVersionId === versionId
+        );
+      }
+    },
+    storyVersionFactionRelationships: {
+      async create() {
+        throw new Error("not expected");
+      },
+      async listForVersion() {
+        return [];
+      }
+    },
     gameSessions: {
       async create(input: CreateSessionInput) {
         const session = {
@@ -425,5 +620,22 @@ function createAuthoringFixture() {
     }
   } as unknown as Repositories;
 
-  return { repositories, stories, characters, storyFactions, sessions, states, npcs, factions };
+  const transactionRunner = async <T>(
+    work: (context: RepositoryContext) => Promise<T>
+  ) => work({ db: {} as RepositoryContext["db"], repositories });
+
+  return {
+    repositories,
+    transactionRunner,
+    stories,
+    characters,
+    storyFactions,
+    storyVersions,
+    storyVersionCharacters,
+    storyVersionFactions,
+    sessions,
+    states,
+    npcs,
+    factions
+  };
 }

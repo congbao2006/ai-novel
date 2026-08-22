@@ -37,17 +37,27 @@ export class StoryService {
   async getBySlug(slug: string): Promise<StoryDetailDto> {
     const story = await this.repositories.stories.getBySlug(slug);
 
-    if (!story || story.status !== "published") {
+    if (!story || story.status === "archived") {
       throw new ResourceNotFoundError("Story was not found.");
     }
 
-    const characters = await this.repositories.stories.listCharactersForStoryByType(
-      story.id,
-      "playable"
+    const version = await this.repositories.storyVersions.getCurrentPublishedVersion(
+      story.id
     );
+    if (!version) {
+      throw new ResourceNotFoundError("Story was not found.");
+    }
+
+    const characters =
+      await this.repositories.storyVersionCharacters.listForVersionByType(
+        version.id,
+        "playable"
+      );
 
     return {
       ...toStoryListItemDto(story),
+      storyVersionId: version.id,
+      storyVersionNumber: version.versionNumber,
       characters: characters.map(toStoryCharacterDto)
     };
   }

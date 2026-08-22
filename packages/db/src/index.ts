@@ -10,6 +10,9 @@ export * from "./schema/index.js";
 export {
   developmentSeedData,
   developmentSeedStoryCharacters,
+  developmentSeedStoryVersionCharacters,
+  developmentSeedStoryVersionFactions,
+  developmentSeedStoryVersions,
   developmentSeedStories,
   developmentSeedUser,
   seedDevelopmentDatabase

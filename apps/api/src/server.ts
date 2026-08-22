@@ -39,7 +39,7 @@ const authService = repositories
   : undefined;
 const storyService = repositories ? new StoryService(repositories) : undefined;
 const storyAuthoringService = repositories
-  ? new StoryAuthoringService(repositories)
+  ? new StoryAuthoringService(repositories, database)
   : undefined;
 const npcInitializationService = repositories
   ? new NPCInitializationService()

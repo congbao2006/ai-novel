@@ -1,7 +1,8 @@
 import type {
   StoryCharacterRecord,
   StoryFactionRecord,
-  StoryRecord
+  StoryRecord,
+  StoryVersionRecord
 } from "@ai-novel/db";
 
 export type AuthorStoryCharacterDto = {
@@ -38,15 +39,26 @@ export type AuthorStorySummaryDto = {
   readonly description: string;
   readonly genre: string;
   readonly status: string;
+  readonly currentPublishedVersionId: string | null;
   readonly updatedAt: string;
 };
 
+export type AuthorStoryVersionDto = {
+  readonly id: string;
+  readonly versionNumber: number;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly publishedAt: string;
+};
+
 export type AuthorStoryDetailDto = AuthorStorySummaryDto & {
+  readonly currentPublishedVersionNumber: number | null;
   readonly worldPrompt: string;
   readonly openingPrompt: string;
   readonly settings: Record<string, unknown>;
   readonly characters: readonly AuthorStoryCharacterDto[];
   readonly factions: readonly AuthorStoryFactionDto[];
+  readonly versions: readonly AuthorStoryVersionDto[];
 };
 
 export type AuthorStoryListResponseDto = {
@@ -73,7 +85,20 @@ export function toAuthorStorySummaryDto(
     description: story.description,
     genre: story.genre,
     status: story.status,
+    currentPublishedVersionId: story.currentPublishedVersionId,
     updatedAt: story.updatedAt.toISOString()
+  };
+}
+
+export function toAuthorStoryVersionDto(
+  version: StoryVersionRecord
+): AuthorStoryVersionDto {
+  return {
+    id: version.id,
+    versionNumber: version.versionNumber,
+    status: version.status,
+    createdAt: version.createdAt.toISOString(),
+    publishedAt: version.publishedAt.toISOString()
   };
 }
 

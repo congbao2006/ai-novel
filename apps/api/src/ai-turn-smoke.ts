@@ -24,7 +24,6 @@ if (!gateway) {
   process.exit(0);
 }
 
-const now = new Date("2026-01-01T00:00:00Z");
 const state = {
   version: 1,
   location: "Căn phòng yên tĩnh",
@@ -46,33 +45,20 @@ const result = await gateway.generate(
       slug: "smoke-test-story",
       description: "A tiny room used only to verify structured AI output.",
       genre: "test",
-      status: "published",
+      storyVersionId: "ai-turn-smoke-version",
+      storyVersionNumber: 1,
       worldPrompt: "Keep the scene small and concrete.",
-      openingPrompt: "The player stands inside a quiet room.",
-      settings: {},
-      createdByUserId: null,
-      createdAt: now,
-      updatedAt: now
+      openingPrompt: "The player stands inside a quiet room."
     },
     character: {
       id: "ai-turn-smoke-character",
-      storyId: "ai-turn-smoke-story",
-      characterType: "playable",
       name: "Tester",
       description: "A careful observer.",
-      personality: "curious",
       background: "Created for a live smoke test.",
       initialStats: {
         hp: 10,
         stamina: 8
-      },
-      goals: [],
-      secrets: {},
-      initialState: {},
-      initialLocation: null,
-      metadata: {},
-      createdAt: now,
-      updatedAt: now
+      }
     },
     context: {
       state,

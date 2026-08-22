@@ -1,10 +1,10 @@
-import type { RepositoryContext, StoryRecord } from "@ai-novel/db";
+import type { RepositoryContext } from "@ai-novel/db";
 
 export class FactionInitializationService {
   async initializeForSession(input: {
     readonly context: RepositoryContext;
     readonly sessionId: string;
-    readonly story: StoryRecord;
+    readonly storyVersionId: string;
   }): Promise<void> {
     const existing = await input.context.repositories.factions.listBySession(
       input.sessionId
@@ -14,9 +14,10 @@ export class FactionInitializationService {
       return;
     }
 
-    const templates = await input.context.repositories.storyFactions.listForStory(
-      input.story.id
-    );
+    const templates =
+      await input.context.repositories.storyVersionFactions.listForVersion(
+        input.storyVersionId
+      );
     const templateToRuntimeId = new Map<string, string>();
 
     for (const template of templates) {
@@ -31,23 +32,24 @@ export class FactionInitializationService {
         goals: copyJsonArray(template.goals),
         state: {
           ...copyJsonObject(template.state),
-          templateFactionId: template.id
+          templateFactionId: template.sourceFactionId,
+          storyVersionFactionId: template.id
         }
       });
       templateToRuntimeId.set(template.id, faction.id);
     }
 
     const relationTemplates =
-      await input.context.repositories.storyFactionRelationships.listForStory(
-        input.story.id
+      await input.context.repositories.storyVersionFactionRelationships.listForVersion(
+        input.storyVersionId
       );
 
     for (const relationTemplate of relationTemplates) {
       const sourceFactionId = templateToRuntimeId.get(
-        relationTemplate.sourceFactionId
+        relationTemplate.sourceVersionFactionId
       );
       const targetFactionId = templateToRuntimeId.get(
-        relationTemplate.targetFactionId
+        relationTemplate.targetVersionFactionId
       );
 
       if (!sourceFactionId || !targetFactionId) {

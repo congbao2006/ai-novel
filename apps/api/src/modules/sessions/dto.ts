@@ -7,6 +7,8 @@ import type {
   QuestRecord,
   StoryCharacterRecord,
   StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionRecord,
   WorldEventRecord
 } from "@ai-novel/db";
 import type { ConsequenceSummary } from "./consequence-engine.js";
@@ -20,6 +22,7 @@ export type SessionListItemDto = {
   readonly story: SessionStoryDto;
   readonly selectedCharacter: SessionCharacterDto | null;
   readonly status: string;
+  readonly storyVersionNumber: number | null;
   readonly turnCount: number;
   readonly lastPlayedAt: string;
   readonly createdAt: string;
@@ -120,7 +123,8 @@ export type FactionListResponseDto = {
 export function toSessionListItemDto(input: {
   readonly session: GameSessionRecord;
   readonly story: StoryRecord;
-  readonly character: StoryCharacterRecord | null;
+  readonly character: StoryCharacterRecord | StoryVersionCharacterRecord | null;
+  readonly storyVersion?: StoryVersionRecord | null;
 }): SessionListItemDto {
   return {
     id: input.session.id,
@@ -129,6 +133,7 @@ export function toSessionListItemDto(input: {
       ? toStoryCharacterDto(input.character)
       : null,
     status: input.session.status,
+    storyVersionNumber: input.storyVersion?.versionNumber ?? null,
     turnCount: input.session.turnCount,
     lastPlayedAt: input.session.lastPlayedAt.toISOString(),
     createdAt: input.session.createdAt.toISOString()

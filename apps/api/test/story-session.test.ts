@@ -12,7 +12,10 @@ import type {
   RepositoryContext,
   StoryFactionRecord,
   StoryCharacterRecord,
-  StoryRecord
+  StoryRecord,
+  StoryVersionCharacterRecord,
+  StoryVersionFactionRecord,
+  StoryVersionRecord
 } from "@ai-novel/db";
 import { buildApp } from "../src/app.js";
 import { ResourceNotFoundError } from "../src/errors.js";
@@ -45,6 +48,7 @@ const publishedStory: StoryRecord = {
   worldPrompt: "internal world prompt",
   openingPrompt: "internal opening prompt",
   settings: { initialLocation: "Bến sông" },
+  currentPublishedVersionId: "550e8400-e29b-41d4-a716-446655440100",
   createdByUserId: null,
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
@@ -54,7 +58,21 @@ const draftStory: StoryRecord = {
   ...publishedStory,
   id: "550e8400-e29b-41d4-a716-446655440010",
   slug: "draft-story",
-  status: "draft"
+  status: "draft",
+  currentPublishedVersionId: null
+};
+
+const storyVersion: StoryVersionRecord = {
+  id: publishedStory.currentPublishedVersionId!,
+  storyId: publishedStory.id,
+  versionNumber: 1,
+  status: "published",
+  worldPrompt: publishedStory.worldPrompt,
+  openingPrompt: publishedStory.openingPrompt,
+  settings: publishedStory.settings,
+  createdByUserId: null,
+  publishedAt: new Date("2026-01-01T00:00:00Z"),
+  createdAt: new Date("2026-01-01T00:00:00Z")
 };
 
 const character: StoryCharacterRecord = {
@@ -73,6 +91,24 @@ const character: StoryCharacterRecord = {
   metadata: {},
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z")
+};
+
+const versionCharacter: StoryVersionCharacterRecord = {
+  id: "550e8400-e29b-41d4-a716-446655440101",
+  storyVersionId: storyVersion.id,
+  sourceCharacterId: character.id,
+  characterType: character.characterType,
+  name: character.name,
+  description: character.description,
+  personality: character.personality,
+  background: character.background,
+  goals: character.goals,
+  secrets: character.secrets,
+  initialState: character.initialState,
+  initialLocation: character.initialLocation,
+  metadata: character.metadata,
+  initialStats: character.initialStats,
+  createdAt: new Date("2026-01-01T00:00:00Z")
 };
 
 const otherCharacter: StoryCharacterRecord = {
@@ -103,6 +139,21 @@ const storyFactionTemplate: StoryFactionRecord = {
   updatedAt: new Date("2026-01-01T00:00:00Z")
 };
 
+const versionFactionTemplate: StoryVersionFactionRecord = {
+  id: "550e8400-e29b-41d4-a716-446655440102",
+  storyVersionId: storyVersion.id,
+  sourceFactionId: storyFactionTemplate.id,
+  factionKey: storyFactionTemplate.factionKey,
+  name: storyFactionTemplate.name,
+  description: storyFactionTemplate.description,
+  initialStatus: storyFactionTemplate.initialStatus,
+  initialInfluence: storyFactionTemplate.initialInfluence,
+  resources: storyFactionTemplate.resources,
+  goals: storyFactionTemplate.goals,
+  state: storyFactionTemplate.state,
+  createdAt: new Date("2026-01-01T00:00:00Z")
+};
+
 function createSessionRecord(
   input: CreateSessionInput,
   id = "550e8400-e29b-41d4-a716-446655440002"
@@ -111,7 +162,9 @@ function createSessionRecord(
     id,
     userId: input.userId,
     storyId: input.storyId,
+    storyVersionId: input.storyVersionId ?? null,
     selectedCharacterId: input.selectedCharacterId ?? null,
+    selectedVersionCharacterId: input.selectedVersionCharacterId ?? null,
     title: input.title ?? null,
     status: "active",
     turnCount: 0,
@@ -202,6 +255,46 @@ function createRepositoriesFixture(options: {
     },
     storyFactionRelationships: {
       async listForStory() {
+        return [];
+      }
+    },
+    storyVersions: {
+      async getById(versionId: string) {
+        return versionId === storyVersion.id ? storyVersion : null;
+      },
+      async getCurrentPublishedVersion(storyId: string) {
+        return storyId === publishedStory.id ? storyVersion : null;
+      },
+      async listForStory(storyId: string) {
+        return storyId === publishedStory.id ? [storyVersion] : [];
+      }
+    },
+    storyVersionCharacters: {
+      async getForVersion(versionId: string, characterId: string) {
+        return versionId === storyVersion.id && characterId === versionCharacter.id
+          ? versionCharacter
+          : null;
+      },
+      async listForVersion(versionId: string) {
+        return versionId === storyVersion.id ? [versionCharacter] : [];
+      },
+      async listForVersionByType(
+        versionId: string,
+        characterType: StoryVersionCharacterRecord["characterType"]
+      ) {
+        return versionId === storyVersion.id &&
+          versionCharacter.characterType === characterType
+          ? [versionCharacter]
+          : [];
+      }
+    },
+    storyVersionFactions: {
+      async listForVersion(versionId: string) {
+        return versionId === storyVersion.id ? [versionFactionTemplate] : [];
+      }
+    },
+    storyVersionFactionRelationships: {
+      async listForVersion() {
         return [];
       }
     },
@@ -306,13 +399,29 @@ function createRepositoriesFixture(options: {
       {
         userId: options.ownerUserId,
         storyId: publishedStory.id,
+        storyVersionId: storyVersion.id,
         selectedCharacterId: character.id,
+        selectedVersionCharacterId: versionCharacter.id,
         title: publishedStory.title
       },
       "550e8400-e29b-41d4-a716-446655440099"
     );
     sessions.push(seeded);
-    states.push(createStateRecord(buildInitialGameState(seeded.id, publishedStory, character)));
+    states.push(
+      createStateRecord(
+        buildInitialGameState(
+          seeded.id,
+          {
+            storyId: publishedStory.id,
+            storySlug: publishedStory.slug,
+            storyVersionId: storyVersion.id,
+            storyVersionNumber: storyVersion.versionNumber,
+            settings: storyVersion.settings
+          },
+          versionCharacter
+        )
+      )
+    );
     quests.push({
       id: "550e8400-e29b-41d4-a716-446655440120",
       sessionId: seeded.id,
@@ -439,7 +548,7 @@ describe("SessionService", () => {
 
     const result = await service.createSession(user, {
       storyId: publishedStory.id,
-      characterId: character.id
+      characterId: versionCharacter.id
     });
 
     expect(sessions).toHaveLength(1);
@@ -495,7 +604,17 @@ describe("SessionService", () => {
   });
 
   it("does not mutate character template stats when building initial state", () => {
-    const state = buildInitialGameState("session-1", publishedStory, character);
+    const state = buildInitialGameState(
+      "session-1",
+      {
+        storyId: publishedStory.id,
+        storySlug: publishedStory.slug,
+        storyVersionId: storyVersion.id,
+        storyVersionNumber: storyVersion.versionNumber,
+        settings: storyVersion.settings
+      },
+      versionCharacter
+    );
 
     (state.playerStats.nested as { courage: number }).courage = 99;
 
@@ -503,7 +622,8 @@ describe("SessionService", () => {
     expect(state.location).toBe("Bến sông");
     expect(state.flags).toMatchObject({
       storySlug: publishedStory.slug,
-      selectedCharacterId: character.id,
+      selectedCharacterId: versionCharacter.id,
+      storyVersionId: storyVersion.id,
       aiEnabled: false
     });
   });
@@ -522,7 +642,7 @@ describe("SessionService", () => {
     await expect(
       service.createSession(user, {
         storyId: publishedStory.id,
-        characterId: character.id
+        characterId: versionCharacter.id
       })
     ).rejects.toThrow("state failed");
     expect(rolledBack).toBe(true);
@@ -543,7 +663,7 @@ describe("story/session API routes", () => {
       url: "/sessions",
       payload: {
         storyId: publishedStory.id,
-        characterId: character.id
+        characterId: versionCharacter.id
       }
     });
 
@@ -573,7 +693,7 @@ describe("story/session API routes", () => {
     expect(listResponse.body).not.toContain("worldPrompt");
     expect(detailResponse.body).not.toContain("openingPrompt");
     expect(detailResponse.json().characters[0]).toMatchObject({
-      id: character.id,
+      id: versionCharacter.id,
       initialStats: character.initialStats
     });
 
@@ -600,7 +720,7 @@ describe("story/session API routes", () => {
       cookies: { ai_novel_session: "valid-token" },
       payload: {
         storyId: publishedStory.id,
-        characterId: character.id
+        characterId: versionCharacter.id
       }
     });
     const sessionId = createResponse.json().session.id as string;

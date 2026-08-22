@@ -18,6 +18,10 @@ import type {
   CreateStoryCharacterInput,
   CreateStoryFactionInput,
   CreateStoryFactionRelationshipInput,
+  CreateStoryVersionInput,
+  CreateStoryVersionCharacterInput,
+  CreateStoryVersionFactionInput,
+  CreateStoryVersionFactionRelationshipInput,
   CreateUserInput,
   CreateWorldSimulationStateInput,
   EntityRef,
@@ -42,6 +46,10 @@ import type {
   StoryFactionRecord,
   StoryFactionRelationshipRecord,
   StoryListPageInput,
+  StoryVersionCharacterRecord,
+  StoryVersionFactionRecord,
+  StoryVersionFactionRelationshipRecord,
+  StoryVersionRecord,
   UpdateStoryCharacterInput,
   UpdateStoryFactionInput,
   UpdateStoryInput,
@@ -115,6 +123,44 @@ export type StoryFactionRelationshipRepository = {
   ): Promise<StoryFactionRelationshipRecord>;
   listForStory(storyId: string): Promise<StoryFactionRelationshipRecord[]>;
   delete(storyId: string, relationshipId: string): Promise<void>;
+};
+
+export type StoryVersionRepository = {
+  create(input: CreateStoryVersionInput): Promise<StoryVersionRecord>;
+  getById(versionId: string): Promise<StoryVersionRecord | null>;
+  getCurrentPublishedVersion(storyId: string): Promise<StoryVersionRecord | null>;
+  getLatestPublishedVersion(storyId: string): Promise<StoryVersionRecord | null>;
+  listForStory(storyId: string): Promise<StoryVersionRecord[]>;
+  getNextVersionNumber(storyId: string): Promise<number>;
+  retireOtherPublishedVersions(
+    storyId: string,
+    currentVersionId: string
+  ): Promise<void>;
+};
+
+export type StoryVersionCharacterRepository = {
+  create(input: CreateStoryVersionCharacterInput): Promise<StoryVersionCharacterRecord>;
+  listForVersion(versionId: string): Promise<StoryVersionCharacterRecord[]>;
+  listForVersionByType(
+    versionId: string,
+    characterType: StoryVersionCharacterRecord["characterType"]
+  ): Promise<StoryVersionCharacterRecord[]>;
+  getForVersion(
+    versionId: string,
+    characterId: string
+  ): Promise<StoryVersionCharacterRecord | null>;
+};
+
+export type StoryVersionFactionRepository = {
+  create(input: CreateStoryVersionFactionInput): Promise<StoryVersionFactionRecord>;
+  listForVersion(versionId: string): Promise<StoryVersionFactionRecord[]>;
+};
+
+export type StoryVersionFactionRelationshipRepository = {
+  create(
+    input: CreateStoryVersionFactionRelationshipInput
+  ): Promise<StoryVersionFactionRelationshipRecord>;
+  listForVersion(versionId: string): Promise<StoryVersionFactionRelationshipRecord[]>;
 };
 
 export type GameSessionRepository = {

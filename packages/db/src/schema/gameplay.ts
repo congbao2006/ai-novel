@@ -24,7 +24,7 @@ import {
   sessionStatusEnum
 } from "./enums.js";
 import { users } from "./identity.js";
-import { stories, storyCharacters } from "./stories.js";
+import { stories, storyCharacters, storyVersionCharacters, storyVersions } from "./stories.js";
 
 const vector = customType<{
   data: number[];
@@ -68,6 +68,16 @@ export const gameSessions = pgTable(
         onUpdate: "cascade"
       }
     ),
+    storyVersionId: uuid("story_version_id").references(() => storyVersions.id, {
+      onDelete: "restrict",
+      onUpdate: "cascade"
+    }),
+    selectedVersionCharacterId: uuid(
+      "selected_version_character_id"
+    ).references(() => storyVersionCharacters.id, {
+      onDelete: "set null",
+      onUpdate: "cascade"
+    }),
     title: text("title"),
     status: sessionStatusEnum("status").notNull().default("active"),
     turnCount: integer("turn_count").notNull().default(0),
@@ -84,6 +94,7 @@ export const gameSessions = pgTable(
   (table) => [
     index("game_sessions_user_id_idx").on(table.userId),
     index("game_sessions_story_id_idx").on(table.storyId),
+    index("game_sessions_story_version_id_idx").on(table.storyVersionId),
     index("game_sessions_status_idx").on(table.status),
     index("game_sessions_last_played_at_idx").on(table.lastPlayedAt),
     check("game_sessions_turn_count_non_negative", sql`${table.turnCount} >= 0`)

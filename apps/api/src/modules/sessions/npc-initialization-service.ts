@@ -1,22 +1,24 @@
 import type {
   RepositoryContext,
   StoryCharacterRecord,
-  StoryRecord
+  StoryVersionCharacterRecord
 } from "@ai-novel/db";
 
 export class NPCInitializationService {
   async initializeForSession(input: {
     readonly context: RepositoryContext;
     readonly sessionId: string;
-    readonly story: StoryRecord;
-    readonly selectedCharacterId: string;
+    readonly storyVersionId: string;
+    readonly selectedVersionCharacterId: string;
   }): Promise<void> {
-    const templates = await input.context.repositories.stories.listCharactersForStory(
-      input.story.id
-    );
+    const templates =
+      await input.context.repositories.storyVersionCharacters.listForVersion(
+        input.storyVersionId
+      );
     const npcTemplates = templates.filter(
       (template) =>
-        template.characterType === "npc" && template.id !== input.selectedCharacterId
+        template.characterType === "npc" &&
+        template.id !== input.selectedVersionCharacterId
     );
 
     for (const template of npcTemplates) {
@@ -27,10 +29,13 @@ export class NPCInitializationService {
   }
 }
 
-function buildRuntimeNPC(sessionId: string, template: StoryCharacterRecord) {
+function buildRuntimeNPC(
+  sessionId: string,
+  template: StoryCharacterRecord | StoryVersionCharacterRecord
+) {
   return {
     sessionId,
-    templateCharacterId: template.id,
+    templateCharacterId: "sourceCharacterId" in template ? template.sourceCharacterId : template.id,
     name: template.name,
     description: template.description,
     personality: normalizePersonality(template.personality),
@@ -42,7 +47,8 @@ function buildRuntimeNPC(sessionId: string, template: StoryCharacterRecord) {
       mood: "neutral",
       stance: "observing",
       currentGoal: null,
-      templateCharacterId: template.id
+      templateCharacterId: "sourceCharacterId" in template ? template.sourceCharacterId : template.id,
+      storyVersionCharacterId: template.id
     },
     alive: true
   };

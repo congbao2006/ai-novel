@@ -13,7 +13,7 @@ Memory foundation tables now support rolling summaries, persistent important mem
 Not implemented yet:
 
 - Payment, coin, or wallet tables.
-- Story version history, branching, moderation workflow, or marketplace tables.
+- Branching/merge version history, moderation workflow, or marketplace tables.
 
 ## Entity Overview
 
@@ -64,6 +64,7 @@ Important columns:
 - `world_prompt`
 - `opening_prompt`
 - `settings`
+- `current_published_version_id`
 - `created_by_user_id`
 - `created_at`
 - `updated_at`
@@ -76,7 +77,38 @@ Important columns:
 - `initialWorldTime`
 - optional future-safe `statDefinitions`
 
-Published runtime-critical story fields are locked by the application service in the MVP. This avoids active sessions unexpectedly changing behavior while full story version snapshots are still future work.
+`stories` is the catalog and owner working-copy record. Runtime-critical published data is copied into immutable `story_versions`. A story can be public while its working copy is back in `draft` for the next revision as long as `current_published_version_id` points at a published version and the story is not archived.
+
+### `story_versions`
+
+Represents an immutable published runtime snapshot for a story.
+
+Important columns:
+
+- `id`
+- `story_id`
+- `version_number`
+- `status`
+- `world_prompt`
+- `opening_prompt`
+- `settings`
+- `created_by_user_id`
+- `published_at`
+- `created_at`
+
+`(story_id, version_number)` is unique. Normal application APIs do not update version prompts/settings after creation. Older versions may be marked `retired`, but existing sessions can keep using them.
+
+### `story_version_characters`
+
+Represents the playable and NPC character templates copied into a specific story version. Public story detail returns playable rows from the current published version, so session creation receives a version-character id instead of a mutable authoring character id.
+
+### `story_version_factions`
+
+Represents faction templates copied into a specific story version. Runtime faction initialization reads these rows, never mutable `story_factions`.
+
+### `story_version_faction_relationships`
+
+Represents initial faction relationships copied into a specific story version. Runtime faction relationship initialization reads these rows together with version factions so a session never mixes templates from different versions.
 
 ### `story_characters`
 
@@ -156,7 +188,9 @@ Important columns:
 - `id`
 - `user_id`
 - `story_id`
+- `story_version_id`
 - `selected_character_id`
+- `selected_version_character_id`
 - `title`
 - `status`
 - `turn_count`
@@ -165,6 +199,8 @@ Important columns:
 - `last_played_at`
 
 `status` uses `session_status`: `active`, `completed`, `abandoned`.
+
+Every new session pins `story_version_id` and `selected_version_character_id` at creation time. `story_id` remains a catalog reference. Legacy nullable columns are kept so existing sessions can be backfilled safely.
 
 ### `game_messages`
 
@@ -202,13 +238,13 @@ Important columns:
 
 `session_id` is unique so each session has one current state row. `version` is reserved for optimistic state versioning.
 
-When a session is created from a published story, the API creates the `game_sessions` row and first `game_states` row in one transaction. The initial state is deterministic and uses authored story settings where available:
+When a session is created from a published story, the API resolves `stories.current_published_version_id`, validates the selected playable `story_version_characters` row, then creates the `game_sessions` row and first `game_states` row in one transaction. The initial state is deterministic and uses versioned story settings where available:
 
-- `location`: selected character `initial_location`, then story `settings.initialLocation`, then legacy fallback `Điểm khởi đầu`
-- `world_time`: story `settings.initialWorldTime` or `NULL`
-- `player_stats`: deep copy of the selected story character's `initial_stats`
-- `flags`: selected story/character markers and `aiEnabled: false`
-- `state_data`: initialization metadata, copied story settings, copied character initial state, and `gameplayEnabled: false`
+- `location`: selected version character `initial_location`, then story version `settings.initialLocation`, then legacy fallback `Điểm khởi đầu`
+- `world_time`: story version `settings.initialWorldTime` or `NULL`
+- `player_stats`: deep copy of the selected version character's `initial_stats`
+- `flags`: selected story/version/character markers and `aiEnabled: false`
+- `state_data`: initialization metadata, copied version settings, copied character initial state, and `gameplayEnabled: false`
 
 The fallback exists only for legacy data. New publish validation requires an authored initial location.
 

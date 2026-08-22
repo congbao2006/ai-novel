@@ -1,20 +1,26 @@
 import type {
+  DatabaseClient,
+  RepositoryContext,
   Repositories,
   StoryCharacterRecord,
   StoryFactionRecord,
+  StoryFactionRelationshipRecord,
   StoryRecord
 } from "@ai-novel/db";
+import { withTransaction } from "@ai-novel/db";
 import {
   AccessDeniedError,
   BadRequestError,
   ConflictApplicationError,
-  ResourceNotFoundError
+  ResourceNotFoundError,
+  ServiceUnavailableError
 } from "../../errors.js";
 import type { CurrentUser } from "../auth/dto.js";
 import {
   toAuthorStoryCharacterDto,
   toAuthorStoryFactionDto,
   toAuthorStorySummaryDto,
+  toAuthorStoryVersionDto,
   type AuthorStoryCharacterDto,
   type AuthorStoryDetailDto,
   type AuthorStoryFactionDto,
@@ -68,8 +74,28 @@ export type UpsertFactionInput = {
   readonly state?: Record<string, unknown> | undefined;
 };
 
+export type TransactionRunner = <T>(
+  work: (context: RepositoryContext) => Promise<T>
+) => Promise<T>;
+
 export class StoryAuthoringService {
-  constructor(private readonly repositories: Repositories) {}
+  private readonly runInTransaction: TransactionRunner;
+
+  constructor(
+    private readonly repositories: Repositories,
+    database?: DatabaseClient,
+    transactionRunner?: TransactionRunner
+  ) {
+    this.runInTransaction =
+      transactionRunner ??
+      (database
+        ? (work) => withTransaction(database, work)
+        : async () => {
+            throw new ServiceUnavailableError(
+              "Story publishing requires database transaction support."
+            );
+          });
+  }
 
   async createDraft(
     user: CurrentUser,
@@ -308,7 +334,7 @@ export class StoryAuthoringService {
     const story = await this.requireOwnedStory(user, storyId);
 
     if (story.status !== "draft") {
-      throw new BadRequestError("Only draft stories can be published.");
+      throw new BadRequestError("Only draft revisions can be published.");
     }
 
     const validation = await this.validateForPublish(user, story.id);
@@ -316,9 +342,43 @@ export class StoryAuthoringService {
       throw new BadRequestError("Story is not valid for publishing.");
     }
 
-    return this.buildDetail(
-      await this.repositories.stories.update(story.id, { status: "published" })
+    const published = await this.runInTransaction(async (context) =>
+      this.createPublishedVersionSnapshot(context, story.id, user.userId)
     );
+
+    return this.buildDetail(published);
+  }
+
+  async createRevision(
+    user: CurrentUser,
+    storyId: string
+  ): Promise<AuthorStoryDetailDto> {
+    const story = await this.requireOwnedStory(user, storyId);
+
+    if (story.status === "archived") {
+      throw new BadRequestError("Archived stories cannot create new revisions.");
+    }
+
+    if (!story.currentPublishedVersionId) {
+      throw new BadRequestError("Only published stories can create revisions.");
+    }
+
+    if (story.status === "draft") {
+      return this.buildDetail(story);
+    }
+
+    const updated = await this.repositories.stories.update(story.id, {
+      status: "draft"
+    });
+    return this.buildDetail(updated);
+  }
+
+  async listVersions(user: CurrentUser, storyId: string) {
+    const story = await this.requireOwnedStory(user, storyId);
+    const versions = await this.repositories.storyVersions.listForStory(story.id);
+    return {
+      versions: versions.map(toAuthorStoryVersionDto)
+    };
   }
 
   async archive(user: CurrentUser, storyId: string): Promise<AuthorStoryDetailDto> {
@@ -355,18 +415,142 @@ export class StoryAuthoringService {
   }
 
   private async buildDetail(story: StoryRecord): Promise<AuthorStoryDetailDto> {
-    const [characters, factions] = await Promise.all([
+    const [characters, factions, versions, currentVersion] = await Promise.all([
       this.repositories.stories.listCharactersForStory(story.id),
-      this.repositories.storyFactions.listForStory(story.id)
+      this.repositories.storyFactions.listForStory(story.id),
+      this.repositories.storyVersions.listForStory(story.id),
+      story.currentPublishedVersionId
+        ? this.repositories.storyVersions.getById(story.currentPublishedVersionId)
+        : null
     ]);
     return {
       ...toAuthorStorySummaryDto(story),
+      currentPublishedVersionNumber: currentVersion?.versionNumber ?? null,
       worldPrompt: story.worldPrompt,
       openingPrompt: story.openingPrompt,
       settings: copyJsonObject(story.settings),
       characters: characters.map(toAuthorStoryCharacterDto),
-      factions: factions.map(toAuthorStoryFactionDto)
+      factions: factions.map(toAuthorStoryFactionDto),
+      versions: versions.map(toAuthorStoryVersionDto)
     };
+  }
+
+  private async createPublishedVersionSnapshot(
+    context: RepositoryContext,
+    storyId: string,
+    userId: string
+  ): Promise<StoryRecord> {
+    const story = await context.repositories.stories.getById(storyId);
+    if (!story) {
+      throw new ResourceNotFoundError("Story was not found.");
+    }
+
+    const [characters, factions, factionRelationships] = await Promise.all([
+      context.repositories.stories.listCharactersForStory(story.id),
+      context.repositories.storyFactions.listForStory(story.id),
+      context.repositories.storyFactionRelationships.listForStory(story.id)
+    ]);
+    const issues = validatePublishStory(story, characters, factions);
+    if (issues.length > 0) {
+      throw new BadRequestError("Story is not valid for publishing.");
+    }
+
+    const versionNumber =
+      await context.repositories.storyVersions.getNextVersionNumber(story.id);
+    const version = await context.repositories.storyVersions.create({
+      storyId: story.id,
+      versionNumber,
+      status: "published",
+      worldPrompt: story.worldPrompt,
+      openingPrompt: story.openingPrompt,
+      settings: copyJsonObject(story.settings),
+      createdByUserId: userId
+    });
+
+    await Promise.all(
+      characters.map((character) =>
+        context.repositories.storyVersionCharacters.create({
+          storyVersionId: version.id,
+          sourceCharacterId: character.id,
+          characterType: character.characterType,
+          name: character.name,
+          description: character.description,
+          personality: character.personality,
+          background: character.background,
+          goals: copyJsonArray(character.goals),
+          secrets: copyJsonObject(character.secrets),
+          initialStats: copyJsonObject(character.initialStats),
+          initialState: copyJsonObject(character.initialState),
+          initialLocation: character.initialLocation,
+          metadata: copyJsonObject(character.metadata)
+        })
+      )
+    );
+
+    const versionFactionIdsBySource = new Map<string, string>();
+    for (const faction of factions) {
+      const versionFaction =
+        await context.repositories.storyVersionFactions.create({
+          storyVersionId: version.id,
+          sourceFactionId: faction.id,
+          factionKey: faction.factionKey,
+          name: faction.name,
+          description: faction.description,
+          initialStatus: faction.initialStatus,
+          initialInfluence: faction.initialInfluence,
+          resources: copyJsonObject(faction.resources),
+          goals: copyJsonArray(faction.goals),
+          state: copyJsonObject(faction.state)
+        });
+      versionFactionIdsBySource.set(faction.id, versionFaction.id);
+    }
+
+    await this.copyFactionRelationships(
+      context,
+      version.id,
+      factionRelationships,
+      versionFactionIdsBySource
+    );
+
+    await context.repositories.storyVersions.retireOtherPublishedVersions(
+      story.id,
+      version.id
+    );
+
+    return context.repositories.stories.update(story.id, {
+      status: "published",
+      currentPublishedVersionId: version.id
+    });
+  }
+
+  private async copyFactionRelationships(
+    context: RepositoryContext,
+    storyVersionId: string,
+    relationships: readonly StoryFactionRelationshipRecord[],
+    versionFactionIdsBySource: ReadonlyMap<string, string>
+  ): Promise<void> {
+    for (const relationship of relationships) {
+      const sourceVersionFactionId = versionFactionIdsBySource.get(
+        relationship.sourceFactionId
+      );
+      const targetVersionFactionId = versionFactionIdsBySource.get(
+        relationship.targetFactionId
+      );
+      if (!sourceVersionFactionId || !targetVersionFactionId) {
+        throw new BadRequestError(
+          "Faction relationship references a missing faction template."
+        );
+      }
+
+      await context.repositories.storyVersionFactionRelationships.create({
+        storyVersionId,
+        sourceVersionFactionId,
+        targetVersionFactionId,
+        affinity: relationship.affinity,
+        tension: relationship.tension,
+        metadata: copyJsonObject(relationship.metadata)
+      });
+    }
   }
 
   private async generateUniqueSlug(input: string): Promise<string> {
@@ -613,4 +797,8 @@ function clampInteger(value: number, min: number, max: number): number {
 
 function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function copyJsonArray(value: unknown[]): unknown[] {
+  return JSON.parse(JSON.stringify(value)) as unknown[];
 }
