@@ -19,7 +19,10 @@
 - [ ] `CREATE EXTENSION IF NOT EXISTS vector` migration works, or extension enabled manually before migrations.
 - [ ] `DATABASE_URL` configured only in trusted API/migration environments.
 - [ ] `pnpm db:migrate` completed.
-- [ ] `pnpm db:status` completed.
+- [ ] `pnpm db:status` completed and reports all migration files applied.
+- [ ] `story_factions table: present`.
+- [ ] `story_version_factions table: present`.
+- [ ] On Railway, migrations were run as a one-off command: `pnpm db:migrate:prod`.
 - [ ] Managed backups/PITR enabled.
 - [ ] `pnpm story:version-backfill` run only if legacy published stories/sessions exist.
 - [ ] `pnpm memory:embed-backfill` run only if semantic memory is enabled and existing memories need embeddings.

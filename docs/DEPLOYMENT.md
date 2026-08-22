@@ -24,8 +24,9 @@ The architecture remains portable. Vercel, Railway, and Supabase are recommended
 - API Docker build context should be the repository root with Dockerfile path `apps/api/Dockerfile`.
 - `/health` is process-only liveness.
 - `/ready` checks database connectivity and pgvector when semantic memory is enabled.
-- Migrations are explicit through `pnpm db:migrate`; they are not run on API startup.
+- Migrations are explicit through `pnpm db:migrate`; they are not run on API startup or by the API Docker `CMD`.
 - Current migration set runs from `0000_thin_loki.sql` through `0007_tricky_prima.sql`.
+- `pnpm db:check` validates local Drizzle migration files. `pnpm db:status` connects to the configured database and checks how many migrations have actually been applied.
 - Migration `0004_careless_yellow_claw.sql` contains `CREATE EXTENSION IF NOT EXISTS vector`.
 - Internal AI smoke is disabled by default in production.
 - For Vercel default domains plus Railway default domains, auth is cross-site and requires `AUTH_COOKIE_SAME_SITE=none`.
@@ -158,6 +159,8 @@ pnpm db:migrate
 pnpm db:status
 ```
 
+`pnpm db:status` should report the same number of applied migrations as migration files and should show `story_factions table: present`.
+
 6. For a brand-new beta database, legacy backfills are normally not needed.
 7. For an existing/legacy database:
 
@@ -181,8 +184,22 @@ Backfills must not run automatically during API startup.
 4. Do not override the Dockerfile start command unless necessary.
 5. Configure Railway environment variables from the Railway/API matrix above.
 6. Deploy.
-7. Set Railway healthcheck path to `/ready`.
-8. Verify:
+7. Apply database migrations as a one-off Railway command after the deploy has access to production `DATABASE_URL`:
+
+```bash
+railway run --service <api-service-name> pnpm db:migrate:prod
+```
+
+If using the Railway dashboard instead of the CLI, run this same one-off command in the API service environment:
+
+```bash
+pnpm db:migrate:prod
+```
+
+Do not put `pnpm db:migrate` in the API start command. Migrations must be an explicit deploy step so startup remains fast, repeatable, and non-destructive.
+
+8. Set Railway healthcheck path to `/ready`.
+9. Verify:
 
 ```bash
 curl https://your-api.up.railway.app/health

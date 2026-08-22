@@ -945,6 +945,7 @@ Current migration:
 - `0004_careless_yellow_claw.sql`
 - `0005_curvy_gressill.sql`
 - `0006_grey_nekra.sql`
+- `0007_tricky_prima.sql`
 
 Migration generation does not require a local PostgreSQL server. Applying migrations will require a target database and should not be done against production manually.
 
@@ -1067,6 +1068,17 @@ Migrations are explicit operational commands and are not run during API startup:
 pnpm db:migrate
 pnpm db:status
 ```
+
+`pnpm db:migrate` applies checked-in migrations to the `DATABASE_URL` target.
+`pnpm db:status` connects to that target and reports the number of applied Drizzle migrations plus critical table presence. `pnpm db:check` validates the local Drizzle migration files without checking a database.
+
+For Railway production, run migrations as a one-off command in the API service environment after `DATABASE_URL` is configured:
+
+```bash
+railway run --service <api-service-name> pnpm db:migrate:prod
+```
+
+If the authoring endpoint `POST /author/stories/:id/factions` fails while inserting into `story_factions`, the first schema check is whether migration `0006_grey_nekra.sql` has been applied. That migration creates `story_factions`, `story_faction_relationships`, `story_character_type`, `stories.settings`, and the authoring fields used by faction template creation. Migration `0007_tricky_prima.sql` is also required for story version snapshots used after publishing.
 
 Deploy order:
 

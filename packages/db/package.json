@@ -17,7 +17,9 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:status": "drizzle-kit check",
+    "db:check": "drizzle-kit check",
+    "db:migrate:prod": "pnpm db:migrate && pnpm db:status",
+    "db:status": "tsx src/migrations/status.ts",
     "db:seed:dev": "tsx src/seed/run-development.ts",
     "story:version-backfill": "tsx src/seed/story-version-backfill.ts"
   },
