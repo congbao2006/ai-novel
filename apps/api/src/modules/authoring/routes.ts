@@ -230,6 +230,6 @@ export const registerAuthoringRoutes: FastifyPluginAsync = async (app) => {
       "authoring route error"
     );
 
-    return sendApplicationError(error, reply);
+    return sendApplicationError(error, reply, request.id, app.appConfig.nodeEnv);
   });
 };

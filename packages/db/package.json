@@ -16,6 +16,8 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:status": "drizzle-kit check",
     "db:seed:dev": "tsx src/seed/run-development.ts",
     "story:version-backfill": "tsx src/seed/story-version-backfill.ts"
   },

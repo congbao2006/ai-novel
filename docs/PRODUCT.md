@@ -131,6 +131,17 @@ A restorable snapshot or checkpoint for a session.
 - The server is the source of truth.
 - AI output must be constrained, validated, and cost-aware.
 - Authored story rules should outrank generic model creativity.
+- Production environments must fail fast on missing critical configuration and expose safe health/readiness checks for operations.
+
+## Production MVP Expectations
+
+The current product foundation is designed for a closed beta style deployment:
+
+- Web and API deploy separately.
+- API owns cookies, server-side sessions, database access, AI provider secrets, usage budgets, and runtime state.
+- Public story browsing must not expose internal prompts.
+- Health/readiness checks and smoke checks must pass before traffic is routed.
+- Payment, marketplace, creator AI, streaming, and moderation workflows remain out of scope until explicitly implemented.
 
 ## Future Monetization
 

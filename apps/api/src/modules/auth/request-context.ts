@@ -1,5 +1,4 @@
 import type { FastifyRequest } from "fastify";
-import { getServerConfig } from "@ai-novel/config";
 import { AuthUnavailableError, UnauthenticatedError } from "./errors.js";
 import { getAuthCookie } from "./cookies.js";
 import type { CurrentUser } from "./dto.js";
@@ -23,7 +22,7 @@ export async function requireUser(
     throw new AuthUnavailableError();
   }
 
-  const config = getServerConfig();
+  const config = request.server.appConfig;
   const token = getAuthCookie(request, config.auth.cookieName);
   const user = await authService.getCurrentUser(token);
 

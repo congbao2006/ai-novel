@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getServerConfig } from "@ai-novel/config";
 import { buildApp } from "../src/app.js";
 import type { AuthService } from "../src/modules/auth/service.js";
 import { UnauthenticatedError } from "../src/modules/auth/errors.js";
@@ -129,6 +130,39 @@ describe("auth routes", () => {
     expect(response.statusCode).toBe(204);
     expect(response.headers["set-cookie"]).toContain("ai_novel_session=");
     expect(response.headers["set-cookie"]).toContain("Max-Age=0");
+
+    await app.close();
+  });
+
+  it("sets Secure auth cookies in production", async () => {
+    const app = await buildApp({
+      config: getServerConfig({
+        NODE_ENV: "production",
+        WEB_APP_URL: "https://app.example.com",
+        API_ALLOWED_ORIGINS: "https://app.example.com",
+        DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel"
+      }),
+      dependencies: {
+        authService: createFakeAuthService()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        origin: "https://app.example.com"
+      },
+      payload: {
+        email: "user@example.com",
+        password: "password123"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["set-cookie"]).toContain("HttpOnly");
+    expect(response.headers["set-cookie"]).toContain("Secure");
+    expect(response.headers["set-cookie"]).toContain("SameSite=Lax");
 
     await app.close();
   });

@@ -53,18 +53,20 @@ export class ServiceUnavailableError extends ApplicationError {
 
 export function sendApplicationError(error: unknown, reply: {
   code(statusCode: number): { send(payload: unknown): unknown };
-}): unknown {
+}, requestId?: string, nodeEnv: "development" | "test" | "production" = "development"): unknown {
   if (error instanceof z.ZodError) {
     return reply.code(400).send({
       error: "validation_error",
-      message: z.prettifyError(error)
+      message: z.prettifyError(error),
+      ...(requestId ? { requestId } : {})
     });
   }
 
   if (error instanceof ApplicationError) {
     return reply.code(error.statusCode).send({
       error: error.code,
-      message: error.message
+      message: error.message,
+      ...(requestId ? { requestId } : {})
     });
   }
 
@@ -84,21 +86,39 @@ export function sendApplicationError(error: unknown, reply: {
 
     return reply.code(statusCode).send({
       error: error.code,
-      message: error.message
+      message: error.message,
+      ...(requestId ? { requestId } : {})
     });
   }
 
   if (error instanceof UnauthenticatedError) {
     return reply
       .code(401)
-      .send({ error: "unauthenticated", message: error.message });
+      .send({
+        error: "unauthenticated",
+        message: error.message,
+        ...(requestId ? { requestId } : {})
+      });
   }
 
   if (error instanceof AuthUnavailableError) {
     return reply
       .code(503)
-      .send({ error: "auth_unavailable", message: error.message });
+      .send({
+        error: "auth_unavailable",
+        message: error.message,
+        ...(requestId ? { requestId } : {})
+      });
   }
 
-  throw error;
+  return reply.code(500).send({
+    error: "internal_error",
+    message:
+      nodeEnv === "production"
+        ? "Unexpected server error."
+        : error instanceof Error
+          ? error.message
+          : "Unexpected server error.",
+    ...(requestId ? { requestId } : {})
+  });
 }

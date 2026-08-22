@@ -1,10 +1,16 @@
 export {
+  checkDatabaseReadiness,
   closeDatabaseClient,
   createDatabaseClient,
   createPgPool,
   getDatabaseClient
 } from "./client.js";
-export type { DatabaseClient, PgPool } from "./client.js";
+export type {
+  DatabaseClient,
+  DatabasePoolOptions,
+  DatabaseReadinessResult,
+  PgPool
+} from "./client.js";
 export * from "./repositories/index.js";
 export * from "./schema/index.js";
 export {

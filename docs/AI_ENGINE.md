@@ -458,6 +458,10 @@ Server-only environment variables:
 
 Production startup fails clearly when `AI_PROVIDER=openai` but required OpenAI config is missing. `GAMEPLAY_ENGINE_MODE=ai` requires a configured AI provider. The default mode remains `deterministic` for local development.
 
+Production config also fails closed when AI gameplay budgets are enabled but the configured model has no pricing entry in `AI_MODEL_PRICING_JSON`. Semantic memory with budgets requires pricing for the embedding provider/model as well.
+
+Internal AI smoke routes are disabled by default in production and should only be enabled for controlled operational testing. The normal production smoke script does not call external AI.
+
 ## Observability
 
 Safe metadata can be logged:
@@ -476,6 +480,8 @@ Do not log:
 - auth cookies
 - complete prompts by default
 - internal secret prompts
+
+The API logs request IDs, route metadata, status code, latency, and safe error code. AI usage/cost observability comes from the persistent usage ledger, not from logging full prompts or full completions.
 
 ## Current Non-Goals
 

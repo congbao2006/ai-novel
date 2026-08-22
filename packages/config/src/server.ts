@@ -2,12 +2,26 @@ import { z } from "zod";
 import { getPublicServerConfig } from "./public.js";
 
 const serverConfigSchema = z.object({
+  nodeEnv: z
+    .enum(["development", "test", "production"])
+    .default("development"),
+  webAppUrl: z.url().default("http://localhost:3000"),
   api: z.object({
     host: z.string().min(1).default("0.0.0.0"),
-    port: z.coerce.number().int().positive().default(4000)
+    port: z.coerce.number().int().positive().default(4000),
+    allowedOrigins: z.array(z.url()).default(["http://localhost:3000"]),
+    bodyLimitBytes: z.coerce.number().int().positive().default(1_048_576),
+    slowRequestThresholdMs: z.coerce.number().int().positive().default(1000),
+    slowAiRequestThresholdMs: z.coerce.number().int().positive().default(15_000),
+    logLevel: z
+      .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
+      .default("info")
   }),
   database: z.object({
-    url: z.string().min(1).optional()
+    url: z.string().min(1).optional(),
+    poolMax: z.coerce.number().int().positive().max(100).default(10),
+    poolIdleTimeoutMs: z.coerce.number().int().positive().default(30_000),
+    poolConnectionTimeoutMs: z.coerce.number().int().positive().default(10_000)
   }),
   auth: z.object({
     cookieName: z.string().min(1).default("ai_novel_session"),
@@ -55,6 +69,34 @@ const serverConfigSchema = z.object({
     tickIntervalTurns: z.coerce.number().int().positive().default(5)
   })
 }).superRefine((config, context) => {
+  if (config.nodeEnv === "production") {
+    if (!config.database.url) {
+      context.addIssue({
+        code: "custom",
+        path: ["database", "url"],
+        message: "DATABASE_URL is required in production."
+      });
+    }
+
+    if (!config.webAppUrl.startsWith("https://")) {
+      context.addIssue({
+        code: "custom",
+        path: ["webAppUrl"],
+        message: "WEB_APP_URL must be HTTPS in production."
+      });
+    }
+
+    for (const origin of config.api.allowedOrigins) {
+      if (!origin.startsWith("https://")) {
+        context.addIssue({
+          code: "custom",
+          path: ["api", "allowedOrigins"],
+          message: "API_ALLOWED_ORIGINS must contain only HTTPS origins in production."
+        });
+      }
+    }
+  }
+
   if (config.ai.provider === "openai") {
     if (!config.ai.openaiApiKey) {
       context.addIssue({
@@ -159,12 +201,25 @@ export function getServerConfig(
 ): ServerConfig {
   const publicConfig = getPublicServerConfig(env);
   const serverConfig = serverConfigSchema.parse({
+    nodeEnv: env.NODE_ENV,
+    webAppUrl: env.WEB_APP_URL,
     api: {
       host: env.API_HOST,
-      port: env.API_PORT
+      port: env.API_PORT,
+      allowedOrigins: parseAllowedOriginsEnv(
+        env.API_ALLOWED_ORIGINS,
+        env.WEB_APP_URL
+      ),
+      bodyLimitBytes: env.API_BODY_LIMIT_BYTES,
+      slowRequestThresholdMs: env.API_SLOW_REQUEST_THRESHOLD_MS,
+      slowAiRequestThresholdMs: env.API_SLOW_AI_REQUEST_THRESHOLD_MS,
+      logLevel: env.LOG_LEVEL
     },
     database: {
-      url: env.DATABASE_URL
+      url: env.DATABASE_URL,
+      poolMax: env.DATABASE_POOL_MAX,
+      poolIdleTimeoutMs: env.DATABASE_POOL_IDLE_TIMEOUT_MS,
+      poolConnectionTimeoutMs: env.DATABASE_POOL_CONNECTION_TIMEOUT_MS
     },
     auth: {
       cookieName: env.AUTH_COOKIE_NAME,
@@ -239,4 +294,18 @@ function parseBooleanEnv(value: string | undefined): boolean | undefined {
   }
 
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function parseAllowedOriginsEnv(
+  value: string | undefined,
+  webAppUrl: string | undefined
+): readonly string[] | undefined {
+  if (value === undefined || value.trim() === "") {
+    return webAppUrl ? [webAppUrl] : undefined;
+  }
+
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
 }

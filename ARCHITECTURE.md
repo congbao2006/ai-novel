@@ -420,6 +420,38 @@ Browser
 
 The database stores only session token hashes, never raw session tokens. Password hashes are never returned in API responses.
 
+## Production Runtime
+
+MVP deployment topology:
+
+```text
+Browser
+  -> Next.js web app
+  -> Fastify API
+  -> Managed PostgreSQL with pgvector
+  -> External AI provider
+```
+
+The API validates server-side configuration at startup. Production fails fast when critical config is missing, including `DATABASE_URL`, HTTPS web origin configuration, AI provider requirements, semantic memory provider requirements, and pricing when AI budgets are enabled.
+
+Health checks are split:
+
+- `GET /health` returns process liveness and does not touch the database.
+- `GET /ready` checks critical dependencies, currently PostgreSQL reachability and pgvector availability when semantic memory is enabled.
+
+The Fastify process uses structured Pino logs with request IDs, safe redaction for cookies/authorization/passwords/API keys/internal prompts, global request body limits, explicit credentialed CORS origins, Origin validation for mutating browser requests, and production-safe error responses. Errors return a stable code, safe message, and request ID; production responses do not expose stack traces or raw SQL/provider errors.
+
+Graceful shutdown handles `SIGTERM` and `SIGINT` by closing Fastify first and then closing the shared PostgreSQL pool. The application does not create a database connection per request and does not run migrations automatically at startup.
+
+Migrations and backfills are explicit operational steps:
+
+- `pnpm db:migrate`
+- `pnpm db:status`
+- `pnpm story:version-backfill`
+- `pnpm memory:embed-backfill`
+
+Production smoke checks live in `pnpm smoke:production` and cover only safe public readiness paths.
+
 ## Future Services
 
 Future additions may include:

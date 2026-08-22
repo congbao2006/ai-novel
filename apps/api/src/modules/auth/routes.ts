@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getServerConfig } from "@ai-novel/config";
 import { z } from "zod";
 import {
   AuthConflictError,
@@ -23,7 +22,7 @@ const loginSchema = z.object({
 });
 
 export const registerAuthRoutes: FastifyPluginAsync = async (app) => {
-  const config = getServerConfig();
+  const config = app.appConfig;
   const cookieOptions = {
     cookieName: config.auth.cookieName,
     secure: config.nodeEnv === "production",
@@ -88,11 +87,19 @@ export const registerAuthRoutes: FastifyPluginAsync = async (app) => {
     );
 
     if (error instanceof z.ZodError || error instanceof AuthValidationError) {
-      return reply.code(400).send({ error: "validation_error", message: error.message });
+      return reply.code(400).send({
+        error: "validation_error",
+        message: error.message,
+        requestId: request.id
+      });
     }
 
     if (error instanceof AuthConflictError) {
-      return reply.code(409).send({ error: "conflict", message: error.message });
+      return reply.code(409).send({
+        error: "conflict",
+        message: error.message,
+        requestId: request.id
+      });
     }
 
     if (
@@ -101,13 +108,21 @@ export const registerAuthRoutes: FastifyPluginAsync = async (app) => {
     ) {
       return reply
         .code(401)
-        .send({ error: "unauthenticated", message: error.message });
+        .send({
+          error: "unauthenticated",
+          message: error.message,
+          requestId: request.id
+        });
     }
 
     if (error instanceof AuthUnavailableError) {
       return reply
         .code(503)
-        .send({ error: "auth_unavailable", message: error.message });
+        .send({
+          error: "auth_unavailable",
+          message: error.message,
+          requestId: request.id
+        });
     }
 
     throw error;

@@ -43,7 +43,13 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(result);
   });
 
-  app.post("/:id/turns", { preHandler: requireUser }, async (request) => {
+  app.post(
+    "/:id/turns",
+    {
+      preHandler: requireUser,
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+    },
+    async (request) => {
     const gameplayService = app.dependencies.gameplayService;
 
     if (!gameplayService) {
@@ -141,6 +147,6 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
       "session route error"
     );
 
-    return sendApplicationError(error, reply);
+    return sendApplicationError(error, reply, request.id, app.appConfig.nodeEnv);
   });
 };

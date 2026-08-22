@@ -486,6 +486,49 @@ Next step:
 
 - Production Hardening / Deployment Foundation. The product now has enough runtime and authoring surface that deployment, migrations, backups, operational checks, and security review should be hardened before creator AI assistance or marketplace features.
 
+## Phase 4.14: Production Hardening + Deployment Foundation
+
+Status: completed.
+
+Goals:
+
+- Make the application deployable with clear web/API/database topology.
+- Add production environment validation and dependency readiness.
+- Add secure request/error handling, structured logs, request IDs, CORS/Origin policy, and graceful shutdown.
+- Document migration, backfill, smoke, and rollback workflows.
+- Add CI foundation without automatic deployment.
+
+Completed:
+
+- Added production server config validation for `DATABASE_URL`, HTTPS web origins, explicit allowed API origins, AI/provider dependencies, semantic memory dependencies, and pricing requirements when budgets are enabled.
+- Added configurable API body limit, slow request thresholds, log level, and PostgreSQL pool settings.
+- Added `GET /ready` for database and pgvector readiness while keeping `GET /health` lightweight.
+- Added Fastify request IDs, safe logger redaction, security headers, Origin validation for mutating requests, and production-safe error response shape.
+- Added graceful API shutdown for `SIGTERM` and `SIGINT`, including database pool close.
+- Added root database migration/status scripts and safe production smoke script.
+- Added API Dockerfile for long-running service hosts.
+- Added GitHub Actions CI for install, lint, typecheck, test, build, and structure check.
+- Added `docs/DEPLOYMENT.md` and `docs/PRODUCTION_CHECKLIST.md`.
+
+Policy:
+
+- Migrations and backfills are explicit deployment steps, never automatic API startup behavior.
+- Internal AI smoke routes are disabled by default in production.
+- Cookie auth uses httpOnly cookies; production cookies are Secure and protected by same-site/CORS/Origin policy.
+- Production smoke checks avoid creating users, sessions, gameplay turns, or paid AI calls.
+
+Next candidates:
+
+- Payment/Xu + hard quota.
+- Streaming AI responses.
+- Creator AI Assistance.
+- Product/UI polish + closed beta.
+- Moderation/reporting.
+
+Recommendation:
+
+- Product/UI polish + closed beta should come next. The platform now has a large amount of runtime infrastructure; a controlled beta surface will reveal the highest-value UX and operational fixes before introducing payment, streaming, or creator AI.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

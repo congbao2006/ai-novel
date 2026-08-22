@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AIGateway } from "@ai-novel/ai-engine";
+import { getServerConfig } from "@ai-novel/config";
 import { buildApp } from "../src/app.js";
 
 function createFakeGateway(): AIGateway {
@@ -72,6 +73,36 @@ describe("internal AI smoke route", () => {
       requestId: "req_ai_smoke",
       estimatedCostMicros: 1
     });
+    expect(response.body).not.toContain("OPENAI_API_KEY");
+
+    await app.close();
+  });
+
+  it("is disabled by default in production even when a gateway exists", async () => {
+    const app = await buildApp({
+      config: getServerConfig({
+        NODE_ENV: "production",
+        WEB_APP_URL: "https://app.example.com",
+        API_ALLOWED_ORIGINS: "https://app.example.com",
+        DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel"
+      }),
+      dependencies: {
+        aiGateway: createFakeGateway()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/ai/smoke",
+      headers: {
+        origin: "https://app.example.com"
+      },
+      payload: {
+        prompt: "Reply with exactly: OK"
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
     expect(response.body).not.toContain("OPENAI_API_KEY");
 
     await app.close();

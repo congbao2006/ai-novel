@@ -1,6 +1,7 @@
 import { getServerConfig } from "@ai-novel/config";
 import { createAIGateway, createEmbeddingGateway } from "@ai-novel/ai-engine";
 import {
+  closeDatabaseClient,
   createRepositories,
   getDatabaseClient
 } from "@ai-novel/db";
@@ -26,7 +27,13 @@ import { StoryService } from "./modules/stories/service.js";
 import { WorldSimulationService } from "./modules/sessions/world-simulation-service.js";
 
 const config = getServerConfig();
-const database = config.database.url ? getDatabaseClient(config.database.url) : undefined;
+const database = config.database.url
+  ? getDatabaseClient(config.database.url, {
+      max: config.database.poolMax,
+      idleTimeoutMillis: config.database.poolIdleTimeoutMs,
+      connectionTimeoutMillis: config.database.poolConnectionTimeoutMs
+    })
+  : undefined;
 const repositories = config.database.url
   ? createRepositories(database!)
   : undefined;
@@ -187,6 +194,7 @@ const gameplayService = repositories
     })
   : undefined;
 const dependencies = {
+  ...(database ? { database } : {}),
   ...(repositories ? { repositories } : {}),
   ...(authService ? { authService } : {}),
   ...(storyAuthoringService ? { storyAuthoringService } : {}),
@@ -197,7 +205,37 @@ const dependencies = {
   ...(aiGateway ? { aiGateway } : {})
 };
 const app = await buildApp({
-  dependencies
+  dependencies,
+  config
+});
+
+let shuttingDown = false;
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  app.log.info({ signal }, "shutting down API server");
+
+  try {
+    await app.close();
+    await closeDatabaseClient();
+    app.log.info("API server shutdown complete");
+    process.exit(0);
+  } catch (error) {
+    app.log.error(error, "API server shutdown failed");
+    process.exit(1);
+  }
+}
+
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+
+process.once("SIGINT", () => {
+  void shutdown("SIGINT");
 });
 
 try {

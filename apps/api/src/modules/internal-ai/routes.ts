@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getServerConfig } from "@ai-novel/config";
 import { z } from "zod";
 import { sendApplicationError, ServiceUnavailableError } from "../../errors.js";
 
@@ -9,7 +8,7 @@ const smokeSchema = z.object({
 
 export const registerInternalAiRoutes: FastifyPluginAsync = async (app) => {
   app.post("/smoke", async (request) => {
-    const config = getServerConfig();
+    const config = app.appConfig;
 
     if (
       config.nodeEnv === "production" &&
@@ -52,6 +51,6 @@ export const registerInternalAiRoutes: FastifyPluginAsync = async (app) => {
       "internal ai route error"
     );
 
-    return sendApplicationError(error, reply);
+    return sendApplicationError(error, reply, request.id, app.appConfig.nodeEnv);
   });
 };

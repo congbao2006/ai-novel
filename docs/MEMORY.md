@@ -394,6 +394,12 @@ Search uses embeddings matching the configured provider/model and vector dimensi
 
 Backfill can generate rows for the new provider/model. Old rows remain until a future explicit cleanup operation.
 
+## Production Readiness
+
+Semantic memory depends on PostgreSQL pgvector. When `MEMORY_SEMANTIC_SEARCH_ENABLED=true`, production readiness checks verify that the database is reachable and the `vector` extension is enabled.
+
+If pgvector, embedding provider config, query embedding, or semantic search fails at runtime, gameplay falls back to deterministic important-memory selection. This keeps memory retrieval resilient while avoiding any claim that semantic recall is always available.
+
 ## Security
 
 - Memory is loaded server-side only.

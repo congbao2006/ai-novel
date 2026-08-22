@@ -41,6 +41,6 @@ export const registerStoriesRoutes: FastifyPluginAsync = async (app) => {
       "story route error"
     );
 
-    return sendApplicationError(error, reply);
+    return sendApplicationError(error, reply, request.id, app.appConfig.nodeEnv);
   });
 };

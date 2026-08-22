@@ -30,6 +30,57 @@ describe("config package", () => {
       nodeEnv: "test",
       webAppUrl: "http://localhost:3000"
     });
+    expect(getServerConfig(env).api.allowedOrigins).toEqual([
+      "http://localhost:3000"
+    ]);
+  });
+
+  it("parses production API and database hardening knobs", () => {
+    const config = getServerConfig({
+      NODE_ENV: "production",
+      WEB_APP_URL: "https://app.example.com",
+      API_ALLOWED_ORIGINS: "https://app.example.com,https://admin.example.com",
+      DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel",
+      DATABASE_POOL_MAX: "8",
+      DATABASE_POOL_IDLE_TIMEOUT_MS: "20000",
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS: "5000",
+      API_BODY_LIMIT_BYTES: "262144",
+      API_SLOW_REQUEST_THRESHOLD_MS: "750",
+      API_SLOW_AI_REQUEST_THRESHOLD_MS: "20000",
+      LOG_LEVEL: "warn"
+    });
+
+    expect(config.api.allowedOrigins).toEqual([
+      "https://app.example.com",
+      "https://admin.example.com"
+    ]);
+    expect(config.database.poolMax).toBe(8);
+    expect(config.database.poolIdleTimeoutMs).toBe(20_000);
+    expect(config.database.poolConnectionTimeoutMs).toBe(5000);
+    expect(config.api.bodyLimitBytes).toBe(262_144);
+    expect(config.api.slowRequestThresholdMs).toBe(750);
+    expect(config.api.slowAiRequestThresholdMs).toBe(20_000);
+    expect(config.api.logLevel).toBe("warn");
+  });
+
+  it("requires critical production config", () => {
+    expect(() =>
+      getServerConfig({
+        NODE_ENV: "production",
+        WEB_APP_URL: "https://example.com"
+      })
+    ).toThrow("DATABASE_URL");
+  });
+
+  it("rejects non-HTTPS production web origins", () => {
+    expect(() =>
+      getServerConfig({
+        NODE_ENV: "production",
+        WEB_APP_URL: "http://example.com",
+        API_ALLOWED_ORIGINS: "http://example.com",
+        DATABASE_URL: "postgresql://user:pass@example.com:5432/ai_novel"
+      })
+    ).toThrow("HTTPS");
   });
 
   it("parses semantic memory configuration", () => {

@@ -1050,3 +1050,33 @@ Current repository query patterns include:
 - AI usage aggregate cost by user/session since a timestamp
 
 Integration tests are opt-in through `TEST_DATABASE_URL`; local unit and contract tests do not require PostgreSQL.
+
+## Production Lifecycle
+
+The API uses a singleton PostgreSQL pool for the server process. Pool sizing is controlled by:
+
+- `DATABASE_POOL_MAX`
+- `DATABASE_POOL_IDLE_TIMEOUT_MS`
+- `DATABASE_POOL_CONNECTION_TIMEOUT_MS`
+
+The application must not create a new connection pool per request. Graceful shutdown closes the Fastify server and then closes the shared pool.
+
+Migrations are explicit operational commands and are not run during API startup:
+
+```bash
+pnpm db:migrate
+pnpm db:status
+```
+
+Deploy order:
+
+1. Confirm managed PostgreSQL backups/PITR.
+2. Apply migrations.
+3. Run required backfills such as `pnpm story:version-backfill`.
+4. Run `pnpm memory:embed-backfill` when semantic memory is enabled and existing memories need embeddings.
+5. Start the API.
+6. Verify `/health`, `/ready`, and production smoke checks.
+
+`GET /ready` checks database connectivity. When semantic memory is enabled it also checks that the PostgreSQL `vector` extension is enabled. The readiness response is safe and never includes `DATABASE_URL`, SQL text, connection strings, or provider secrets.
+
+Production PostgreSQL should be managed with backups/PITR. No destructive data-retention job runs automatically in the application today.

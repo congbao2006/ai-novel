@@ -5,6 +5,7 @@ import {
   aiUsageRecords,
   aiUsageStatusEnum,
   developmentSeedData,
+  createPgPool,
   entityTypeEnum,
   factionRelationships,
   factionStatusEnum,
@@ -41,6 +42,20 @@ describe("db package", () => {
       name: "db-schema",
       gameSchemaImplemented: true
     });
+  });
+
+  it("passes production pool options to pg without opening per-request clients", async () => {
+    const pool = createPgPool("postgresql://user:pass@localhost:5432/ai_novel", {
+      max: 7,
+      idleTimeoutMillis: 20_000,
+      connectionTimeoutMillis: 5000
+    });
+
+    expect(pool.options.max).toBe(7);
+    expect(pool.options.idleTimeoutMillis).toBe(20_000);
+    expect(pool.options.connectionTimeoutMillis).toBe(5000);
+
+    await pool.end();
   });
 
   it("exports all required business tables", () => {
