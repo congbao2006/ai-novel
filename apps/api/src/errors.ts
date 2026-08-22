@@ -51,6 +51,26 @@ export class ServiceUnavailableError extends ApplicationError {
   }
 }
 
+export type ErrorLogDetails = {
+  readonly requestId?: string | undefined;
+  readonly method?: string | undefined;
+  readonly url?: string | undefined;
+  readonly errorName: string;
+  readonly errorMessage?: string | undefined;
+  readonly errorCode?: string | undefined;
+  readonly statusCode?: number | undefined;
+  readonly stack?: string | undefined;
+  readonly cause?: SerializedErrorCause | undefined;
+};
+
+type SerializedErrorCause = {
+  readonly name?: string | undefined;
+  readonly message?: string | undefined;
+  readonly code?: string | undefined;
+  readonly stack?: string | undefined;
+  readonly value?: string | undefined;
+};
+
 export function sendApplicationError(error: unknown, reply: {
   code(statusCode: number): { send(payload: unknown): unknown };
 }, requestId?: string, nodeEnv: "development" | "test" | "production" = "development"): unknown {
@@ -111,6 +131,15 @@ export function sendApplicationError(error: unknown, reply: {
       });
   }
 
+  const fastifyStatusCode = getFastifyStatusCode(error);
+  if (fastifyStatusCode && fastifyStatusCode >= 400 && fastifyStatusCode < 500) {
+    return reply.code(fastifyStatusCode).send({
+      error: getErrorCode(error) ?? "bad_request",
+      message: getErrorMessage(error) ?? "Invalid request.",
+      ...(requestId ? { requestId } : {})
+    });
+  }
+
   return reply.code(500).send({
     error: "internal_error",
     message:
@@ -121,4 +150,96 @@ export function sendApplicationError(error: unknown, reply: {
           : "Unexpected server error.",
     ...(requestId ? { requestId } : {})
   });
+}
+
+export function getErrorLogDetails(
+  error: unknown,
+  context: {
+    readonly requestId?: string | undefined;
+    readonly method?: string | undefined;
+    readonly url?: string | undefined;
+  } = {}
+): ErrorLogDetails {
+  return {
+    ...context,
+    errorName: getErrorName(error),
+    ...(getErrorMessage(error) ? { errorMessage: getErrorMessage(error) } : {}),
+    ...(getErrorCode(error) ? { errorCode: getErrorCode(error) } : {}),
+    ...(getFastifyStatusCode(error)
+      ? { statusCode: getFastifyStatusCode(error) }
+      : {}),
+    ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    ...(error instanceof Error && error.cause
+      ? { cause: serializeCause(error.cause) }
+      : {})
+  };
+}
+
+export function isExpectedRequestError(error: unknown): boolean {
+  if (
+    error instanceof z.ZodError ||
+    error instanceof ApplicationError ||
+    error instanceof AIError ||
+    error instanceof UnauthenticatedError ||
+    error instanceof AuthUnavailableError
+  ) {
+    return true;
+  }
+
+  const statusCode = getFastifyStatusCode(error);
+  return statusCode !== undefined && statusCode >= 400 && statusCode < 500;
+}
+
+function getErrorName(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return typeof error === "string" ? error : undefined;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { readonly code?: unknown }).code;
+    return typeof code === "string" ? code : undefined;
+  }
+
+  return undefined;
+}
+
+function getFastifyStatusCode(error: unknown): number | undefined {
+  if (error && typeof error === "object" && "statusCode" in error) {
+    const statusCode = (error as { readonly statusCode?: unknown }).statusCode;
+    return typeof statusCode === "number" ? statusCode : undefined;
+  }
+
+  return undefined;
+}
+
+function serializeCause(cause: unknown): SerializedErrorCause {
+  if (cause instanceof Error) {
+    return {
+      name: cause.name,
+      message: cause.message,
+      ...(getErrorCode(cause) ? { code: getErrorCode(cause) } : {}),
+      ...(cause.stack ? { stack: cause.stack } : {})
+    };
+  }
+
+  if (typeof cause === "string") {
+    return { value: cause };
+  }
+
+  if (cause && typeof cause === "object") {
+    return {
+      ...(getErrorCode(cause) ? { code: getErrorCode(cause) } : {}),
+      value: "[object]"
+    };
+  }
+
+  return { value: String(cause) };
 }

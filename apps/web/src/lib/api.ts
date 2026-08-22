@@ -182,10 +182,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init.headers
-    }
+    headers: buildRequestHeaders(init)
   });
 
   if (!response.ok) {
@@ -211,10 +208,7 @@ export async function authRequest<T>(
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      "content-type": "application/json",
-      ...init.headers
-    }
+    headers: buildRequestHeaders(init)
   });
 
   if (!response.ok) {
@@ -231,4 +225,14 @@ export async function authRequest<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+function buildRequestHeaders(init: RequestInit): Headers {
+  const headers = new Headers(init.headers);
+
+  if (init.body !== undefined && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+
+  return headers;
 }

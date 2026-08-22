@@ -9,7 +9,12 @@ import Fastify, {
 } from "fastify";
 import { getServerConfig, type ServerConfig } from "@ai-novel/config";
 import { createAppDependencies, type AppDependencies } from "./dependencies.js";
-import { AccessDeniedError, sendApplicationError } from "./errors.js";
+import {
+  AccessDeniedError,
+  getErrorLogDetails,
+  isExpectedRequestError,
+  sendApplicationError
+} from "./errors.js";
 import { registerAiRoutes } from "./modules/ai/routes.js";
 import { registerAuthoringRoutes } from "./modules/authoring/routes.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
@@ -105,13 +110,17 @@ export async function buildApp(
   });
 
   app.setErrorHandler((error, request, reply) => {
-    request.log.error(
-      {
-        requestId: request.id,
-        errorName: error instanceof Error ? error.name : "unknown"
-      },
-      "unhandled request error"
-    );
+    const logDetails = getErrorLogDetails(error, {
+      requestId: request.id,
+      method: request.method,
+      url: request.url
+    });
+
+    if (isExpectedRequestError(error)) {
+      request.log.warn(logDetails, "request error");
+    } else {
+      request.log.error(logDetails, "unexpected request error");
+    }
 
     return sendApplicationError(error, reply, request.id, config.nodeEnv);
   });
