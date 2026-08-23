@@ -36,7 +36,7 @@ const serverConfigSchema = z.object({
     openaiEmbeddingModel: z.string().min(1).optional(),
     requestTimeoutMs: z.coerce.number().int().positive().default(30_000),
     maxRetries: z.coerce.number().int().min(0).max(5).default(2),
-    maxOutputTokens: z.coerce.number().int().positive().default(256),
+    maxOutputTokens: z.coerce.number().int().positive().default(1024),
     internalSmokeEnabled: z.boolean().default(false),
     modelPricingRegistry: z.record(
       z.string(),

@@ -4,6 +4,7 @@ import {
   AIBudgetExceededError,
   AIGateway,
   EmbeddingGateway,
+  AIInvalidResponseError,
   AIProviderError,
   AIProviderUnavailableError,
   AIRateLimitError,
@@ -12,6 +13,7 @@ import {
   createAIGateway,
   createEmbeddingGateway,
   mapOpenAIError,
+  normalizeOpenAIResponse,
   createPolicy,
   evaluateAIBudget,
   estimateGenerationCostMicros,
@@ -507,7 +509,151 @@ describe("AIGateway", () => {
       }
     });
   });
+
+  it("normalizes valid OpenAI structured JSON from output content parts", () => {
+    const result = normalizeOpenAIResponse(
+      createOpenAIResponse({
+        outputText: "",
+        content: [
+          { type: "output_text", text: "{\"ok\":" },
+          { type: "output_text", text: "true}" }
+        ]
+      }),
+      {
+        feature: "story.default",
+        model: "gpt-5.4-mini",
+        responseSchema: {
+          name: "valid_schema",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["ok"],
+            properties: { ok: { type: "boolean" } }
+          }
+        }
+      },
+      42
+    );
+
+    expect(result).toMatchObject({
+      requestId: "req_openai_response",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      text: "{\"ok\":true}",
+      structuredOutput: { ok: true },
+      finishReason: "stop",
+      latencyMs: 42
+    });
+  });
+
+  it("rejects malformed OpenAI structured JSON without repairing it", () => {
+    expect(() =>
+      normalizeOpenAIResponse(
+        createOpenAIResponse({
+          outputText: "{\"narrative\":\"unfinished"
+        }),
+        {
+          feature: "story.default",
+          model: "gpt-5.4-mini",
+          responseSchema: {
+            name: "turn_proposal",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["narrative"],
+              properties: { narrative: { type: "string" } }
+            }
+          }
+        },
+        10
+      )
+    ).toThrow(AIInvalidResponseError);
+  });
+
+  it("rejects incomplete OpenAI responses before parsing truncated JSON", () => {
+    expect(() =>
+      normalizeOpenAIResponse(
+        createOpenAIResponse({
+          status: "incomplete",
+          incompleteReason: "max_output_tokens",
+          outputText: "{\"narrative\":\"cut off"
+        }),
+        {
+          feature: "story.default",
+          model: "gpt-5.4-mini",
+          responseSchema: {
+            name: "turn_proposal",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["narrative"],
+              properties: { narrative: { type: "string" } }
+            }
+          }
+        },
+        10
+      )
+    ).toThrow("OpenAI response was incomplete: max_output_tokens.");
+  });
+
+  it("rejects OpenAI refusal responses as invalid structured output", () => {
+    expect(() =>
+      normalizeOpenAIResponse(
+        createOpenAIResponse({
+          outputText: "",
+          content: [{ type: "refusal", refusal: "I cannot comply." }]
+        }),
+        {
+          feature: "story.default",
+          model: "gpt-5.4-mini",
+          responseSchema: {
+            name: "turn_proposal",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["narrative"],
+              properties: { narrative: { type: "string" } }
+            }
+          }
+        },
+        10
+      )
+    ).toThrow("OpenAI response was a refusal.");
+  });
 });
+
+function createOpenAIResponse(input: {
+  readonly status?: string;
+  readonly incompleteReason?: string;
+  readonly outputText: string;
+  readonly content?: readonly Record<string, unknown>[];
+}): Record<string, unknown> {
+  return {
+    id: "resp_123",
+    _request_id: "req_openai_response",
+    model: "gpt-5.4-mini",
+    status: input.status ?? "completed",
+    output_text: input.outputText,
+    incomplete_details: input.incompleteReason
+      ? { reason: input.incompleteReason }
+      : null,
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        status: input.status ?? "completed",
+        content: input.content ?? [
+          { type: "output_text", text: input.outputText, annotations: [] }
+        ]
+      }
+    ],
+    usage: {
+      input_tokens: 20,
+      output_tokens: 10,
+      total_tokens: 30
+    }
+  };
+}
 
 describe("EmbeddingGateway", () => {
   it("normalizes batch embedding through a provider-neutral gateway", async () => {

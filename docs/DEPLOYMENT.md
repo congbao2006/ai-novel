@@ -101,7 +101,7 @@ AI-only variables:
 | `OPENAI_MODEL` | `AI_PROVIDER=openai`. |
 | `AI_REQUEST_TIMEOUT_MS` | Optional, default `30000`. |
 | `AI_MAX_RETRIES` | Optional, default `2`. |
-| `AI_MAX_OUTPUT_TOKENS` | Optional, default `256`. |
+| `AI_MAX_OUTPUT_TOKENS` | Optional, default `1024`. Gameplay structured JSON can be truncated if this is too low. |
 | `AI_MODEL_PRICING_JSON` | Required if any AI budget is enabled for active model/provider. |
 | `AI_USER_DAILY_BUDGET_MICROS` | Optional budget. |
 | `AI_USER_MONTHLY_BUDGET_MICROS` | Optional budget. |

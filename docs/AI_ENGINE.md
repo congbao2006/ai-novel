@@ -100,6 +100,13 @@ Usage persistence is independent from gameplay persistence. If an AI request suc
 - `responseSchema` maps to structured output through `text.format`.
 - `safetyIdentifier` is reserved for privacy-safe pseudonymous identifiers.
 
+Before parsing structured output, the provider checks the Responses API status.
+`status=incomplete` is rejected as an invalid provider response with the
+`incomplete_details.reason` logged safely, because `output_text` may be truncated
+and therefore invalid JSON. The MVP default `AI_MAX_OUTPUT_TOKENS=1024` is sized
+for compact gameplay proposal JSON; lower values may be useful for smoke tests
+but can truncate real narrative turns.
+
 The provider returns:
 
 - `text`

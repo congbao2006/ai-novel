@@ -8,6 +8,7 @@ import OpenAI, {
 } from "openai";
 import {
   AIAuthenticationError,
+  AIError,
   type AIProviderDiagnostics,
   AIInvalidResponseError,
   AIProviderError,
@@ -20,6 +21,7 @@ import type {
   GenerationRequest,
   GenerationResult,
   LLMProvider,
+  LLMProviderId,
   TokenUsage,
   UsageEstimate
 } from "./types.js";
@@ -58,30 +60,45 @@ export class OpenAIProvider implements LLMProvider {
         buildResponsesRequest(request) as never
       );
       const latencyMs = Date.now() - startedAt;
-      const text = extractText(response);
-      const usage = normalizeUsage(response);
-      const structuredOutput = request.responseSchema
-        ? parseStructuredOutput(text)
-        : undefined;
 
-      const status = getStringProperty(response, "status");
-
-      return {
-        requestId: getStringProperty(response, "_request_id") ?? null,
-        provider: this.id,
-        model: getStringProperty(response, "model") ?? request.model ?? "unknown",
-        text,
-        narrativeText: text,
-        ...(structuredOutput === undefined ? {} : { structuredOutput }),
-        usage,
-        finishReason: normalizeFinishReason(response),
-        latencyMs,
-        ...(status ? { status } : {})
-      };
+      return normalizeOpenAIResponse(response, request, latencyMs, this.id);
     } catch (error) {
+      if (error instanceof AIError) {
+        throw error;
+      }
+
       throw mapOpenAIError(error, request);
     }
   }
+}
+
+export function normalizeOpenAIResponse<TStructuredOutput = unknown>(
+  response: unknown,
+  request: GenerationRequest<TStructuredOutput>,
+  latencyMs: number,
+  provider: LLMProviderId = "openai"
+): GenerationResult<TStructuredOutput> {
+  const usage = normalizeUsage(response);
+  assertResponseCompleted(response);
+  assertNoRefusal(response);
+  const text = extractText(response);
+  const structuredOutput = request.responseSchema
+    ? (parseStructuredOutput(text) as TStructuredOutput)
+    : undefined;
+  const status = getStringProperty(response, "status");
+
+  return {
+    requestId: getStringProperty(response, "_request_id") ?? null,
+    provider,
+    model: getStringProperty(response, "model") ?? request.model ?? "unknown",
+    text,
+    narrativeText: text,
+    ...(structuredOutput === undefined ? {} : { structuredOutput }),
+    usage,
+    finishReason: normalizeFinishReason(response),
+    latencyMs,
+    ...(status ? { status } : {})
+  };
 }
 
 export function buildResponsesRequest(
@@ -219,6 +236,12 @@ function toOpenAIMessage(message: AIMessage): Record<string, string> {
 }
 
 function extractText(response: unknown): string {
+  const outputParts = extractOutputTextParts(response);
+
+  if (outputParts.length > 0) {
+    return outputParts.join("");
+  }
+
   const outputText = getStringProperty(response, "output_text");
 
   if (outputText !== null) {
@@ -226,6 +249,115 @@ function extractText(response: unknown): string {
   }
 
   throw new AIInvalidResponseError("OpenAI response did not include output text.");
+}
+
+function extractOutputTextParts(response: unknown): string[] {
+  const output = getArrayProperty(response, "output");
+
+  if (!output) {
+    return [];
+  }
+
+  const parts: string[] = [];
+
+  for (const item of output) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+
+    if (getStringProperty(item, "type") !== "message") {
+      continue;
+    }
+
+    const content = getArrayProperty(item, "content");
+
+    if (!content) {
+      continue;
+    }
+
+    for (const part of content) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        getStringProperty(part, "type") === "output_text"
+      ) {
+        const text = getStringProperty(part, "text");
+
+        if (text !== null) {
+          parts.push(text);
+        }
+      }
+    }
+  }
+
+  return parts;
+}
+
+function assertResponseCompleted(response: unknown): void {
+  const status = getStringProperty(response, "status");
+
+  if (!status || status === "completed") {
+    return;
+  }
+
+  const incompleteDetails = getObjectProperty(response, "incomplete_details");
+  const reason = getStringProperty(incompleteDetails, "reason");
+  const message =
+    status === "incomplete"
+      ? `OpenAI response was incomplete${reason ? `: ${reason}` : ""}.`
+      : `OpenAI response was not completed: ${status}.`;
+
+  throw new AIInvalidResponseError(message, undefined, {
+    provider: "openai",
+    ...(getStringProperty(response, "model")
+      ? { model: getStringProperty(response, "model")! }
+      : {}),
+    requestId: getStringProperty(response, "_request_id"),
+    providerErrorCode:
+      status === "incomplete" ? "openai_response_incomplete" : "openai_response_not_completed",
+    providerErrorType: status,
+    providerErrorParam: reason,
+    providerMessage: message
+  });
+}
+
+function assertNoRefusal(response: unknown): void {
+  const output = getArrayProperty(response, "output");
+
+  if (!output) {
+    return;
+  }
+
+  for (const item of output) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+
+    const content = getArrayProperty(item, "content");
+
+    if (!content) {
+      continue;
+    }
+
+    for (const part of content) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        getStringProperty(part, "type") === "refusal"
+      ) {
+        throw new AIInvalidResponseError("OpenAI response was a refusal.", undefined, {
+          provider: "openai",
+          ...(getStringProperty(response, "model")
+            ? { model: getStringProperty(response, "model")! }
+            : {}),
+          requestId: getStringProperty(response, "_request_id"),
+          providerErrorType: "refusal",
+          providerErrorCode: "openai_refusal",
+          providerMessage: "OpenAI response was a refusal."
+        });
+      }
+    }
+  }
 }
 
 function normalizeUsage(response: unknown): TokenUsage {
@@ -265,7 +397,14 @@ function parseStructuredOutput(text: string): unknown {
   } catch (error) {
     throw new AIInvalidResponseError(
       "OpenAI structured output was not valid JSON.",
-      error
+      error,
+      {
+        provider: "openai",
+        providerErrorCode: "openai_invalid_structured_json",
+        providerErrorType: "invalid_response",
+        providerMessage: "OpenAI structured output was not valid JSON.",
+        ...(error instanceof Error ? { cause: serializeDiagnosticCause(error) } : {})
+      }
     );
   }
 }
@@ -392,6 +531,15 @@ function getObjectProperty(value: unknown, key: string): Record<string, unknown>
   return typeof candidate === "object" && candidate !== null
     ? (candidate as Record<string, unknown>)
     : null;
+}
+
+function getArrayProperty(value: unknown, key: string): readonly unknown[] | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const candidate = (value as Record<string, unknown>)[key];
+  return Array.isArray(candidate) ? candidate : null;
 }
 
 function getStringProperty(value: unknown, key: string): string | null {
