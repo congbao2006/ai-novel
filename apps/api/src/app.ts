@@ -41,6 +41,8 @@ export type BuildAppOptions = {
   readonly config?: ServerConfig;
 };
 
+const corsAllowedMethods = ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"];
+
 export async function buildApp(
   options: BuildAppOptions = {}
 ): Promise<FastifyInstance> {
@@ -140,7 +142,8 @@ export async function buildApp(
 
       callback(new AccessDeniedError("Origin is not allowed."), false);
     },
-    credentials: true
+    credentials: true,
+    methods: corsAllowedMethods
   });
 
   await app.register(registerHealthRoutes);

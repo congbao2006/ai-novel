@@ -142,6 +142,76 @@ describe("GET /health", () => {
       "http://localhost:3000"
     );
     expect(response.headers["access-control-allow-credentials"]).toBe("true");
+    expect(response.headers["access-control-allow-methods"]).toContain("POST");
+
+    await app.close();
+  });
+
+  it("allows authoring PATCH CORS preflight from the production web origin", async () => {
+    const productionWebOrigin = "https://ai-novel-web-nine.vercel.app";
+    const config = getServerConfig({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://user:password@localhost:5432/app",
+      WEB_APP_URL: productionWebOrigin,
+      API_ALLOWED_ORIGINS: productionWebOrigin
+    });
+    const app = await buildApp({
+      config,
+      dependencies: {}
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/author/stories/11111111-1111-4111-8111-111111111111",
+      headers: {
+        origin: productionWebOrigin,
+        "access-control-request-method": "PATCH",
+        "access-control-request-headers": "content-type,authorization"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe(
+      productionWebOrigin
+    );
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
+    expect(response.headers["access-control-allow-methods"]).toContain("PATCH");
+    expect(response.headers["access-control-allow-methods"]).toContain("DELETE");
+    expect(response.headers["access-control-allow-headers"]).toContain(
+      "content-type"
+    );
+    expect(response.headers["access-control-allow-headers"]).toContain(
+      "authorization"
+    );
+
+    await app.close();
+  });
+
+  it("does not allow CORS preflight from an unconfigured origin", async () => {
+    const productionWebOrigin = "https://ai-novel-web-nine.vercel.app";
+    const config = getServerConfig({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://user:password@localhost:5432/app",
+      WEB_APP_URL: productionWebOrigin,
+      API_ALLOWED_ORIGINS: productionWebOrigin
+    });
+    const app = await buildApp({
+      config,
+      dependencies: {}
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/author/stories/11111111-1111-4111-8111-111111111111",
+      headers: {
+        origin: "https://evil.example",
+        "access-control-request-method": "PATCH",
+        "access-control-request-headers": "content-type,authorization"
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
 
     await app.close();
   });
