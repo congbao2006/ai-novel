@@ -5,10 +5,14 @@ import type {
   GameStateRecord,
   Repositories,
   RepositoryContext,
+  StoryAbilityRecord,
+  StoryCharacterAbilityRecord,
   StoryCharacterRecord,
   StoryFactionRecord,
   StoryRecord,
   StoryVersionCharacterRecord,
+  StoryVersionAbilityRecord,
+  StoryVersionCharacterAbilityRecord,
   StoryVersionFactionRecord,
   StoryVersionRecord
 } from "@ai-novel/db";
@@ -230,6 +234,23 @@ describe("StoryAuthoringService", () => {
     });
 
     expect(result.session.currentState?.location).toBe("Cổng thành");
+    expect(result.session.currentState?.stateData.abilities).toMatchObject({
+      definitions: [
+        expect.objectContaining({
+          key: "shadow-step",
+          name: "Ảnh Bộ",
+          cooldownTurns: 2
+        })
+      ],
+      owned: [
+        expect.objectContaining({
+          abilityKey: "shadow-step",
+          currentCooldown: 0,
+          unlocked: true,
+          enabled: true
+        })
+      ]
+    });
     expect(fixture.npcs).toHaveLength(1);
     expect(fixture.npcs[0]?.templateCharacterId).toBe(npc.sourceCharacterId);
     expect(fixture.factions).toHaveLength(1);
@@ -276,6 +297,16 @@ describe("StoryAuthoringService", () => {
         initialWorldTime: "Hoàng hôn"
       }
     });
+    const shadowStep = fixture.storyAbilities.find(
+      (ability) => ability.abilityKey === "shadow-step"
+    )!;
+    await authoring.updateAbility(author, publishedV1.id, shadowStep.id, {
+      abilityKey: "shadow-step",
+      name: "Ảnh Bộ",
+      description: "Phiên bản mới lướt xa hơn.",
+      category: "movement",
+      cooldownTurns: 3
+    });
     const publishedV2 = await authoring.publish(author, publishedV1.id);
     const version2 = fixture.storyVersions.find(
       (version) => version.id === publishedV2.currentPublishedVersionId
@@ -296,8 +327,14 @@ describe("StoryAuthoringService", () => {
     expect(version2.versionNumber).toBe(2);
     expect(loadedA.storyVersionNumber).toBe(1);
     expect(loadedA.currentState?.location).toBe("Cổng thành");
+    expect(loadedA.currentState?.stateData.abilities).toMatchObject({
+      definitions: [expect.objectContaining({ cooldownTurns: 2 })]
+    });
     expect(sessionB.session.storyVersionNumber).toBe(2);
     expect(sessionB.session.currentState?.location).toBe("Cầu cảng");
+    expect(sessionB.session.currentState?.stateData.abilities).toMatchObject({
+      definitions: [expect.objectContaining({ cooldownTurns: 3 })]
+    });
   });
 });
 
@@ -321,6 +358,19 @@ async function createPublishableStory(service: StoryAuthoringService) {
     description: "Một người gác cổng trẻ.",
     initialStats: { hp: 100, stamina: 30 }
   });
+  const detail = await service.getOwnedStory(author, draft.id);
+  const playable = detail.characters.find((character) => character.type === "playable")!;
+  const shadowStep = await service.createAbility(author, draft.id, {
+    abilityKey: "shadow-step",
+    name: "Ảnh Bộ",
+    description: "Lướt nhanh qua một khoảng ngắn để né tránh hoặc áp sát.",
+    category: "movement",
+    cooldownTurns: 2
+  });
+  await service.assignAbilityToCharacter(author, draft.id, playable.id, {
+    abilityId: shadowStep.id,
+    rank: 1
+  });
   await service.createCharacter(author, draft.id, {
     type: "npc",
     name: "Lý Thanh",
@@ -342,9 +392,13 @@ async function createPublishableStory(service: StoryAuthoringService) {
 function createAuthoringFixture() {
   const stories: StoryRecord[] = [];
   const characters: StoryCharacterRecord[] = [];
+  const storyAbilities: StoryAbilityRecord[] = [];
+  const storyCharacterAbilities: StoryCharacterAbilityRecord[] = [];
   const storyFactions: StoryFactionRecord[] = [];
   const storyVersions: StoryVersionRecord[] = [];
   const storyVersionCharacters: StoryVersionCharacterRecord[] = [];
+  const storyVersionAbilities: StoryVersionAbilityRecord[] = [];
+  const storyVersionCharacterAbilities: StoryVersionCharacterAbilityRecord[] = [];
   const storyVersionFactions: StoryVersionFactionRecord[] = [];
   const sessions: GameSessionRecord[] = [];
   const states: GameStateRecord[] = [];
@@ -457,6 +511,89 @@ function createAuthoringFixture() {
           (character) => character.storyId === storyId && character.id === characterId
         );
         if (index >= 0) characters.splice(index, 1);
+      }
+    },
+    storyAbilities: {
+      async create(input: Parameters<Repositories["storyAbilities"]["create"]>[0]) {
+        const ability = {
+          id: nextId(),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          updatedAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryAbilityRecord;
+        storyAbilities.push(ability);
+        return ability;
+      },
+      async listForStory(storyId: string) {
+        return storyAbilities.filter((ability) => ability.storyId === storyId);
+      },
+      async getForStory(storyId: string, abilityId: string) {
+        return (
+          storyAbilities.find(
+            (ability) => ability.storyId === storyId && ability.id === abilityId
+          ) ?? null
+        );
+      },
+      async getByKey(storyId: string, abilityKey: string) {
+        return (
+          storyAbilities.find(
+            (ability) =>
+              ability.storyId === storyId && ability.abilityKey === abilityKey
+          ) ?? null
+        );
+      },
+      async update(input: Parameters<Repositories["storyAbilities"]["update"]>[0]) {
+        const index = storyAbilities.findIndex(
+          (ability) =>
+            ability.storyId === input.storyId && ability.id === input.abilityId
+        );
+        if (index < 0) throw new Error("ability missing");
+        storyAbilities[index] = {
+          ...storyAbilities[index]!,
+          ...(input as Partial<StoryAbilityRecord>),
+          updatedAt: new Date()
+        };
+        return storyAbilities[index]!;
+      },
+      async delete(storyId: string, abilityId: string) {
+        const index = storyAbilities.findIndex(
+          (ability) => ability.storyId === storyId && ability.id === abilityId
+        );
+        if (index >= 0) storyAbilities.splice(index, 1);
+      },
+      async assignToCharacter(
+        input: Parameters<Repositories["storyAbilities"]["assignToCharacter"]>[0]
+      ) {
+        const assignment = {
+          id: nextId(),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryCharacterAbilityRecord;
+        storyCharacterAbilities.push(assignment);
+        return assignment;
+      },
+      async listAssignmentsForStory(storyId: string) {
+        return storyCharacterAbilities.filter(
+          (assignment) => assignment.storyId === storyId
+        );
+      },
+      async listAssignmentsForCharacter(characterId: string) {
+        return storyCharacterAbilities.filter(
+          (assignment) => assignment.characterId === characterId
+        );
+      },
+      async removeFromCharacter(
+        storyId: string,
+        characterId: string,
+        abilityId: string
+      ) {
+        const index = storyCharacterAbilities.findIndex(
+          (assignment) =>
+            assignment.storyId === storyId &&
+            assignment.characterId === characterId &&
+            assignment.abilityId === abilityId
+        );
+        if (index >= 0) storyCharacterAbilities.splice(index, 1);
       }
     },
     storyFactions: {
@@ -583,6 +720,47 @@ function createAuthoringFixture() {
         );
       }
     },
+    storyVersionAbilities: {
+      async create(
+        input: Parameters<Repositories["storyVersionAbilities"]["create"]>[0]
+      ) {
+        const ability = {
+          id: nextId(),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryVersionAbilityRecord;
+        storyVersionAbilities.push(ability);
+        return ability;
+      },
+      async listForVersion(versionId: string) {
+        return storyVersionAbilities.filter(
+          (ability) => ability.storyVersionId === versionId
+        );
+      }
+    },
+    storyVersionCharacterAbilities: {
+      async create(
+        input: Parameters<Repositories["storyVersionCharacterAbilities"]["create"]>[0]
+      ) {
+        const assignment = {
+          id: nextId(),
+          createdAt: new Date("2026-01-01T00:00:00Z"),
+          ...input
+        } as StoryVersionCharacterAbilityRecord;
+        storyVersionCharacterAbilities.push(assignment);
+        return assignment;
+      },
+      async listForVersion(versionId: string) {
+        return storyVersionCharacterAbilities.filter(
+          (assignment) => assignment.storyVersionId === versionId
+        );
+      },
+      async listForVersionCharacter(versionCharacterId: string) {
+        return storyVersionCharacterAbilities.filter(
+          (assignment) => assignment.versionCharacterId === versionCharacterId
+        );
+      }
+    },
     storyVersionFactions: {
       async create(
         input: Parameters<Repositories["storyVersionFactions"]["create"]>[0]
@@ -706,9 +884,13 @@ function createAuthoringFixture() {
     transactionRunner,
     stories,
     characters,
+    storyAbilities,
+    storyCharacterAbilities,
     storyFactions,
     storyVersions,
     storyVersionCharacters,
+    storyVersionAbilities,
+    storyVersionCharacterAbilities,
     storyVersionFactions,
     sessions,
     states,

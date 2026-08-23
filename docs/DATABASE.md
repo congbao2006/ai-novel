@@ -102,6 +102,32 @@ Important columns:
 
 Represents the playable and NPC character templates copied into a specific story version. Public story detail returns playable rows from the current published version, so session creation receives a version-character id instead of a mutable authoring character id.
 
+### `story_version_abilities`
+
+Represents immutable ability definitions copied into a published story version.
+Ability identity uses `ability_key`, not the localized display name.
+
+Important columns:
+
+- `story_version_id`
+- `source_ability_id`
+- `ability_key`
+- `name`
+- `description`
+- `category`
+- `rank`
+- `resource_cost`
+- `cooldown_turns`
+- `tags`
+- `effects`
+- `requirements`
+- `enabled`
+- `metadata`
+
+### `story_version_character_abilities`
+
+Represents which versioned playable character owns which versioned ability at session creation time. Session initialization reads this table and copies only the selected playable character's assignments into server-owned runtime state.
+
 ### `story_version_factions`
 
 Represents faction templates copied into a specific story version. Runtime faction initialization reads these rows, never mutable `story_factions`.
@@ -137,6 +163,22 @@ Important columns:
 Session creation accepts only `playable` templates as the selected player character. NPC initialization clones only `npc` templates into `npcs`. This replaces the previous temporary policy that inferred NPCs from all non-selected characters.
 
 NPC template `secrets` are authoring/server data. They are copied into runtime NPC rows for NPC AI context but are not exposed through public story DTOs, session DTOs, logs, or browser APIs.
+
+### `story_abilities`
+
+Represents author-defined ability templates for a story working copy. These rows are runtime-critical authoring data and are copied into `story_version_abilities` on publish. Existing stories may have zero ability definitions.
+
+Rules:
+
+- `ability_key` is unique within a story and is the stable identity.
+- Display `name` may be localized, for example `Ảnh Bộ`.
+- `rank` is positive.
+- `cooldown_turns` is non-negative.
+- `resource_cost` is a bounded object such as `{ "statKey": "stamina", "amount": 10 }` or `null`.
+
+### `story_character_abilities`
+
+Represents ability grants from a story working copy to playable character templates. Publish validation rejects assignments to missing abilities/characters and rejects player ability grants on NPC templates.
 
 ### `story_factions`
 
@@ -244,7 +286,9 @@ When a session is created from a published story, the API resolves `stories.curr
 - `world_time`: story version `settings.initialWorldTime` or `NULL`
 - `player_stats`: deep copy of the selected version character's `initial_stats`
 - `flags`: selected story/version/character markers and `aiEnabled: false`
-- `state_data`: initialization metadata, copied version settings, copied character initial state, and `gameplayEnabled: false`
+- `state_data`: initialization metadata, copied version settings, copied character initial state, server-owned `abilities`, and `gameplayEnabled: false`
+
+`state_data.abilities` is server-owned runtime state. It contains copied ability definitions and the selected playable character's owned ability rows with current cooldowns. The LLM cannot add abilities, grant ownership, reset cooldowns, or mutate this namespace through `AITurnProposal`; gameplay services update it through deterministic server transitions only.
 
 The fallback exists only for legacy data. New publish validation requires an authored initial location.
 
@@ -649,6 +693,7 @@ Current deterministic commands:
 - `look`, `quan sát`, `quan sat`, `nhìn`, `nhin`: returns a location/story description and records `lastCommand`.
 - `rest`, `nghỉ`, `nghi`: increments `state_data.restCount` and records `lastCommand`.
 - `move <location>`, `go <location>`, `đi <location>`, `di <location>`: updates `game_states.location` and appends a `movement` world event.
+- Ability intent is resolved before AI narration. If the player claims a nonexistent or unowned ability, the server records an unauthorized `AbilityAttempt` for prompt context but does not return 4xx/5xx and does not grant the ability. Authorized abilities apply deterministic cooldown changes through `game_states.state_data.abilities`.
 - `status`, `trạng thái`, `trang thai`: returns a state summary and records `lastCommand`.
 - Unknown actions: player input is stored and an assistant fallback is stored; no location change or world event is created.
 

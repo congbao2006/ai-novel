@@ -84,6 +84,53 @@ export default function EditStoryPage({
     });
   }
 
+  async function addAbility(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!storyId) return;
+    const form = new FormData(event.currentTarget);
+    await runAction(setError, setMessage, setValidationIssues, async () => {
+      const resourceStatKey = String(form.get("resourceStatKey") ?? "").trim();
+      const resourceAmount = Number(form.get("resourceAmount") || 0);
+      await authRequest(`/author/stories/${storyId}/abilities`, {
+        method: "POST",
+        body: JSON.stringify({
+          abilityKey: form.get("abilityKey"),
+          name: form.get("name"),
+          description: form.get("description"),
+          category: form.get("category"),
+          rank: Number(form.get("rank") || 1),
+          cooldownTurns: Number(form.get("cooldownTurns") || 0),
+          resourceCost: resourceStatKey
+            ? { statKey: resourceStatKey, amount: resourceAmount }
+            : null
+        })
+      });
+      await loadStory(storyId, setStory, setError);
+      event.currentTarget.reset();
+    });
+  }
+
+  async function assignAbility(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!storyId) return;
+    const form = new FormData(event.currentTarget);
+    const characterId = String(form.get("characterId") ?? "");
+    await runAction(setError, setMessage, setValidationIssues, async () => {
+      await authRequest(
+        `/author/stories/${storyId}/characters/${characterId}/abilities`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            abilityId: form.get("abilityId"),
+            rank: Number(form.get("rank") || 1)
+          })
+        }
+      );
+      await loadStory(storyId, setStory, setError);
+      event.currentTarget.reset();
+    });
+  }
+
   async function addFaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!storyId) return;
@@ -217,6 +264,11 @@ export default function EditStoryPage({
           {story.characters.map((character) => (
             <div className="rounded border p-3 text-sm" key={character.id}>
               <strong>{character.name}</strong> ({character.type}) - {character.description}
+              {character.abilityKeys.length > 0 ? (
+                <p className="mt-2 text-xs text-zinc-600">
+                  Abilities: {character.abilityKeys.join(", ")}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>
@@ -236,6 +288,63 @@ export default function EditStoryPage({
             <textarea className="rounded border p-2" name="secrets" placeholder='{}' />
             <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">Thêm character</button>
           </form>
+        ) : null}
+      </section>
+
+      <section className="grid gap-4 rounded border border-zinc-200 p-4">
+        <h2 className="text-xl font-medium">Abilities</h2>
+        <div className="grid gap-2">
+          {story.abilities.map((ability) => (
+            <div className="rounded border p-3 text-sm" key={ability.id}>
+              <strong>{ability.name}</strong> ({ability.abilityKey}) ·{" "}
+              {ability.category} · cooldown {ability.cooldownTurns}
+              <p className="mt-1 text-zinc-600">{ability.description}</p>
+            </div>
+          ))}
+        </div>
+        {!locked ? (
+          <>
+            <form className="grid gap-2" onSubmit={addAbility}>
+              <input className="rounded border p-2" name="abilityKey" placeholder="shadow-step" required />
+              <input className="rounded border p-2" name="name" placeholder="Ảnh Bộ" required />
+              <textarea className="rounded border p-2" name="description" placeholder="Description" />
+              <select className="rounded border p-2" name="category">
+                <option value="movement">movement</option>
+                <option value="combat">combat</option>
+                <option value="perception">perception</option>
+                <option value="social">social</option>
+                <option value="utility">utility</option>
+                <option value="magic">magic</option>
+                <option value="other">other</option>
+              </select>
+              <input className="rounded border p-2" name="rank" placeholder="1" type="number" />
+              <input className="rounded border p-2" name="cooldownTurns" placeholder="2" type="number" />
+              <input className="rounded border p-2" name="resourceStatKey" placeholder="Resource stat key, optional" />
+              <input className="rounded border p-2" name="resourceAmount" placeholder="0" type="number" />
+              <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">Thêm ability</button>
+            </form>
+
+            {story.abilities.length > 0 && story.characters.length > 0 ? (
+              <form className="grid gap-2" onSubmit={assignAbility}>
+                <select className="rounded border p-2" name="characterId">
+                  {story.characters.map((character) => (
+                    <option key={character.id} value={character.id}>
+                      {character.name} ({character.type})
+                    </option>
+                  ))}
+                </select>
+                <select className="rounded border p-2" name="abilityId">
+                  {story.abilities.map((ability) => (
+                    <option key={ability.id} value={ability.id}>
+                      {ability.name} ({ability.abilityKey})
+                    </option>
+                  ))}
+                </select>
+                <input className="rounded border p-2" name="rank" placeholder="1" type="number" />
+                <button className="rounded border px-4 py-2" type="submit">Gán ability</button>
+              </form>
+            ) : null}
+          </>
         ) : null}
       </section>
 

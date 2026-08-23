@@ -93,6 +93,8 @@ AI gameplay calls are usage-accounted server-side. The product can enforce confi
 
 AI gameplay context now includes persistent memory layers so long sessions do not require sending the entire transcript. Rolling summaries and important memories help the AI understand history, but they are not the source of truth and cannot override `game_states`.
 
+Abilities are server-authoritative. Story authors can define ability templates and assign them to playable characters. When a session starts, the selected character's abilities are copied into runtime state with cooldowns. If a player claims an unowned ability, the game treats it as an attempted but unauthorized fictional action; the AI may narrate failure, but it cannot grant the power or change ability ownership.
+
 When semantic memory is enabled, old persistent memories can be retrieved by meaning rather than only by recency or importance. This applies only to `session_memories`, not the full message history.
 
 ### NPC

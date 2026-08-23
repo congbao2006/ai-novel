@@ -8,6 +8,7 @@ import type {
   AuthUserRecord,
   ChangeInventoryQuantityInput,
   CreateAuthSessionInput,
+  AssignStoryCharacterAbilityInput,
   CreateFactionInput,
   CreateInitialStateInput,
   CreateMemoryInput,
@@ -15,11 +16,14 @@ import type {
   CreateQuestInput,
   CreateSessionInput,
   CreateStoryInput,
+  CreateStoryAbilityInput,
   CreateStoryCharacterInput,
   CreateStoryFactionInput,
   CreateStoryFactionRelationshipInput,
   CreateStoryVersionInput,
+  CreateStoryVersionAbilityInput,
   CreateStoryVersionCharacterInput,
+  CreateStoryVersionCharacterAbilityInput,
   CreateStoryVersionFactionInput,
   CreateStoryVersionFactionRelationshipInput,
   CreateUserInput,
@@ -42,15 +46,20 @@ import type {
   SessionMemoryRecord,
   SessionSummaryRecord,
   StoryRecord,
+  StoryAbilityRecord,
   StoryCharacterRecord,
+  StoryCharacterAbilityRecord,
   StoryFactionRecord,
   StoryFactionRelationshipRecord,
   StoryListPageInput,
   StoryVersionCharacterRecord,
+  StoryVersionAbilityRecord,
+  StoryVersionCharacterAbilityRecord,
   StoryVersionFactionRecord,
   StoryVersionFactionRelationshipRecord,
   StoryVersionRecord,
   UpdateStoryCharacterInput,
+  UpdateStoryAbilityInput,
   UpdateStoryFactionInput,
   UpdateStoryInput,
   UpdateNpcRuntimeStateInput,
@@ -108,6 +117,25 @@ export type StoryRepository = {
   ): Promise<StoryCharacterRecord | null>;
 };
 
+export type StoryAbilityRepository = {
+  create(input: CreateStoryAbilityInput): Promise<StoryAbilityRecord>;
+  listForStory(storyId: string): Promise<StoryAbilityRecord[]>;
+  getForStory(storyId: string, abilityId: string): Promise<StoryAbilityRecord | null>;
+  getByKey(storyId: string, abilityKey: string): Promise<StoryAbilityRecord | null>;
+  update(input: UpdateStoryAbilityInput): Promise<StoryAbilityRecord>;
+  delete(storyId: string, abilityId: string): Promise<void>;
+  assignToCharacter(
+    input: AssignStoryCharacterAbilityInput
+  ): Promise<StoryCharacterAbilityRecord>;
+  listAssignmentsForStory(storyId: string): Promise<StoryCharacterAbilityRecord[]>;
+  listAssignmentsForCharacter(characterId: string): Promise<StoryCharacterAbilityRecord[]>;
+  removeFromCharacter(
+    storyId: string,
+    characterId: string,
+    abilityId: string
+  ): Promise<void>;
+};
+
 export type StoryFactionRepository = {
   create(input: CreateStoryFactionInput): Promise<StoryFactionRecord>;
   listForStory(storyId: string): Promise<StoryFactionRecord[]>;
@@ -149,6 +177,21 @@ export type StoryVersionCharacterRepository = {
     versionId: string,
     characterId: string
   ): Promise<StoryVersionCharacterRecord | null>;
+};
+
+export type StoryVersionAbilityRepository = {
+  create(input: CreateStoryVersionAbilityInput): Promise<StoryVersionAbilityRecord>;
+  listForVersion(versionId: string): Promise<StoryVersionAbilityRecord[]>;
+};
+
+export type StoryVersionCharacterAbilityRepository = {
+  create(
+    input: CreateStoryVersionCharacterAbilityInput
+  ): Promise<StoryVersionCharacterAbilityRecord>;
+  listForVersion(versionId: string): Promise<StoryVersionCharacterAbilityRecord[]>;
+  listForVersionCharacter(
+    versionCharacterId: string
+  ): Promise<StoryVersionCharacterAbilityRecord[]>;
 };
 
 export type StoryVersionFactionRepository = {

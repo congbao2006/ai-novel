@@ -900,6 +900,106 @@ describe("GameplayService", () => {
     expect(states[0]?.version).toBe(2);
   });
 
+  it("passes unauthorized ability attempts to AI without granting abilities", async () => {
+    const { repositories, transactionRunner, states } = createFixture();
+    let serializedRequest = "";
+    const aiGateway = createFakeAIGateway(async (request) => {
+      serializedRequest = JSON.stringify(request);
+      return {
+        requestId: "ai-request-ability",
+        provider: "openai",
+        model: "test-model",
+        text: "",
+        narrativeText: "Bạn tập trung ánh nhìn, nhưng không có Thiên Nhãn nào đáp lại.",
+        structuredOutput: {
+          narrative:
+            "Bạn tập trung ánh nhìn, nhưng không có Thiên Nhãn nào đáp lại.",
+          proposedStatePatch: {
+            location: null,
+            playerStats: {},
+            flags: { aiSceneTone: null },
+            stateData: {
+              aiLastActionSummary: null,
+              aiSceneSummary: "Người chơi thử dùng một năng lực không sở hữu."
+            }
+          },
+          proposedEvents: []
+        },
+        usage: { inputTokens: 20, outputTokens: 30, totalTokens: 50 },
+        finishReason: "stop",
+        latencyMs: 10
+      };
+    });
+    const service = new GameplayService(
+      repositories,
+      undefined,
+      transactionRunner,
+      { engineMode: "ai", aiGateway }
+    );
+
+    const result = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      { action: "Tôi dùng Thiên Nhãn để đọc ký ức hắn." }
+    );
+
+    expect(result.resultMessage.content).toContain("không có Thiên Nhãn");
+    expect(serializedRequest).toContain("ABILITY ATTEMPT RESOLUTION");
+    expect(serializedRequest).toContain("unknown_ability");
+    expect(states[0]?.stateData.abilities).toEqual({
+      definitions: [],
+      owned: []
+    });
+  });
+
+  it("applies deterministic cooldown for authorized abilities", async () => {
+    const { repositories, transactionRunner, states } = createFixture();
+    states[0]!.stateData = {
+      abilities: {
+        definitions: [
+          {
+            key: "shadow-step",
+            name: "Ảnh Bộ",
+            description: "Lướt nhanh qua một khoảng ngắn.",
+            category: "movement",
+            rank: 1,
+            resourceCost: null,
+            cooldownTurns: 2,
+            tags: [],
+            effects: {},
+            requirements: {},
+            enabled: true,
+            metadata: {}
+          }
+        ],
+        owned: [
+          {
+            abilityKey: "shadow-step",
+            rank: 1,
+            currentCooldown: 0,
+            unlocked: true,
+            enabled: true
+          }
+        ]
+      }
+    };
+    const service = new GameplayService(repositories, undefined, transactionRunner);
+
+    await service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+      action: "Tôi dùng Ảnh Bộ để né đòn."
+    });
+    expect(states[0]?.stateData.abilities).toMatchObject({
+      owned: [expect.objectContaining({ currentCooldown: 2 })]
+    });
+
+    await service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+      action: "Tôi dùng Ảnh Bộ lần nữa."
+    });
+    expect(states[0]?.stateData.abilities).toMatchObject({
+      owned: [expect.objectContaining({ currentCooldown: 1 })]
+    });
+  });
+
   it("persists optional NPC reactions in the same AI turn transaction", async () => {
     const {
       repositories,

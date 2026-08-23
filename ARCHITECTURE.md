@@ -63,7 +63,7 @@ Current application services:
 - `StoryService` owns public story browsing DTOs and prevents internal prompt fields from reaching clients.
 - `StoryAuthoringService` owns authenticated story draft creation, owner-only editing, template management, publish validation, immutable version creation, revision workflow, and archive transitions.
 - `SessionService` owns authenticated session creation, ownership checks, session listing/loading, and deterministic initial state creation.
-- `GameplayService` owns authenticated turn submission and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
+- `GameplayService` owns authenticated turn submission, server-authoritative ability intent resolution, and transactional persistence of messages, state updates, world events, turn count, and last-played timestamps. It supports deterministic mode and AI proposal mode.
 - `BudgetService` owns server-side preflight budget checks before paid AI calls.
 - `RepositoryAIUsageLedger` records provider/model/token/cost metadata through the database repository layer.
 - `MemoryContextBuilder` owns bounded AI gameplay context assembly from authoritative state, recent transcript rows, rolling summaries, important memories, and important world events.
@@ -135,9 +135,11 @@ Browser
   -> StoryRepository resolves public story catalog row
   -> StoryVersionRepository resolves current published version
   -> StoryVersionCharacterRepository validates playable version character
+  -> StoryVersionAbilityRepository loads version ability definitions
+  -> StoryVersionCharacterAbilityRepository loads selected character grants
   -> withTransaction
       -> GameSessionRepository.create with storyVersionId
-      -> GameStateRepository.createInitialState from version settings
+      -> GameStateRepository.createInitialState from version settings and ability grants
       -> NPCInitializationService clones version NPC templates
       -> FactionInitializationService clones version faction templates
   -> session detail DTO
@@ -152,6 +154,7 @@ Author
   -> story draft
       -> world config
       -> playable character templates
+      -> ability definitions and playable character ability grants
       -> NPC templates
       -> faction templates
   -> publish validation
@@ -160,6 +163,7 @@ Author
   -> player creates session
       -> session pins storyVersionId
       -> game state initialized from version settings
+      -> selected playable abilities copied into server-owned state
       -> version NPC templates cloned into runtime NPCs
       -> version faction templates cloned into runtime factions
 ```
@@ -167,6 +171,8 @@ Author
 Templates define initial conditions. Runtime tables own evolving state and never write changes back to story authoring data.
 
 Published versions are immutable. The `stories` row is the catalog plus owner working copy. A creator can create a new revision, edit the working copy, and publish a new version. Existing sessions continue to use their pinned `storyVersionId`; new sessions use the latest current published version. Runtime gameplay must never read mutable authoring rows for world prompts, opening prompts, initial settings, NPC templates, faction templates, or selected player template data.
+
+Ability ownership is authoritative server state. Authoring rows define ability templates and playable-character grants; published story versions snapshot those definitions/grants; session creation copies only the selected playable character's versioned grants into `game_states.state_data.abilities`. Player text and LLM output can express ability intent, but only `GameplayService` can authorize use, apply cooldowns, or persist ability runtime changes.
 
 The current deterministic turn flow uses the same boundary:
 

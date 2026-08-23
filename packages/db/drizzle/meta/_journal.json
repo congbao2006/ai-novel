@@ -57,6 +57,13 @@
       "when": 1786876614478,
       "tag": "0007_tricky_prima",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787476813770,
+      "tag": "0008_last_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

@@ -58,6 +58,80 @@ export type MemoryType = (typeof memoryTypes)[number];
 export const factionStatuses = ["active", "weakened", "collapsed", "hidden"] as const;
 export type FactionStatus = (typeof factionStatuses)[number];
 
+export const abilityCategories = [
+  "movement",
+  "combat",
+  "perception",
+  "social",
+  "utility",
+  "magic",
+  "other"
+] as const;
+export type AbilityCategory = (typeof abilityCategories)[number];
+
+export const abilityAttemptReasons = [
+  "owned",
+  "unknown_ability",
+  "not_owned",
+  "cooldown",
+  "insufficient_resource",
+  "disabled"
+] as const;
+export type AbilityAttemptReason = (typeof abilityAttemptReasons)[number];
+
+export type AbilityResourceCost = {
+  readonly statKey: string;
+  readonly amount: number;
+};
+
+export type AbilityDefinition = {
+  readonly key: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: AbilityCategory;
+  readonly rank: number;
+  readonly resourceCost: AbilityResourceCost | null;
+  readonly cooldownTurns: number;
+  readonly tags: readonly string[];
+  readonly effects: Record<string, unknown>;
+  readonly requirements: Record<string, unknown>;
+  readonly enabled: boolean;
+  readonly metadata: Record<string, unknown>;
+};
+
+export type CharacterAbility = {
+  readonly abilityKey: string;
+  readonly rank: number;
+  readonly currentCooldown: number;
+  readonly unlocked: boolean;
+  readonly enabled: boolean;
+};
+
+export type AbilityRuntimeState = {
+  readonly definitions: readonly AbilityDefinition[];
+  readonly owned: readonly CharacterAbility[];
+};
+
+export type AbilityPromptItem = {
+  readonly key: string;
+  readonly name: string;
+  readonly category: AbilityCategory;
+  readonly rank: number;
+  readonly cooldownRemaining: number;
+  readonly usable: boolean;
+  readonly disabledReason: AbilityAttemptReason | null;
+};
+
+export type AbilityAttempt = {
+  readonly requestedName: string | null;
+  readonly requestedKey: string | null;
+  readonly matchedAbilityKey: string | null;
+  readonly authorized: boolean;
+  readonly reason: AbilityAttemptReason;
+  readonly cooldownRemaining?: number;
+  readonly resourceCost?: AbilityResourceCost | null;
+};
+
 export type PlayerAction = {
   readonly text: string;
 };
@@ -518,6 +592,20 @@ export const aiTurnAllowedStateDataKeys = [
   "aiLastActionSummary",
   "aiSceneSummary"
 ] as const;
+
+export const abilityLimits = {
+  keyMaxLength: 80,
+  nameMaxLength: 120,
+  descriptionMaxLength: 1000,
+  rankMin: 1,
+  rankMax: 20,
+  cooldownMin: 0,
+  cooldownMax: 20,
+  resourceCostMax: 1000,
+  tagMaxCount: 12,
+  tagMaxLength: 40,
+  metadataMaxKeys: 20
+} as const;
 
 export const summaryOutputLimits = {
   summaryMaxLength: 6000,
@@ -1089,6 +1177,364 @@ export function validateConsequenceProposal(
             : validateQuestProgress(record.metadata)
       };
   }
+}
+
+export function validateAbilityDefinition(
+  input: AbilityDefinition
+): AbilityDefinition {
+  return {
+    key: validateAbilityKey(input.key),
+    name: validateAbilityText(input.name, "ability name", abilityLimits.nameMaxLength),
+    description: validateAbilityText(
+      input.description,
+      "ability description",
+      abilityLimits.descriptionMaxLength,
+      true
+    ),
+    category: abilityCategories.includes(input.category)
+      ? input.category
+      : "other",
+    rank: clampInteger(input.rank, abilityLimits.rankMin, abilityLimits.rankMax),
+    resourceCost: validateAbilityResourceCost(input.resourceCost),
+    cooldownTurns: clampInteger(
+      input.cooldownTurns,
+      abilityLimits.cooldownMin,
+      abilityLimits.cooldownMax
+    ),
+    tags: input.tags.slice(0, abilityLimits.tagMaxCount).map((tag) =>
+      validateAbilityText(tag, "ability tag", abilityLimits.tagMaxLength)
+    ),
+    effects: boundedRecord(input.effects, "ability effects"),
+    requirements: boundedRecord(input.requirements, "ability requirements"),
+    enabled: input.enabled,
+    metadata: boundedRecord(input.metadata, "ability metadata")
+  };
+}
+
+export function buildInitialAbilityRuntimeState(input: {
+  readonly definitions: readonly AbilityDefinition[];
+  readonly characterAbilities: readonly Pick<
+    CharacterAbility,
+    "abilityKey" | "rank" | "unlocked" | "enabled"
+  >[];
+}): AbilityRuntimeState {
+  const definitions = input.definitions.map(validateAbilityDefinition);
+  const definitionsByKey = new Map(definitions.map((definition) => [definition.key, definition]));
+  const owned = input.characterAbilities.flatMap((ability) => {
+    const definition = definitionsByKey.get(ability.abilityKey);
+    if (!definition) {
+      return [];
+    }
+
+    return [
+      {
+        abilityKey: definition.key,
+        rank: clampInteger(ability.rank, abilityLimits.rankMin, abilityLimits.rankMax),
+        currentCooldown: 0,
+        unlocked: ability.unlocked,
+        enabled: ability.enabled
+      }
+    ];
+  });
+
+  return { definitions, owned };
+}
+
+export function parseAbilityRuntimeState(value: unknown): AbilityRuntimeState {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const definitions = Array.isArray(record.definitions)
+    ? record.definitions.flatMap((definition) =>
+        isAbilityDefinitionLike(definition)
+          ? [validateAbilityDefinition(definition)]
+          : []
+      )
+    : [];
+  const definitionKeys = new Set(definitions.map((definition) => definition.key));
+  const owned = Array.isArray(record.owned)
+    ? record.owned.flatMap((ability) => {
+        if (!ability || typeof ability !== "object") {
+          return [];
+        }
+        const abilityRecord = ability as Record<string, unknown>;
+        if (typeof abilityRecord.abilityKey !== "string") {
+          return [];
+        }
+        const abilityKey = validateAbilityKey(abilityRecord.abilityKey);
+        if (!definitionKeys.has(abilityKey)) {
+          return [];
+        }
+
+        return [
+          {
+            abilityKey,
+            rank: clampInteger(
+              numberFromUnknown(abilityRecord.rank),
+              abilityLimits.rankMin,
+              abilityLimits.rankMax
+            ),
+            currentCooldown: clampInteger(
+              numberFromUnknown(abilityRecord.currentCooldown),
+              abilityLimits.cooldownMin,
+              abilityLimits.cooldownMax
+            ),
+            unlocked: abilityRecord.unlocked !== false,
+            enabled: abilityRecord.enabled !== false
+          }
+        ];
+      })
+    : [];
+
+  return { definitions, owned };
+}
+
+export function toAbilityPromptItems(
+  state: AbilityRuntimeState,
+  playerStats: Record<string, unknown>
+): AbilityPromptItem[] {
+  const ownedByKey = new Map(state.owned.map((ability) => [ability.abilityKey, ability]));
+
+  return state.definitions
+    .filter((definition) => ownedByKey.has(definition.key))
+    .map((definition) => {
+      const owned = ownedByKey.get(definition.key);
+      const disabledReason = getAbilityDisabledReason(definition, owned, playerStats);
+
+      return {
+        key: definition.key,
+        name: definition.name,
+        category: definition.category,
+        rank: owned?.rank ?? definition.rank,
+        cooldownRemaining: owned?.currentCooldown ?? 0,
+        usable: disabledReason === null,
+        disabledReason
+      };
+    });
+}
+
+export function tickAbilityCooldowns(state: AbilityRuntimeState): AbilityRuntimeState {
+  return {
+    definitions: state.definitions,
+    owned: state.owned.map((ability) => ({
+      ...ability,
+      currentCooldown: Math.max(0, ability.currentCooldown - 1)
+    }))
+  };
+}
+
+export function resolveAbilityAttempt(input: {
+  readonly actionText: string;
+  readonly abilityState: AbilityRuntimeState;
+  readonly playerStats: Record<string, unknown>;
+}): AbilityAttempt {
+  const ticked = input.abilityState;
+  const requestedName = extractRequestedAbilityName(input.actionText);
+  const match = findMentionedAbility(input.actionText, ticked);
+  const requestedKey = match?.definition.key ?? null;
+
+  if (!match) {
+    return {
+      requestedName,
+      requestedKey: null,
+      matchedAbilityKey: null,
+      authorized: false,
+      reason: requestedName ? "unknown_ability" : "owned"
+    };
+  }
+
+  const { definition, owned } = match;
+  if (!owned) {
+    return {
+      requestedName: requestedName ?? definition.name,
+      requestedKey,
+      matchedAbilityKey: definition.key,
+      authorized: false,
+      reason: "not_owned"
+    };
+  }
+
+  const disabledReason = getAbilityDisabledReason(definition, owned, input.playerStats);
+  if (disabledReason) {
+    return {
+      requestedName: requestedName ?? definition.name,
+      requestedKey,
+      matchedAbilityKey: definition.key,
+      authorized: false,
+      reason: disabledReason,
+      cooldownRemaining: owned.currentCooldown,
+      resourceCost: definition.resourceCost
+    };
+  }
+
+  return {
+    requestedName: requestedName ?? definition.name,
+    requestedKey,
+    matchedAbilityKey: definition.key,
+    authorized: true,
+    reason: "owned",
+    cooldownRemaining: 0,
+    resourceCost: definition.resourceCost
+  };
+}
+
+export function applyAbilityAttemptToState(input: {
+  readonly abilityState: AbilityRuntimeState;
+  readonly attempt: AbilityAttempt;
+}): AbilityRuntimeState {
+  if (!input.attempt.authorized || !input.attempt.matchedAbilityKey) {
+    return input.abilityState;
+  }
+
+  const definition = input.abilityState.definitions.find(
+    (candidate) => candidate.key === input.attempt.matchedAbilityKey
+  );
+
+  return {
+    definitions: input.abilityState.definitions,
+    owned: input.abilityState.owned.map((ability) =>
+      ability.abilityKey === input.attempt.matchedAbilityKey
+        ? {
+            ...ability,
+            currentCooldown: definition?.cooldownTurns ?? ability.currentCooldown
+          }
+        : ability
+    )
+  };
+}
+
+function findMentionedAbility(
+  actionText: string,
+  state: AbilityRuntimeState
+): { readonly definition: AbilityDefinition; readonly owned: CharacterAbility | null } | null {
+  const normalizedAction = normalizeAbilityLookupText(actionText);
+  const ownedByKey = new Map(state.owned.map((ability) => [ability.abilityKey, ability]));
+
+  for (const definition of state.definitions) {
+    const normalizedName = normalizeAbilityLookupText(definition.name);
+    const normalizedKey = normalizeAbilityLookupText(definition.key);
+
+    if (
+      normalizedName &&
+      normalizedAction.includes(normalizedName) ||
+      normalizedKey &&
+      normalizedAction.includes(normalizedKey)
+    ) {
+      return {
+        definition,
+        owned: ownedByKey.get(definition.key) ?? null
+      };
+    }
+  }
+
+  return null;
+}
+
+function extractRequestedAbilityName(actionText: string): string | null {
+  const match = actionText.match(
+    /(?:dùng|dung|sử dụng|su dung|thi triển|thi trien|kích hoạt|kich hoat|use|cast|activate)\s+["“]?([^"”.!,;:]+)["”]?/iu
+  );
+  const requested = match?.[1]?.split(/\s+(?:để|de|to)\s+/iu)[0]?.trim();
+
+  return requested ? requested.slice(0, abilityLimits.nameMaxLength) : null;
+}
+
+function getAbilityDisabledReason(
+  definition: AbilityDefinition,
+  owned: CharacterAbility | undefined,
+  playerStats: Record<string, unknown>
+): AbilityAttemptReason | null {
+  if (!definition.enabled || owned?.enabled === false || owned?.unlocked === false) {
+    return "disabled";
+  }
+
+  if ((owned?.currentCooldown ?? 0) > 0) {
+    return "cooldown";
+  }
+
+  if (
+    definition.resourceCost &&
+    numberFromUnknown(playerStats[definition.resourceCost.statKey]) <
+      definition.resourceCost.amount
+  ) {
+    return "insufficient_resource";
+  }
+
+  return null;
+}
+
+function isAbilityDefinitionLike(value: unknown): value is AbilityDefinition {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+
+  return typeof record.key === "string" && typeof record.name === "string";
+}
+
+function validateAbilityKey(value: string): string {
+  const key = value.trim();
+  if (!/^[a-z][a-z0-9._:-]*$/.test(key) || key.length > abilityLimits.keyMaxLength) {
+    throw new Error("Ability key is invalid.");
+  }
+
+  return key;
+}
+
+function validateAbilityText(
+  value: string,
+  label: string,
+  maxLength: number,
+  allowEmpty = false
+): string {
+  const text = value.trim();
+  if ((!allowEmpty && !text) || text.length > maxLength) {
+    throw new Error(`${label} is invalid.`);
+  }
+
+  return text;
+}
+
+function validateAbilityResourceCost(
+  value: AbilityResourceCost | null
+): AbilityResourceCost | null {
+  if (value === null) {
+    return null;
+  }
+
+  return {
+    statKey: validateAbilityKey(value.statKey),
+    amount: clampInteger(value.amount, 0, abilityLimits.resourceCostMax)
+  };
+}
+
+function clampInteger(value: number, minimum: number, maximum: number): number {
+  if (!Number.isFinite(value)) {
+    return minimum;
+  }
+
+  return Math.max(minimum, Math.min(maximum, Math.trunc(value)));
+}
+
+function boundedRecord(
+  value: Record<string, unknown>,
+  label: string
+): Record<string, unknown> {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  if (Object.keys(record).length > abilityLimits.metadataMaxKeys) {
+    throw new Error(`${label} has too many keys.`);
+  }
+
+  return JSON.parse(JSON.stringify(record)) as Record<string, unknown>;
+}
+
+function normalizeAbilityLookupText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 export function assertQuestStatusTransition(

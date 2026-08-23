@@ -1,5 +1,7 @@
 import type {
   StoryCharacterRecord,
+  StoryAbilityRecord,
+  StoryCharacterAbilityRecord,
   StoryFactionRecord,
   StoryRecord,
   StoryVersionRecord
@@ -17,6 +19,23 @@ export type AuthorStoryCharacterDto = {
   readonly initialStats: Record<string, unknown>;
   readonly initialState: Record<string, unknown>;
   readonly initialLocation: string | null;
+  readonly metadata: Record<string, unknown>;
+  readonly abilityKeys: readonly string[];
+};
+
+export type AuthorStoryAbilityDto = {
+  readonly id: string;
+  readonly abilityKey: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly rank: number;
+  readonly resourceCost: Record<string, unknown> | null;
+  readonly cooldownTurns: number;
+  readonly tags: readonly unknown[];
+  readonly effects: Record<string, unknown>;
+  readonly requirements: Record<string, unknown>;
+  readonly enabled: boolean;
   readonly metadata: Record<string, unknown>;
 };
 
@@ -57,6 +76,7 @@ export type AuthorStoryDetailDto = AuthorStorySummaryDto & {
   readonly openingPrompt: string;
   readonly settings: Record<string, unknown>;
   readonly characters: readonly AuthorStoryCharacterDto[];
+  readonly abilities: readonly AuthorStoryAbilityDto[];
   readonly factions: readonly AuthorStoryFactionDto[];
   readonly versions: readonly AuthorStoryVersionDto[];
 };
@@ -104,7 +124,9 @@ export function toAuthorStoryVersionDto(
 }
 
 export function toAuthorStoryCharacterDto(
-  character: StoryCharacterRecord
+  character: StoryCharacterRecord,
+  assignments: readonly StoryCharacterAbilityRecord[] = [],
+  abilitiesById: ReadonlyMap<string, StoryAbilityRecord> = new Map()
 ): AuthorStoryCharacterDto {
   return {
     id: character.id,
@@ -118,7 +140,31 @@ export function toAuthorStoryCharacterDto(
     initialStats: copyJsonObject(character.initialStats),
     initialState: copyJsonObject(character.initialState),
     initialLocation: character.initialLocation,
-    metadata: copyJsonObject(character.metadata)
+    metadata: copyJsonObject(character.metadata),
+    abilityKeys: assignments
+      .filter((assignment) => assignment.characterId === character.id)
+      .map((assignment) => abilitiesById.get(assignment.abilityId)?.abilityKey)
+      .filter((abilityKey): abilityKey is string => typeof abilityKey === "string")
+  };
+}
+
+export function toAuthorStoryAbilityDto(
+  ability: StoryAbilityRecord
+): AuthorStoryAbilityDto {
+  return {
+    id: ability.id,
+    abilityKey: ability.abilityKey,
+    name: ability.name,
+    description: ability.description,
+    category: ability.category,
+    rank: ability.rank,
+    resourceCost: ability.resourceCost ? copyJsonObject(ability.resourceCost) : null,
+    cooldownTurns: ability.cooldownTurns,
+    tags: copyJsonArray(ability.tags),
+    effects: copyJsonObject(ability.effects),
+    requirements: copyJsonObject(ability.requirements),
+    enabled: ability.enabled,
+    metadata: copyJsonObject(ability.metadata)
   };
 }
 

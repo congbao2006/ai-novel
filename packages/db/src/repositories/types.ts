@@ -33,11 +33,15 @@ import type {
   NewQuest,
   NewRelationship,
   NewStory,
+  NewStoryAbility,
   NewStoryCharacter,
+  NewStoryCharacterAbility,
   NewStoryFaction,
   NewStoryFactionRelationship,
   NewStoryVersion,
+  NewStoryVersionAbility,
   NewStoryVersionCharacter,
+  NewStoryVersionCharacterAbility,
   NewStoryVersionFaction,
   NewStoryVersionFactionRelationship,
   NewUser,
@@ -49,11 +53,15 @@ import type {
   SessionMemory,
   SessionSummary,
   Story,
+  StoryAbility,
   StoryCharacter,
+  StoryCharacterAbility,
   StoryFaction,
   StoryFactionRelationship,
   StoryVersion,
+  StoryVersionAbility,
   StoryVersionCharacter,
+  StoryVersionCharacterAbility,
   StoryVersionFaction,
   StoryVersionFactionRelationship,
   User,
@@ -94,6 +102,8 @@ export type CreateAuthSessionInput = Pick<
 
 export type StoryRecord = Story;
 export type StoryCharacterRecord = StoryCharacter;
+export type StoryAbilityRecord = StoryAbility;
+export type StoryCharacterAbilityRecord = StoryCharacterAbility;
 export type CreateStoryInput = Omit<NewStory, "id" | "createdAt" | "updatedAt">;
 export type UpdateStoryInput = {
   readonly title?: string;
@@ -116,6 +126,20 @@ export type UpdateStoryCharacterInput = Partial<
   readonly storyId: string;
   readonly characterId: string;
 };
+export type CreateStoryAbilityInput = Omit<
+  NewStoryAbility,
+  "id" | "createdAt" | "updatedAt"
+>;
+export type UpdateStoryAbilityInput = Partial<
+  Omit<CreateStoryAbilityInput, "storyId">
+> & {
+  readonly storyId: string;
+  readonly abilityId: string;
+};
+export type AssignStoryCharacterAbilityInput = Omit<
+  NewStoryCharacterAbility,
+  "id" | "createdAt"
+>;
 export type StoryFactionRecord = StoryFaction;
 export type CreateStoryFactionInput = Omit<
   NewStoryFaction,
@@ -134,6 +158,8 @@ export type CreateStoryFactionRelationshipInput = Omit<
 >;
 export type StoryVersionRecord = StoryVersion;
 export type StoryVersionCharacterRecord = StoryVersionCharacter;
+export type StoryVersionAbilityRecord = StoryVersionAbility;
+export type StoryVersionCharacterAbilityRecord = StoryVersionCharacterAbility;
 export type StoryVersionFactionRecord = StoryVersionFaction;
 export type StoryVersionFactionRelationshipRecord =
   StoryVersionFactionRelationship;
@@ -143,6 +169,14 @@ export type CreateStoryVersionInput = Omit<
 >;
 export type CreateStoryVersionCharacterInput = Omit<
   NewStoryVersionCharacter,
+  "id" | "createdAt"
+>;
+export type CreateStoryVersionAbilityInput = Omit<
+  NewStoryVersionAbility,
+  "id" | "createdAt"
+>;
+export type CreateStoryVersionCharacterAbilityInput = Omit<
+  NewStoryVersionCharacterAbility,
   "id" | "createdAt"
 >;
 export type CreateStoryVersionFactionInput = Omit<

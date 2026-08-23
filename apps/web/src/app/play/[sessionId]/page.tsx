@@ -179,6 +179,10 @@ export default function PlayShellPage() {
               </section>
             ) : null}
 
+            {session.currentState ? (
+              <AbilityPanel stateData={session.currentState.stateData} />
+            ) : null}
+
             {consequences.length > 0 ? (
               <div className="mt-6 grid gap-2">
                 {consequences.map((item, index) => (
@@ -242,6 +246,93 @@ export default function PlayShellPage() {
       </section>
     </main>
   );
+}
+
+type RuntimeAbility = {
+  readonly abilityKey: string;
+  readonly name: string;
+  readonly rank: number;
+  readonly currentCooldown: number;
+  readonly enabled: boolean;
+  readonly unlocked: boolean;
+};
+
+function AbilityPanel({
+  stateData
+}: {
+  readonly stateData: Record<string, unknown>;
+}) {
+  const abilities = readRuntimeAbilities(stateData);
+  if (abilities.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="mt-6">
+      <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+        Kỹ năng
+      </h2>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        {abilities.map((ability) => (
+          <article className="surface-card" key={ability.abilityKey}>
+            <p className="text-sm font-semibold">{ability.name}</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Rank {ability.rank} ·{" "}
+              {ability.currentCooldown > 0
+                ? `Cooldown ${ability.currentCooldown}`
+                : ability.enabled && ability.unlocked
+                  ? "Sẵn sàng"
+                  : "Chưa khả dụng"}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function readRuntimeAbilities(
+  stateData: Record<string, unknown>
+): RuntimeAbility[] {
+  const abilitiesRecord =
+    stateData.abilities &&
+    typeof stateData.abilities === "object" &&
+    !Array.isArray(stateData.abilities)
+      ? (stateData.abilities as Record<string, unknown>)
+      : null;
+  const definitions = Array.isArray(abilitiesRecord?.definitions)
+    ? abilitiesRecord.definitions
+    : [];
+  const owned = Array.isArray(abilitiesRecord?.owned) ? abilitiesRecord.owned : [];
+  const definitionsByKey = new Map(
+    definitions.flatMap((definition) => {
+      if (!definition || typeof definition !== "object") return [];
+      const record = definition as Record<string, unknown>;
+      return typeof record.key === "string" && typeof record.name === "string"
+        ? [[record.key, record.name] as const]
+        : [];
+    })
+  );
+
+  return owned.flatMap((ability) => {
+    if (!ability || typeof ability !== "object") return [];
+    const record = ability as Record<string, unknown>;
+    if (typeof record.abilityKey !== "string") return [];
+    const name = definitionsByKey.get(record.abilityKey);
+    if (!name) return [];
+
+    return [
+      {
+        abilityKey: record.abilityKey,
+        name,
+        rank: typeof record.rank === "number" ? record.rank : 1,
+        currentCooldown:
+          typeof record.currentCooldown === "number" ? record.currentCooldown : 0,
+        enabled: record.enabled !== false,
+        unlocked: record.unlocked !== false
+      }
+    ];
+  });
 }
 
 function formatPlayError(caught: unknown): string {

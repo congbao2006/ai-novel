@@ -37,6 +37,7 @@ import type {
   AuthSessionRecord,
   AuthUserRecord,
   ChangeInventoryQuantityInput,
+  AssignStoryCharacterAbilityInput,
   CreateAuthSessionInput,
   CreateFactionInput,
   CreateInitialStateInput,
@@ -44,11 +45,14 @@ import type {
   CreateNpcInput,
   CreateQuestInput,
   CreateSessionInput,
+  CreateStoryAbilityInput,
   CreateStoryCharacterInput,
   CreateStoryFactionInput,
   CreateStoryFactionRelationshipInput,
   CreateStoryVersionInput,
+  CreateStoryVersionAbilityInput,
   CreateStoryVersionCharacterInput,
+  CreateStoryVersionCharacterAbilityInput,
   CreateStoryVersionFactionInput,
   CreateStoryVersionFactionRelationshipInput,
   CreateStoryInput,
@@ -72,14 +76,19 @@ import type {
   SessionMemoryRecord,
   SessionSummaryRecord,
   StoryRecord,
+  StoryAbilityRecord,
   StoryCharacterRecord,
+  StoryCharacterAbilityRecord,
   StoryFactionRecord,
   StoryFactionRelationshipRecord,
   StoryVersionCharacterRecord,
+  StoryVersionAbilityRecord,
+  StoryVersionCharacterAbilityRecord,
   StoryVersionFactionRecord,
   StoryVersionFactionRelationshipRecord,
   StoryVersionRecord,
   StoryListPageInput,
+  UpdateStoryAbilityInput,
   UpdateStoryCharacterInput,
   UpdateStoryFactionInput,
   UpdateStoryInput,
@@ -115,10 +124,14 @@ import {
   sessionMemories,
   sessionSummaries,
   stories,
+  storyAbilities,
+  storyCharacterAbilities,
   storyCharacters,
   storyFactionRelationships,
   storyFactions,
   storyVersionCharacters,
+  storyVersionAbilities,
+  storyVersionCharacterAbilities,
   storyVersionFactionRelationships,
   storyVersionFactions,
   storyVersions,
@@ -141,9 +154,12 @@ import type {
   RelationshipRepository,
   SemanticMemoryRepository,
   SessionSummaryRepository,
+  StoryAbilityRepository,
   StoryFactionRelationshipRepository,
   StoryFactionRepository,
   StoryVersionCharacterRepository,
+  StoryVersionAbilityRepository,
+  StoryVersionCharacterAbilityRepository,
   StoryVersionFactionRelationshipRepository,
   StoryVersionFactionRepository,
   StoryVersionRepository,
@@ -533,6 +549,164 @@ export class DrizzleStoryRepository
   }
 }
 
+export class DrizzleStoryAbilityRepository
+  extends BaseRepository
+  implements StoryAbilityRepository
+{
+  create(input: CreateStoryAbilityInput): Promise<StoryAbilityRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyAbilities).values(input).returning(),
+        new ConflictError("Story ability could not be created.")
+      )
+    );
+  }
+
+  listForStory(storyId: string): Promise<StoryAbilityRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyAbilities)
+        .where(eq(storyAbilities.storyId, storyId))
+        .orderBy(storyAbilities.createdAt, storyAbilities.id)
+    );
+  }
+
+  getForStory(
+    storyId: string,
+    abilityId: string
+  ): Promise<StoryAbilityRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyAbilities)
+          .where(
+            and(eq(storyAbilities.storyId, storyId), eq(storyAbilities.id, abilityId))
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  getByKey(storyId: string, abilityKey: string): Promise<StoryAbilityRecord | null> {
+    return this.run(async () =>
+      firstOrNull(
+        await this.db
+          .select()
+          .from(storyAbilities)
+          .where(
+            and(
+              eq(storyAbilities.storyId, storyId),
+              eq(storyAbilities.abilityKey, abilityKey)
+            )
+          )
+          .limit(1)
+      )
+    );
+  }
+
+  update(input: UpdateStoryAbilityInput): Promise<StoryAbilityRecord> {
+    return this.run(async () => {
+      const updates: Partial<typeof storyAbilities.$inferInsert> = {
+        updatedAt: new Date()
+      };
+
+      if (input.abilityKey !== undefined) updates.abilityKey = input.abilityKey;
+      if (input.name !== undefined) updates.name = input.name;
+      if (input.description !== undefined) updates.description = input.description;
+      if (input.category !== undefined) updates.category = input.category;
+      if (input.rank !== undefined) updates.rank = input.rank;
+      if (input.resourceCost !== undefined) updates.resourceCost = input.resourceCost;
+      if (input.cooldownTurns !== undefined) {
+        updates.cooldownTurns = input.cooldownTurns;
+      }
+      if (input.tags !== undefined) updates.tags = input.tags;
+      if (input.effects !== undefined) updates.effects = input.effects;
+      if (input.requirements !== undefined) {
+        updates.requirements = input.requirements;
+      }
+      if (input.enabled !== undefined) updates.enabled = input.enabled;
+      if (input.metadata !== undefined) updates.metadata = input.metadata;
+
+      return firstOrThrow(
+        await this.db
+          .update(storyAbilities)
+          .set(updates)
+          .where(
+            and(
+              eq(storyAbilities.storyId, input.storyId),
+              eq(storyAbilities.id, input.abilityId)
+            )
+          )
+          .returning(),
+        new NotFoundError("Story ability")
+      );
+    });
+  }
+
+  async delete(storyId: string, abilityId: string): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .delete(storyAbilities)
+        .where(
+          and(eq(storyAbilities.storyId, storyId), eq(storyAbilities.id, abilityId))
+        );
+    });
+  }
+
+  assignToCharacter(
+    input: AssignStoryCharacterAbilityInput
+  ): Promise<StoryCharacterAbilityRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyCharacterAbilities).values(input).returning(),
+        new ConflictError("Story character ability could not be assigned.")
+      )
+    );
+  }
+
+  listAssignmentsForStory(storyId: string): Promise<StoryCharacterAbilityRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyCharacterAbilities)
+        .where(eq(storyCharacterAbilities.storyId, storyId))
+        .orderBy(storyCharacterAbilities.createdAt, storyCharacterAbilities.id)
+    );
+  }
+
+  listAssignmentsForCharacter(
+    characterId: string
+  ): Promise<StoryCharacterAbilityRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyCharacterAbilities)
+        .where(eq(storyCharacterAbilities.characterId, characterId))
+        .orderBy(storyCharacterAbilities.createdAt, storyCharacterAbilities.id)
+    );
+  }
+
+  async removeFromCharacter(
+    storyId: string,
+    characterId: string,
+    abilityId: string
+  ): Promise<void> {
+    await this.run(async () => {
+      await this.db
+        .delete(storyCharacterAbilities)
+        .where(
+          and(
+            eq(storyCharacterAbilities.storyId, storyId),
+            eq(storyCharacterAbilities.characterId, characterId),
+            eq(storyCharacterAbilities.abilityId, abilityId)
+          )
+        );
+    });
+  }
+}
+
 export class DrizzleStoryFactionRepository
   extends BaseRepository
   implements StoryFactionRepository
@@ -853,6 +1027,77 @@ export class DrizzleStoryVersionCharacterRepository
           )
           .limit(1)
       )
+    );
+  }
+}
+
+export class DrizzleStoryVersionAbilityRepository
+  extends BaseRepository
+  implements StoryVersionAbilityRepository
+{
+  create(input: CreateStoryVersionAbilityInput): Promise<StoryVersionAbilityRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db.insert(storyVersionAbilities).values(input).returning(),
+        new ConflictError("Story version ability could not be created.")
+      )
+    );
+  }
+
+  listForVersion(versionId: string): Promise<StoryVersionAbilityRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionAbilities)
+        .where(eq(storyVersionAbilities.storyVersionId, versionId))
+        .orderBy(storyVersionAbilities.createdAt, storyVersionAbilities.id)
+    );
+  }
+}
+
+export class DrizzleStoryVersionCharacterAbilityRepository
+  extends BaseRepository
+  implements StoryVersionCharacterAbilityRepository
+{
+  create(
+    input: CreateStoryVersionCharacterAbilityInput
+  ): Promise<StoryVersionCharacterAbilityRecord> {
+    return this.run(async () =>
+      firstOrThrow(
+        await this.db
+          .insert(storyVersionCharacterAbilities)
+          .values(input)
+          .returning(),
+        new ConflictError("Story version character ability could not be created.")
+      )
+    );
+  }
+
+  listForVersion(versionId: string): Promise<StoryVersionCharacterAbilityRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionCharacterAbilities)
+        .where(eq(storyVersionCharacterAbilities.storyVersionId, versionId))
+        .orderBy(
+          storyVersionCharacterAbilities.createdAt,
+          storyVersionCharacterAbilities.id
+        )
+    );
+  }
+
+  listForVersionCharacter(
+    versionCharacterId: string
+  ): Promise<StoryVersionCharacterAbilityRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(storyVersionCharacterAbilities)
+        .where(eq(storyVersionCharacterAbilities.versionCharacterId, versionCharacterId))
+        .orderBy(
+          storyVersionCharacterAbilities.createdAt,
+          storyVersionCharacterAbilities.id
+        )
     );
   }
 }

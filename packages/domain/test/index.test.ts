@@ -26,9 +26,13 @@ import {
   validateAITurnProposal,
   validateNPCReactionProposal,
   AITurnProposalValidationError,
+  applyAbilityAttemptToState,
+  buildInitialAbilityRuntimeState,
   ConsequenceValidationError,
   NPCReactionProposalValidationError,
-  SummaryOutputValidationError
+  resolveAbilityAttempt,
+  SummaryOutputValidationError,
+  tickAbilityCooldowns
 } from "../src/index.js";
 
 describe("domain package", () => {
@@ -140,6 +144,77 @@ describe("domain package", () => {
     expect(result.events).toEqual([]);
   });
 
+  it("resolves player ability intent against authoritative owned abilities", () => {
+    const abilityState = buildInitialAbilityRuntimeState({
+      definitions: [
+        {
+          key: "shadow-step",
+          name: "Ảnh Bộ",
+          description: "Lướt nhanh qua một khoảng ngắn.",
+          category: "movement",
+          rank: 1,
+          resourceCost: null,
+          cooldownTurns: 2,
+          tags: [],
+          effects: {},
+          requirements: {},
+          enabled: true,
+          metadata: {}
+        }
+      ],
+      characterAbilities: [
+        {
+          abilityKey: "shadow-step",
+          rank: 1,
+          unlocked: true,
+          enabled: true
+        }
+      ]
+    });
+
+    const unknown = resolveAbilityAttempt({
+      actionText: "Tôi dùng Thiên Nhãn để đọc ký ức hắn.",
+      abilityState,
+      playerStats: {}
+    });
+    expect(unknown).toMatchObject({
+      requestedName: "Thiên Nhãn",
+      matchedAbilityKey: null,
+      authorized: false,
+      reason: "unknown_ability"
+    });
+
+    const authorized = resolveAbilityAttempt({
+      actionText: "Tôi dùng Ảnh Bộ để áp sát.",
+      abilityState,
+      playerStats: {}
+    });
+    expect(authorized).toMatchObject({
+      matchedAbilityKey: "shadow-step",
+      authorized: true,
+      reason: "owned"
+    });
+
+    const coolingDown = applyAbilityAttemptToState({
+      abilityState,
+      attempt: authorized
+    });
+    expect(coolingDown.owned[0]?.currentCooldown).toBe(2);
+
+    const nextTurn = tickAbilityCooldowns(coolingDown);
+    const blocked = resolveAbilityAttempt({
+      actionText: "Tôi dùng Ảnh Bộ lần nữa.",
+      abilityState: nextTurn,
+      playerStats: {}
+    });
+    expect(blocked).toMatchObject({
+      matchedAbilityKey: "shadow-step",
+      authorized: false,
+      reason: "cooldown",
+      cooldownRemaining: 1
+    });
+  });
+
   it("accepts a valid AI turn proposal and merges allowed state patches", () => {
     const result = validateAITurnProposal(
       {
@@ -214,6 +289,23 @@ describe("domain package", () => {
         context.state
       )
     ).toThrow("AI cannot update stateData key: aiSceneTone.");
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Bạn học được một kỹ năng mới.",
+          proposedStatePatch: {
+            stateData: {
+              abilities: {
+                owned: [{ abilityKey: "thien-nhan", currentCooldown: 0 }]
+              }
+            }
+          },
+          proposedEvents: []
+        },
+        context.state
+      )
+    ).toThrow("AI cannot update stateData key: abilities.");
 
     expect(() =>
       validateAITurnProposal(

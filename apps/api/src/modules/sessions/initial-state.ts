@@ -3,6 +3,7 @@ import type {
   StoryCharacterRecord,
   StoryVersionCharacterRecord
 } from "@ai-novel/db";
+import type { AbilityRuntimeState } from "@ai-novel/domain";
 
 type RuntimeStoryConfig = {
   readonly storyId: string;
@@ -17,7 +18,8 @@ type RuntimeCharacterConfig = StoryCharacterRecord | StoryVersionCharacterRecord
 export function buildInitialGameState(
   sessionId: string,
   story: RuntimeStoryConfig,
-  character: RuntimeCharacterConfig
+  character: RuntimeCharacterConfig,
+  abilities?: AbilityRuntimeState
 ): CreateInitialStateInput {
   const playerStats = copyJsonObject(character.initialStats);
   const storySettings = copyJsonObject(story.settings);
@@ -52,6 +54,7 @@ export function buildInitialGameState(
       storyId: story.storyId,
       storyVersionId: story.storyVersionId,
       characterName: character.name,
+      abilities: abilities ?? { definitions: [], owned: [] },
       gameplayEnabled: false,
       initialSettings: storySettings,
       characterInitialState: characterState

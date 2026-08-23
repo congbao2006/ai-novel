@@ -263,6 +263,19 @@ Context is built by `MemoryContextBuilder` under server-side caps:
 
 Current `game_states` is authoritative. Rolling summaries and memories help the model understand distant history, but they never override state or become a source of truth.
 
+## Ability Authority
+
+Player action text is intent only. Before an AI turn is requested, `GameplayService` resolves any ability claim against `game_states.state_data.abilities`, which was initialized from the session's pinned story version.
+
+The AI prompt receives:
+
+- `AVAILABLE ABILITIES`: ability key, display name, rank, cooldown remaining, and usability.
+- `ABILITY ATTEMPT RESOLUTION`: whether the requested ability was authorized and why.
+
+If a player writes `Tôi dùng Thiên Nhãn...` and the character does not own `Thiên Nhãn`, the server marks the attempt as `unknown_ability` or `not_owned`. The turn may continue, but the model is instructed to narrate failure or reinterpretation. The model is never allowed to grant ability ownership, reset cooldowns, or mutate ability runtime state.
+
+`AITurnProposal` still does not contain ability ownership or cooldown fields. The strict schema rejects arbitrary `stateData` keys such as `abilities`; deterministic server code is the only path that updates ability cooldowns.
+
 Semantic memory retrieval is hybrid when enabled:
 
 ```text

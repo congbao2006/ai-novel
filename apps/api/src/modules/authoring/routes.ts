@@ -63,6 +63,30 @@ const factionSchema = z.object({
   state: jsonObjectSchema.optional()
 });
 
+const abilitySchema = z.object({
+  abilityKey: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(1000).optional(),
+  category: z
+    .enum(["movement", "combat", "perception", "social", "utility", "magic", "other"])
+    .optional(),
+  rank: z.number().int().min(1).max(20).optional(),
+  resourceCost: jsonObjectSchema.nullable().optional(),
+  cooldownTurns: z.number().int().min(0).max(20).optional(),
+  tags: z.array(z.unknown()).optional(),
+  effects: jsonObjectSchema.optional(),
+  requirements: jsonObjectSchema.optional(),
+  enabled: z.boolean().optional(),
+  metadata: jsonObjectSchema.optional()
+});
+
+const abilityAssignmentSchema = z.object({
+  abilityId: z.uuid(),
+  rank: z.number().int().min(1).max(20).optional(),
+  enabled: z.boolean().optional(),
+  unlocked: z.boolean().optional()
+});
+
 export const registerAuthoringRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", requireUser);
 
@@ -154,6 +178,78 @@ export const registerAuthoringRoutes: FastifyPluginAsync = async (app) => {
     await service.deleteCharacter(getRequiredUser(request), params.id, params.childId);
     return reply.code(204).send();
   });
+
+  app.post("/stories/:id/abilities", async (request, reply) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = storyParamsSchema.parse(request.params);
+    const result = await service.createAbility(
+      getRequiredUser(request),
+      params.id,
+      abilitySchema.parse(request.body)
+    );
+    return reply.code(201).send(result);
+  });
+
+  app.patch("/stories/:id/abilities/:childId", async (request) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = nestedParamsSchema.parse(request.params);
+    return service.updateAbility(
+      getRequiredUser(request),
+      params.id,
+      params.childId,
+      abilitySchema.parse(request.body)
+    );
+  });
+
+  app.delete("/stories/:id/abilities/:childId", async (request, reply) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = nestedParamsSchema.parse(request.params);
+    await service.deleteAbility(getRequiredUser(request), params.id, params.childId);
+    return reply.code(204).send();
+  });
+
+  app.post("/stories/:id/characters/:childId/abilities", async (request) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = nestedParamsSchema.parse(request.params);
+    return service.assignAbilityToCharacter(
+      getRequiredUser(request),
+      params.id,
+      params.childId,
+      abilityAssignmentSchema.parse(request.body)
+    );
+  });
+
+  app.delete(
+    "/stories/:id/characters/:childId/abilities/:abilityId",
+    async (request, reply) => {
+      const service = app.dependencies.storyAuthoringService;
+      if (!service) {
+        throw new ServiceUnavailableError("Story authoring service is unavailable.");
+      }
+      const params = z
+        .object({ id: z.uuid(), childId: z.uuid(), abilityId: z.uuid() })
+        .parse(request.params);
+      await service.removeAbilityFromCharacter(
+        getRequiredUser(request),
+        params.id,
+        params.childId,
+        params.abilityId
+      );
+      return reply.code(204).send();
+    }
+  );
 
   app.post("/stories/:id/factions", async (request, reply) => {
     const service = app.dependencies.storyAuthoringService;

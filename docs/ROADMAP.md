@@ -569,6 +569,37 @@ Recommendation:
 
 - Product/UI polish + closed beta remains the next best step. The deploy path is ready enough to put real testers through the existing flows and collect UX/operational issues before adding paid systems or more AI surface area.
 
+## Phase 4.16: Server-Authoritative Ability/Skill Foundation
+
+Status: completed.
+
+Goals:
+
+- Prevent player text and LLM narration from inventing authoritative abilities.
+- Let authors define story ability templates and assign them to playable characters.
+- Snapshot ability definitions and assignments into published story versions.
+- Initialize selected player abilities into server-owned session state.
+- Resolve ability attempts before AI narration and apply cooldowns deterministically.
+
+Completed:
+
+- Added authoring/version ability persistence and migration `0008_last_wolf_cub.sql`.
+- Added domain ability types, runtime state, ability intent resolution, cooldown ticking, and prompt-safe ability context.
+- Updated session creation to copy selected playable character abilities into `game_states.state_data.abilities`.
+- Updated AI turn prompt flow so unauthorized ability claims continue as failed/partial fictional attempts instead of server errors or granted powers.
+- Updated author editor with a minimal ability section and assignment form.
+- Updated play UI to show current abilities and cooldowns.
+
+Policy:
+
+- LLM output cannot grant abilities, mutate ability ownership, or reset cooldowns.
+- Existing published stories with no abilities remain valid and playable.
+- Ability runtime state is authoritative only when persisted by server-side gameplay transitions.
+
+Next recommendation:
+
+- Product/UI polish + closed beta remains next. The ability system closes a production gameplay authority gap; the next highest leverage work is tester-facing polish and operational feedback collection.
+
 ## Phase 5: Story Creation Tools
 
 Goals:

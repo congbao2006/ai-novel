@@ -42,6 +42,23 @@ export type AuthorStoryCharacter = {
   readonly initialState: Record<string, unknown>;
   readonly initialLocation: string | null;
   readonly metadata: Record<string, unknown>;
+  readonly abilityKeys: readonly string[];
+};
+
+export type AuthorStoryAbility = {
+  readonly id: string;
+  readonly abilityKey: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly rank: number;
+  readonly resourceCost: Record<string, unknown> | null;
+  readonly cooldownTurns: number;
+  readonly tags: readonly unknown[];
+  readonly effects: Record<string, unknown>;
+  readonly requirements: Record<string, unknown>;
+  readonly enabled: boolean;
+  readonly metadata: Record<string, unknown>;
 };
 
 export type AuthorStoryFaction = {
@@ -76,6 +93,7 @@ export type AuthorStoryDetail = AuthorStorySummary & {
   readonly openingPrompt: string;
   readonly settings: Record<string, unknown>;
   readonly characters: readonly AuthorStoryCharacter[];
+  readonly abilities: readonly AuthorStoryAbility[];
   readonly factions: readonly AuthorStoryFaction[];
   readonly versions: readonly AuthorStoryVersion[];
 };

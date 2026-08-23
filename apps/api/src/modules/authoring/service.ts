@@ -2,12 +2,19 @@ import type {
   DatabaseClient,
   RepositoryContext,
   Repositories,
+  StoryAbilityRecord,
+  StoryCharacterAbilityRecord,
   StoryCharacterRecord,
   StoryFactionRecord,
   StoryFactionRelationshipRecord,
   StoryRecord
 } from "@ai-novel/db";
 import { withTransaction } from "@ai-novel/db";
+import {
+  abilityCategories,
+  abilityLimits,
+  type AbilityCategory
+} from "@ai-novel/domain";
 import {
   AccessDeniedError,
   BadRequestError,
@@ -19,10 +26,12 @@ import {
 import type { CurrentUser } from "../auth/dto.js";
 import {
   toAuthorStoryCharacterDto,
+  toAuthorStoryAbilityDto,
   toAuthorStoryFactionDto,
   toAuthorStorySummaryDto,
   toAuthorStoryVersionDto,
   type AuthorStoryCharacterDto,
+  type AuthorStoryAbilityDto,
   type AuthorStoryDetailDto,
   type AuthorStoryFactionDto,
   type AuthorStoryListResponseDto,
@@ -73,6 +82,28 @@ export type UpsertFactionInput = {
   readonly resources?: Record<string, unknown> | undefined;
   readonly goals?: unknown[] | undefined;
   readonly state?: Record<string, unknown> | undefined;
+};
+
+export type UpsertAbilityInput = {
+  readonly abilityKey: string;
+  readonly name: string;
+  readonly description?: string | undefined;
+  readonly category?: AbilityCategory | undefined;
+  readonly rank?: number | undefined;
+  readonly resourceCost?: Record<string, unknown> | null | undefined;
+  readonly cooldownTurns?: number | undefined;
+  readonly tags?: unknown[] | undefined;
+  readonly effects?: Record<string, unknown> | undefined;
+  readonly requirements?: Record<string, unknown> | undefined;
+  readonly enabled?: boolean | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
+};
+
+export type AssignAbilityInput = {
+  readonly abilityId: string;
+  readonly rank?: number | undefined;
+  readonly enabled?: boolean | undefined;
+  readonly unlocked?: boolean | undefined;
 };
 
 export type TransactionRunner = <T>(
@@ -258,6 +289,120 @@ export class StoryAuthoringService {
     await this.repositories.stories.deleteCharacter(story.id, characterId);
   }
 
+  async createAbility(
+    user: CurrentUser,
+    storyId: string,
+    input: UpsertAbilityInput
+  ): Promise<AuthorStoryAbilityDto> {
+    const story = await this.requireOwnedStory(user, storyId);
+    this.assertRuntimeCriticalEditable(story);
+    const normalized = normalizeAbilityInput(input);
+    const ability = await this.repositories.storyAbilities.create({
+      storyId: story.id,
+      abilityKey: normalized.abilityKey,
+      name: normalized.name,
+      description: normalized.description,
+      category: normalized.category,
+      rank: normalized.rank,
+      resourceCost: normalized.resourceCost,
+      cooldownTurns: normalized.cooldownTurns,
+      tags: normalized.tags,
+      effects: normalized.effects,
+      requirements: normalized.requirements,
+      enabled: normalized.enabled,
+      metadata: normalized.metadata
+    });
+    return toAuthorStoryAbilityDto(ability);
+  }
+
+  async updateAbility(
+    user: CurrentUser,
+    storyId: string,
+    abilityId: string,
+    input: UpsertAbilityInput
+  ): Promise<AuthorStoryAbilityDto> {
+    const story = await this.requireOwnedStory(user, storyId);
+    this.assertRuntimeCriticalEditable(story);
+    const normalized = normalizeAbilityInput(input);
+    const ability = await this.repositories.storyAbilities.update({
+      storyId: story.id,
+      abilityId,
+      abilityKey: normalized.abilityKey,
+      name: normalized.name,
+      description: normalized.description,
+      category: normalized.category,
+      rank: normalized.rank,
+      resourceCost: normalized.resourceCost,
+      cooldownTurns: normalized.cooldownTurns,
+      tags: normalized.tags,
+      effects: normalized.effects,
+      requirements: normalized.requirements,
+      enabled: normalized.enabled,
+      metadata: normalized.metadata
+    });
+    return toAuthorStoryAbilityDto(ability);
+  }
+
+  async deleteAbility(
+    user: CurrentUser,
+    storyId: string,
+    abilityId: string
+  ): Promise<void> {
+    const story = await this.requireOwnedStory(user, storyId);
+    this.assertRuntimeCriticalEditable(story);
+    await this.repositories.storyAbilities.delete(story.id, abilityId);
+  }
+
+  async assignAbilityToCharacter(
+    user: CurrentUser,
+    storyId: string,
+    characterId: string,
+    input: AssignAbilityInput
+  ): Promise<AuthorStoryDetailDto> {
+    const story = await this.requireOwnedStory(user, storyId);
+    this.assertRuntimeCriticalEditable(story);
+    const character = await this.repositories.stories.getCharacterForStory(
+      story.id,
+      characterId
+    );
+    if (!character) {
+      throw new ResourceNotFoundError("Story character was not found.");
+    }
+    const ability = await this.repositories.storyAbilities.getForStory(
+      story.id,
+      input.abilityId
+    );
+    if (!ability) {
+      throw new ResourceNotFoundError("Story ability was not found.");
+    }
+
+    await this.repositories.storyAbilities.assignToCharacter({
+      storyId: story.id,
+      characterId: character.id,
+      abilityId: ability.id,
+      rank: clampInteger(input.rank ?? ability.rank, abilityLimits.rankMin, abilityLimits.rankMax),
+      enabled: input.enabled ?? true,
+      unlocked: input.unlocked ?? true
+    });
+
+    return this.buildDetail(story);
+  }
+
+  async removeAbilityFromCharacter(
+    user: CurrentUser,
+    storyId: string,
+    characterId: string,
+    abilityId: string
+  ): Promise<void> {
+    const story = await this.requireOwnedStory(user, storyId);
+    this.assertRuntimeCriticalEditable(story);
+    await this.repositories.storyAbilities.removeFromCharacter(
+      story.id,
+      characterId,
+      abilityId
+    );
+  }
+
   async createFaction(
     user: CurrentUser,
     storyId: string,
@@ -322,8 +467,18 @@ export class StoryAuthoringService {
     const characters = await this.repositories.stories.listCharactersForStory(
       story.id
     );
-    const factions = await this.repositories.storyFactions.listForStory(story.id);
-    const issues = validatePublishStory(story, characters, factions);
+    const [factions, abilities, abilityAssignments] = await Promise.all([
+      this.repositories.storyFactions.listForStory(story.id),
+      this.repositories.storyAbilities.listForStory(story.id),
+      this.repositories.storyAbilities.listAssignmentsForStory(story.id)
+    ]);
+    const issues = validatePublishStory(
+      story,
+      characters,
+      factions,
+      abilities,
+      abilityAssignments
+    );
 
     return {
       valid: issues.length === 0,
@@ -419,21 +574,27 @@ export class StoryAuthoringService {
   }
 
   private async buildDetail(story: StoryRecord): Promise<AuthorStoryDetailDto> {
-    const [characters, factions, versions, currentVersion] = await Promise.all([
+    const [characters, factions, abilities, abilityAssignments, versions, currentVersion] = await Promise.all([
       this.repositories.stories.listCharactersForStory(story.id),
       this.repositories.storyFactions.listForStory(story.id),
+      this.repositories.storyAbilities.listForStory(story.id),
+      this.repositories.storyAbilities.listAssignmentsForStory(story.id),
       this.repositories.storyVersions.listForStory(story.id),
       story.currentPublishedVersionId
         ? this.repositories.storyVersions.getById(story.currentPublishedVersionId)
         : null
     ]);
+    const abilitiesById = new Map(abilities.map((ability) => [ability.id, ability]));
     return {
       ...toAuthorStorySummaryDto(story),
       currentPublishedVersionNumber: currentVersion?.versionNumber ?? null,
       worldPrompt: story.worldPrompt,
       openingPrompt: story.openingPrompt,
       settings: copyJsonObject(story.settings),
-      characters: characters.map(toAuthorStoryCharacterDto),
+      characters: characters.map((character) =>
+        toAuthorStoryCharacterDto(character, abilityAssignments, abilitiesById)
+      ),
+      abilities: abilities.map(toAuthorStoryAbilityDto),
       factions: factions.map(toAuthorStoryFactionDto),
       versions: versions.map(toAuthorStoryVersionDto)
     };
@@ -449,12 +610,26 @@ export class StoryAuthoringService {
       throw new ResourceNotFoundError("Story was not found.");
     }
 
-    const [characters, factions, factionRelationships] = await Promise.all([
+    const [
+      characters,
+      factions,
+      abilities,
+      abilityAssignments,
+      factionRelationships
+    ] = await Promise.all([
       context.repositories.stories.listCharactersForStory(story.id),
       context.repositories.storyFactions.listForStory(story.id),
+      context.repositories.storyAbilities.listForStory(story.id),
+      context.repositories.storyAbilities.listAssignmentsForStory(story.id),
       context.repositories.storyFactionRelationships.listForStory(story.id)
     ]);
-    const issues = validatePublishStory(story, characters, factions);
+    const issues = validatePublishStory(
+      story,
+      characters,
+      factions,
+      abilities,
+      abilityAssignments
+    );
     if (issues.length > 0) {
       throw new ValidationIssuesError(
         "Story is not valid for publishing.",
@@ -474,9 +649,10 @@ export class StoryAuthoringService {
       createdByUserId: userId
     });
 
-    await Promise.all(
-      characters.map((character) =>
-        context.repositories.storyVersionCharacters.create({
+    const versionCharacterIdsBySource = new Map<string, string>();
+    for (const character of characters) {
+      const versionCharacter =
+        await context.repositories.storyVersionCharacters.create({
           storyVersionId: version.id,
           sourceCharacterId: character.id,
           characterType: character.characterType,
@@ -490,8 +666,39 @@ export class StoryAuthoringService {
           initialState: copyJsonObject(character.initialState),
           initialLocation: character.initialLocation,
           metadata: copyJsonObject(character.metadata)
-        })
-      )
+        });
+      versionCharacterIdsBySource.set(character.id, versionCharacter.id);
+    }
+
+    const versionAbilityIdsBySource = new Map<string, string>();
+    for (const ability of abilities) {
+      const versionAbility =
+        await context.repositories.storyVersionAbilities.create({
+          storyVersionId: version.id,
+          sourceAbilityId: ability.id,
+          abilityKey: ability.abilityKey,
+          name: ability.name,
+          description: ability.description,
+          category: ability.category,
+          rank: ability.rank,
+          resourceCost: ability.resourceCost ? copyJsonObject(ability.resourceCost) : null,
+          cooldownTurns: ability.cooldownTurns,
+          tags: copyJsonArray(ability.tags),
+          effects: copyJsonObject(ability.effects),
+          requirements: copyJsonObject(ability.requirements),
+          enabled: ability.enabled,
+          metadata: copyJsonObject(ability.metadata)
+        });
+      versionAbilityIdsBySource.set(ability.id, versionAbility.id);
+    }
+
+    await this.copyAbilityAssignments(
+      context,
+      version.id,
+      abilityAssignments,
+      versionCharacterIdsBySource,
+      versionAbilityIdsBySource,
+      abilities
     );
 
     const versionFactionIdsBySource = new Map<string, string>();
@@ -528,6 +735,42 @@ export class StoryAuthoringService {
       status: "published",
       currentPublishedVersionId: version.id
     });
+  }
+
+  private async copyAbilityAssignments(
+    context: RepositoryContext,
+    storyVersionId: string,
+    assignments: readonly StoryCharacterAbilityRecord[],
+    versionCharacterIdsBySource: ReadonlyMap<string, string>,
+    versionAbilityIdsBySource: ReadonlyMap<string, string>,
+    abilities: readonly StoryAbilityRecord[]
+  ): Promise<void> {
+    const abilitiesById = new Map(abilities.map((ability) => [ability.id, ability]));
+
+    for (const assignment of assignments) {
+      const versionCharacterId = versionCharacterIdsBySource.get(
+        assignment.characterId
+      );
+      const versionAbilityId = versionAbilityIdsBySource.get(assignment.abilityId);
+      const ability = abilitiesById.get(assignment.abilityId);
+
+      if (!versionCharacterId || !versionAbilityId || !ability) {
+        throw new BadRequestError(
+          "Character ability assignment references a missing template."
+        );
+      }
+
+      await context.repositories.storyVersionCharacterAbilities.create({
+        storyVersionId,
+        versionCharacterId,
+        versionAbilityId,
+        sourceCharacterAbilityId: assignment.id,
+        abilityKey: ability.abilityKey,
+        rank: assignment.rank,
+        enabled: assignment.enabled,
+        unlocked: assignment.unlocked
+      });
+    }
   }
 
   private async copyFactionRelationships(
@@ -577,7 +820,9 @@ export class StoryAuthoringService {
 function validatePublishStory(
   story: StoryRecord,
   characters: readonly StoryCharacterRecord[],
-  factions: readonly StoryFactionRecord[]
+  factions: readonly StoryFactionRecord[],
+  abilities: readonly StoryAbilityRecord[] = [],
+  abilityAssignments: readonly StoryCharacterAbilityRecord[] = []
 ): PublishValidationIssueDto[] {
   const issues: PublishValidationIssueDto[] = [];
   addRequiredTextIssue(issues, "title", story.title);
@@ -611,6 +856,80 @@ function validatePublishStory(
         code: "invalid_initial_stats",
         field: `characters.${character.id}.initialStats`,
         message: "Initial stats must be bounded finite numeric values."
+      });
+    }
+  }
+
+  const abilityKeys = new Set<string>();
+  for (const ability of abilities) {
+    if (!safeKeyPattern.test(ability.abilityKey)) {
+      issues.push({
+        code: "invalid_ability_key",
+        field: `abilities.${ability.id}.abilityKey`,
+        message: "Ability key must be a safe stable key."
+      });
+    }
+    if (abilityKeys.has(ability.abilityKey)) {
+      issues.push({
+        code: "duplicate_ability_key",
+        field: `abilities.${ability.id}.abilityKey`,
+        message: "Ability keys must be unique within a story."
+      });
+    }
+    abilityKeys.add(ability.abilityKey);
+    if (!abilityCategories.includes(ability.category as AbilityCategory)) {
+      issues.push({
+        code: "invalid_ability_category",
+        field: `abilities.${ability.id}.category`,
+        message: "Ability category is invalid."
+      });
+    }
+    if (
+      ability.rank < abilityLimits.rankMin ||
+      ability.rank > abilityLimits.rankMax ||
+      ability.cooldownTurns < abilityLimits.cooldownMin ||
+      ability.cooldownTurns > abilityLimits.cooldownMax
+    ) {
+      issues.push({
+        code: "invalid_ability_numbers",
+        field: `abilities.${ability.id}`,
+        message: "Ability rank and cooldown must be within supported bounds."
+      });
+    }
+  }
+
+  const charactersById = new Map(characters.map((character) => [character.id, character]));
+  const abilitiesById = new Map(abilities.map((ability) => [ability.id, ability]));
+  for (const assignment of abilityAssignments) {
+    const character = charactersById.get(assignment.characterId);
+    if (!character) {
+      issues.push({
+        code: "invalid_ability_assignment_character",
+        field: `abilityAssignments.${assignment.id}.characterId`,
+        message: "Ability assignment references a missing character."
+      });
+    } else if (character.characterType !== "playable") {
+      issues.push({
+        code: "invalid_ability_assignment_character_type",
+        field: `abilityAssignments.${assignment.id}.characterId`,
+        message: "Only playable characters can be granted player abilities."
+      });
+    }
+    if (!abilitiesById.has(assignment.abilityId)) {
+      issues.push({
+        code: "invalid_ability_assignment_ability",
+        field: `abilityAssignments.${assignment.id}.abilityId`,
+        message: "Ability assignment references a missing ability definition."
+      });
+    }
+    if (
+      assignment.rank < abilityLimits.rankMin ||
+      assignment.rank > abilityLimits.rankMax
+    ) {
+      issues.push({
+        code: "invalid_ability_assignment_rank",
+        field: `abilityAssignments.${assignment.id}.rank`,
+        message: "Assigned ability rank is invalid."
       });
     }
   }
@@ -689,6 +1008,70 @@ function normalizeFactionInput(input: UpsertFactionInput) {
     resources: validateJsonObject(input.resources ?? {}, "Resources"),
     goals: validateJsonArray(input.goals ?? [], 20, "Goals"),
     state: validateJsonObject(input.state ?? {}, "Faction state")
+  };
+}
+
+function normalizeAbilityInput(input: UpsertAbilityInput) {
+  const abilityKey = normalizeKeyish(input.abilityKey, abilityLimits.keyMaxLength, "Ability key");
+  if (!safeKeyPattern.test(abilityKey)) {
+    throw new BadRequestError("Ability key must be a safe stable key.");
+  }
+  const category = input.category ?? "other";
+  if (!abilityCategories.includes(category)) {
+    throw new BadRequestError("Ability category is invalid.");
+  }
+
+  return {
+    abilityKey,
+    name: normalizeText(input.name, abilityLimits.nameMaxLength, "Ability name"),
+    description: normalizeText(
+      input.description ?? "",
+      abilityLimits.descriptionMaxLength,
+      "Ability description",
+      { allowEmpty: true }
+    ),
+    category,
+    rank: clampInteger(
+      input.rank ?? 1,
+      abilityLimits.rankMin,
+      abilityLimits.rankMax
+    ),
+    resourceCost: normalizeResourceCost(input.resourceCost ?? null),
+    cooldownTurns: clampInteger(
+      input.cooldownTurns ?? 0,
+      abilityLimits.cooldownMin,
+      abilityLimits.cooldownMax
+    ),
+    tags: validateJsonArray(input.tags ?? [], abilityLimits.tagMaxCount, "Ability tags"),
+    effects: validateJsonObject(input.effects ?? {}, "Ability effects"),
+    requirements: validateJsonObject(
+      input.requirements ?? {},
+      "Ability requirements"
+    ),
+    enabled: input.enabled ?? true,
+    metadata: validateJsonObject(input.metadata ?? {}, "Ability metadata")
+  };
+}
+
+function normalizeResourceCost(
+  input: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (input === null) {
+    return null;
+  }
+  const statKey =
+    typeof input.statKey === "string"
+      ? normalizeKeyish(input.statKey, abilityLimits.keyMaxLength, "Resource stat key")
+      : "";
+  const amount = typeof input.amount === "number" ? input.amount : 0;
+
+  if (!safeKeyPattern.test(statKey)) {
+    throw new BadRequestError("Ability resource stat key is invalid.");
+  }
+
+  return {
+    statKey,
+    amount: clampInteger(amount, 0, abilityLimits.resourceCostMax)
   };
 }
 

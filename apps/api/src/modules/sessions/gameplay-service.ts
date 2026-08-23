@@ -1,10 +1,17 @@
 import {
   AITurnProposalValidationError,
   ConsequenceValidationError,
+  applyAbilityAttemptToState,
+  parseAbilityRuntimeState,
+  resolveAbilityAttempt,
   assertQuestStatusTransition,
   maxPlayerActionLength,
   runDeterministicTurn,
+  tickAbilityCooldowns,
+  toAbilityPromptItems,
   validateAITurnProposal,
+  type AbilityAttempt,
+  type AbilityRuntimeState,
   type AITurnProposal,
   type EntityReference,
   type GameStateSnapshot,
@@ -85,6 +92,12 @@ type PersistedTurnResult = {
   readonly memories: readonly SessionMemoryRecord[];
 };
 
+type ResolvedAbilityTurnState = {
+  readonly beforeUse: AbilityRuntimeState;
+  readonly finalState: AbilityRuntimeState;
+  readonly attempt: AbilityAttempt;
+};
+
 export class GameplayService {
   private readonly runInTransaction: TransactionRunner;
   private readonly engineMode: GameplayEngineMode;
@@ -148,6 +161,7 @@ export class GameplayService {
         const previousLastTurn =
           await context.repositories.gameMessages.getLastTurnNumber(session.id);
         const turnNumber = (previousLastTurn ?? 0) + 1;
+        const abilityTurn = resolveAbilityTurnState(state, action);
         const playerMessage = await context.repositories.gameMessages.append({
           sessionId: session.id,
           role: "player",
@@ -176,11 +190,16 @@ export class GameplayService {
           }
         );
         const statePatch = validateStatePatch(engineResult.statePatch);
+        const statePatchWithAbilities = mergeServerAbilityStatePatch(
+          statePatch,
+          state,
+          abilityTurn.finalState
+        );
         const plan = this.consequenceEngine.buildPlan({
           state,
           action,
           assistantNarrative: engineResult.resultText,
-          baseStatePatch: statePatch,
+          baseStatePatch: statePatchWithAbilities,
           baseEvents: engineResult.events
         });
 
@@ -237,6 +256,7 @@ export class GameplayService {
     const snapshot = await this.loadAITurnSnapshot(user, sessionId);
     const expectedVersion = snapshot.state.version;
     const stateSnapshot = toStateSnapshot(snapshot.state);
+    const abilityTurn = resolveAbilityTurnState(snapshot.state, action);
     const context = await (this.memoryContextBuilder
       ? this.memoryContextBuilder.buildForTurn({
           userId: user.userId,
@@ -270,7 +290,16 @@ export class GameplayService {
       story: snapshot.story,
       character: snapshot.character,
       context,
-      action
+      action,
+      availableAbilities: toAbilityPromptItems(
+        abilityTurn.beforeUse,
+        snapshot.state.playerStats
+      ),
+      ...(
+        abilityTurn.attempt.requestedName || abilityTurn.attempt.matchedAbilityKey
+          ? { abilityAttempt: abilityTurn.attempt }
+          : {}
+      )
     });
     const result = await this.aiGateway.generate<AITurnProposal>(request);
     const proposal = getStructuredProposal(result);
@@ -297,7 +326,11 @@ export class GameplayService {
           validatedProposal.resultText,
           npcReactions?.dialogueBlocks ?? []
         ),
-        baseStatePatch: validatedProposal.statePatch,
+        baseStatePatch: mergeServerAbilityStatePatch(
+          validatedProposal.statePatch,
+          snapshot.state,
+          abilityTurn.finalState
+        ),
         baseEvents: validatedProposal.events,
         npcReactions: npcReactions?.reactions ?? [],
         npcEvents: npcReactions?.events ?? []
@@ -460,6 +493,40 @@ function validatePlayerAction(action: string): string {
   }
 
   return normalized;
+}
+
+function resolveAbilityTurnState(
+  state: GameStateRecord,
+  action: string
+): ResolvedAbilityTurnState {
+  const abilityState = parseAbilityRuntimeState(state.stateData.abilities);
+  const beforeUse = tickAbilityCooldowns(abilityState);
+  const attempt = resolveAbilityAttempt({
+    actionText: action,
+    abilityState: beforeUse,
+    playerStats: state.playerStats
+  });
+  const finalState = applyAbilityAttemptToState({
+    abilityState: beforeUse,
+    attempt
+  });
+
+  return { beforeUse, finalState, attempt };
+}
+
+function mergeServerAbilityStatePatch(
+  patch: StatePatch,
+  currentState: GameStateRecord,
+  abilities: AbilityRuntimeState
+): StatePatch {
+  return {
+    ...patch,
+    stateData: {
+      ...copyJsonObject(currentState.stateData),
+      ...(patch.stateData ? copyJsonObject(patch.stateData) : {}),
+      abilities: copyJsonObject(abilities as unknown as Record<string, unknown>)
+    }
+  };
 }
 
 async function loadTurnReferences(

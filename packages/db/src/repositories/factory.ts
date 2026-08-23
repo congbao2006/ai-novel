@@ -14,9 +14,12 @@ import type {
   RelationshipRepository,
   SemanticMemoryRepository,
   SessionSummaryRepository,
+  StoryAbilityRepository,
   StoryFactionRelationshipRepository,
   StoryFactionRepository,
   StoryRepository,
+  StoryVersionAbilityRepository,
+  StoryVersionCharacterAbilityRepository,
   StoryVersionCharacterRepository,
   StoryVersionFactionRelationshipRepository,
   StoryVersionFactionRepository,
@@ -40,9 +43,12 @@ import {
   DrizzleRelationshipRepository,
   DrizzleSemanticMemoryRepository,
   DrizzleSessionSummaryRepository,
+  DrizzleStoryAbilityRepository,
   DrizzleStoryFactionRelationshipRepository,
   DrizzleStoryFactionRepository,
   DrizzleStoryRepository,
+  DrizzleStoryVersionAbilityRepository,
+  DrizzleStoryVersionCharacterAbilityRepository,
   DrizzleStoryVersionCharacterRepository,
   DrizzleStoryVersionFactionRelationshipRepository,
   DrizzleStoryVersionFactionRepository,
@@ -57,9 +63,12 @@ export type Repositories = {
   readonly aiUsage: AIUsageRepository;
   readonly authSessions: AuthSessionRepository;
   readonly stories: StoryRepository;
+  readonly storyAbilities: StoryAbilityRepository;
   readonly storyFactions: StoryFactionRepository;
   readonly storyFactionRelationships: StoryFactionRelationshipRepository;
   readonly storyVersions: StoryVersionRepository;
+  readonly storyVersionAbilities: StoryVersionAbilityRepository;
+  readonly storyVersionCharacterAbilities: StoryVersionCharacterAbilityRepository;
   readonly storyVersionCharacters: StoryVersionCharacterRepository;
   readonly storyVersionFactions: StoryVersionFactionRepository;
   readonly storyVersionFactionRelationships: StoryVersionFactionRelationshipRepository;
@@ -85,9 +94,13 @@ export function createRepositories(db: DbExecutor): Repositories {
     aiUsage: new DrizzleAIUsageRepository(db),
     authSessions: new DrizzleAuthSessionRepository(db),
     stories: new DrizzleStoryRepository(db),
+    storyAbilities: new DrizzleStoryAbilityRepository(db),
     storyFactions: new DrizzleStoryFactionRepository(db),
     storyFactionRelationships: new DrizzleStoryFactionRelationshipRepository(db),
     storyVersions: new DrizzleStoryVersionRepository(db),
+    storyVersionAbilities: new DrizzleStoryVersionAbilityRepository(db),
+    storyVersionCharacterAbilities:
+      new DrizzleStoryVersionCharacterAbilityRepository(db),
     storyVersionCharacters: new DrizzleStoryVersionCharacterRepository(db),
     storyVersionFactions: new DrizzleStoryVersionFactionRepository(db),
     storyVersionFactionRelationships:

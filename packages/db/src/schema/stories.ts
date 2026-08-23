@@ -1,5 +1,6 @@
 import {
   check,
+  boolean,
   index,
   integer,
   jsonb,
@@ -181,6 +182,101 @@ export const storyCharacters = pgTable(
   (table) => [index("story_characters_story_id_idx").on(table.storyId)]
 );
 
+export const storyAbilities = pgTable(
+  "story_abilities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    abilityKey: text("ability_key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    category: text("category").notNull().default("other"),
+    rank: integer("rank").notNull().default(1),
+    resourceCost: jsonb("resource_cost")
+      .$type<Record<string, unknown> | null>()
+      .default(null),
+    cooldownTurns: integer("cooldown_turns").notNull().default(0),
+    tags: jsonb("tags").$type<unknown[]>().notNull().default([]),
+    effects: jsonb("effects")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    requirements: jsonb("requirements")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("story_abilities_story_key_unique").on(
+      table.storyId,
+      table.abilityKey
+    ),
+    index("story_abilities_story_id_idx").on(table.storyId),
+    check("story_abilities_key_non_empty", sql`${table.abilityKey} <> ''`),
+    check("story_abilities_rank_positive", sql`${table.rank} > 0`),
+    check(
+      "story_abilities_cooldown_non_negative",
+      sql`${table.cooldownTurns} >= 0`
+    )
+  ]
+);
+
+export const storyCharacterAbilities = pgTable(
+  "story_character_abilities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    characterId: uuid("character_id")
+      .notNull()
+      .references(() => storyCharacters.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    abilityId: uuid("ability_id")
+      .notNull()
+      .references(() => storyAbilities.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    rank: integer("rank").notNull().default(1),
+    enabled: boolean("enabled").notNull().default(true),
+    unlocked: boolean("unlocked").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("story_character_abilities_character_ability_unique").on(
+      table.characterId,
+      table.abilityId
+    ),
+    index("story_character_abilities_story_id_idx").on(table.storyId),
+    index("story_character_abilities_character_idx").on(table.characterId),
+    check("story_character_abilities_rank_positive", sql`${table.rank} > 0`)
+  ]
+);
+
 export const storyFactions = pgTable(
   "story_factions",
   {
@@ -279,6 +375,117 @@ export const storyFactionRelationships = pgTable(
     check(
       "story_faction_relationships_no_self_edge",
       sql`${table.sourceFactionId} <> ${table.targetFactionId}`
+    )
+  ]
+);
+
+export const storyVersionAbilities = pgTable(
+  "story_version_abilities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyVersionId: uuid("story_version_id")
+      .notNull()
+      .references(() => storyVersions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    sourceAbilityId: uuid("source_ability_id").references(() => storyAbilities.id, {
+      onDelete: "set null",
+      onUpdate: "cascade"
+    }),
+    abilityKey: text("ability_key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    category: text("category").notNull().default("other"),
+    rank: integer("rank").notNull().default(1),
+    resourceCost: jsonb("resource_cost")
+      .$type<Record<string, unknown> | null>()
+      .default(null),
+    cooldownTurns: integer("cooldown_turns").notNull().default(0),
+    tags: jsonb("tags").$type<unknown[]>().notNull().default([]),
+    effects: jsonb("effects")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    requirements: jsonb("requirements")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("story_version_abilities_version_key_unique").on(
+      table.storyVersionId,
+      table.abilityKey
+    ),
+    index("story_version_abilities_version_idx").on(table.storyVersionId),
+    check("story_version_abilities_key_non_empty", sql`${table.abilityKey} <> ''`),
+    check("story_version_abilities_rank_positive", sql`${table.rank} > 0`),
+    check(
+      "story_version_abilities_cooldown_non_negative",
+      sql`${table.cooldownTurns} >= 0`
+    )
+  ]
+);
+
+export const storyVersionCharacterAbilities = pgTable(
+  "story_version_character_abilities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storyVersionId: uuid("story_version_id")
+      .notNull()
+      .references(() => storyVersions.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    versionCharacterId: uuid("version_character_id")
+      .notNull()
+      .references(() => storyVersionCharacters.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    versionAbilityId: uuid("version_ability_id")
+      .notNull()
+      .references(() => storyVersionAbilities.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade"
+      }),
+    sourceCharacterAbilityId: uuid("source_character_ability_id").references(
+      () => storyCharacterAbilities.id,
+      {
+        onDelete: "set null",
+        onUpdate: "cascade"
+      }
+    ),
+    abilityKey: text("ability_key").notNull(),
+    rank: integer("rank").notNull().default(1),
+    enabled: boolean("enabled").notNull().default(true),
+    unlocked: boolean("unlocked").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+  },
+  (table) => [
+    uniqueIndex("story_version_character_abilities_unique").on(
+      table.versionCharacterId,
+      table.versionAbilityId
+    ),
+    index("story_version_character_abilities_version_idx").on(
+      table.storyVersionId
+    ),
+    index("story_version_character_abilities_character_idx").on(
+      table.versionCharacterId
+    ),
+    check(
+      "story_version_character_abilities_rank_positive",
+      sql`${table.rank} > 0`
     )
   ]
 );
@@ -393,6 +600,12 @@ export type StoryVersionCharacter = typeof storyVersionCharacters.$inferSelect;
 export type NewStoryVersionCharacter = typeof storyVersionCharacters.$inferInsert;
 export type StoryCharacter = typeof storyCharacters.$inferSelect;
 export type NewStoryCharacter = typeof storyCharacters.$inferInsert;
+export type StoryAbility = typeof storyAbilities.$inferSelect;
+export type NewStoryAbility = typeof storyAbilities.$inferInsert;
+export type StoryCharacterAbility =
+  typeof storyCharacterAbilities.$inferSelect;
+export type NewStoryCharacterAbility =
+  typeof storyCharacterAbilities.$inferInsert;
 export type StoryFaction = typeof storyFactions.$inferSelect;
 export type NewStoryFaction = typeof storyFactions.$inferInsert;
 export type StoryFactionRelationship =
@@ -401,6 +614,13 @@ export type NewStoryFactionRelationship =
   typeof storyFactionRelationships.$inferInsert;
 export type StoryVersionFaction = typeof storyVersionFactions.$inferSelect;
 export type NewStoryVersionFaction = typeof storyVersionFactions.$inferInsert;
+export type StoryVersionAbility = typeof storyVersionAbilities.$inferSelect;
+export type NewStoryVersionAbility =
+  typeof storyVersionAbilities.$inferInsert;
+export type StoryVersionCharacterAbility =
+  typeof storyVersionCharacterAbilities.$inferSelect;
+export type NewStoryVersionCharacterAbility =
+  typeof storyVersionCharacterAbilities.$inferInsert;
 export type StoryVersionFactionRelationship =
   typeof storyVersionFactionRelationships.$inferSelect;
 export type NewStoryVersionFactionRelationship =

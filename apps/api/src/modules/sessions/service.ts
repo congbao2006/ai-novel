@@ -12,6 +12,11 @@ import type {
 } from "@ai-novel/db";
 import { withTransaction } from "@ai-novel/db";
 import {
+  buildInitialAbilityRuntimeState,
+  type AbilityCategory,
+  type AbilityDefinition
+} from "@ai-novel/domain";
+import {
   BadRequestError,
   ResourceNotFoundError,
   ServiceUnavailableError
@@ -84,6 +89,32 @@ export class SessionService {
     }
 
     const session = await this.runInTransaction(async (context) => {
+      const [versionAbilities, characterAbilities] = await Promise.all([
+        context.repositories.storyVersionAbilities?.listForVersion(version.id) ??
+          Promise.resolve([]),
+        context.repositories.storyVersionCharacterAbilities?.listForVersionCharacter(
+          character.id
+        ) ?? Promise.resolve([])
+      ]);
+      const versionAbilitiesById = new Map(
+        versionAbilities.map((ability) => [ability.id, ability])
+      );
+      const abilityRuntimeState = buildInitialAbilityRuntimeState({
+        definitions: versionAbilities.map(toAbilityDefinition),
+        characterAbilities: characterAbilities.flatMap((assignment) => {
+          const ability = versionAbilitiesById.get(assignment.versionAbilityId);
+          return ability
+            ? [
+                {
+                  abilityKey: ability.abilityKey,
+                  rank: assignment.rank,
+                  unlocked: assignment.unlocked,
+                  enabled: assignment.enabled
+                }
+              ]
+            : [];
+        })
+      });
       const createdSession = await context.repositories.gameSessions.create({
         userId: user.userId,
         storyId: story.id,
@@ -103,7 +134,8 @@ export class SessionService {
             storyVersionNumber: version.versionNumber,
             settings: version.settings
           },
-          character
+          character,
+          abilityRuntimeState
         )
       );
       await this.npcInitializationService?.initializeForSession({
@@ -304,4 +336,37 @@ function messageRoleOrder(role: GameMessageRecord["role"]): number {
   }
 
   return 2;
+}
+
+function toAbilityDefinition(
+  ability: Awaited<
+    ReturnType<Repositories["storyVersionAbilities"]["listForVersion"]>
+  >[number]
+): AbilityDefinition {
+  return {
+    key: ability.abilityKey,
+    name: ability.name,
+    description: ability.description,
+    category: ability.category as AbilityCategory,
+    rank: ability.rank,
+    resourceCost:
+      ability.resourceCost &&
+      typeof ability.resourceCost.statKey === "string" &&
+      typeof ability.resourceCost.amount === "number"
+        ? {
+            statKey: ability.resourceCost.statKey,
+            amount: ability.resourceCost.amount
+          }
+        : null,
+    cooldownTurns: ability.cooldownTurns,
+    tags: ability.tags.map(String),
+    effects: copyJsonObject(ability.effects),
+    requirements: copyJsonObject(ability.requirements),
+    enabled: ability.enabled,
+    metadata: copyJsonObject(ability.metadata)
+  };
+}
+
+function copyJsonObject(value: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }

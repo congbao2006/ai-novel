@@ -26,11 +26,15 @@ import {
   schemaModuleStatus,
   sessionStatusEnum,
   stories,
+  storyAbilities,
+  storyCharacterAbilities,
   storyCharacters,
   storyCharacterTypeEnum,
   storyFactionRelationships,
   storyFactions,
   storyStatusEnum,
+  storyVersionAbilities,
+  storyVersionCharacterAbilities,
   users,
   worldEvents,
   worldSimulationStates
@@ -63,9 +67,13 @@ describe("db package", () => {
     expect(authSessions).toBeDefined();
     expect(aiUsageRecords).toBeDefined();
     expect(stories).toBeDefined();
+    expect(storyAbilities).toBeDefined();
+    expect(storyCharacterAbilities).toBeDefined();
     expect(storyCharacters).toBeDefined();
     expect(storyFactions).toBeDefined();
     expect(storyFactionRelationships).toBeDefined();
+    expect(storyVersionAbilities).toBeDefined();
+    expect(storyVersionCharacterAbilities).toBeDefined();
     expect(gameSessions).toBeDefined();
     expect(gameMessages).toBeDefined();
     expect(gameStates).toBeDefined();
