@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AIError } from "@ai-novel/ai-engine";
+import { AIError, type AIProviderDiagnostics } from "@ai-novel/ai-engine";
 import {
   AuthUnavailableError,
   UnauthenticatedError
@@ -76,6 +76,7 @@ export type ErrorLogDetails = {
   readonly errorCode?: string | undefined;
   readonly statusCode?: number | undefined;
   readonly stack?: string | undefined;
+  readonly aiProvider?: AIProviderDiagnostics | undefined;
   readonly cause?: SerializedErrorCause | undefined;
 };
 
@@ -130,7 +131,10 @@ export function sendApplicationError(error: unknown, reply: {
 
     return reply.code(statusCode).send({
       error: error.code,
-      message: error.message,
+      message:
+        nodeEnv === "production" && error.code === "ai_provider_error"
+          ? "AI provider request failed."
+          : error.message,
       ...(requestId ? { requestId } : {})
     });
   }
@@ -193,6 +197,9 @@ export function getErrorLogDetails(
       ? { statusCode: getFastifyStatusCode(error) }
       : {}),
     ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    ...(error instanceof AIError && error.diagnostics
+      ? { aiProvider: error.diagnostics }
+      : {}),
     ...(error instanceof Error && error.cause
       ? { cause: serializeCause(error.cause) }
       : {})

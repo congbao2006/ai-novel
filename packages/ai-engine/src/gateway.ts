@@ -128,13 +128,7 @@ export class AIGateway {
       const latencyMs = Date.now() - startedAt;
 
       this.options.logger?.warn(
-        {
-          provider: provider.id,
-          model,
-          latencyMs,
-          success: false,
-          errorCode: aiError.code
-        },
+        safeFailureLogMetadata(provider.id, model, latencyMs, aiError),
         "ai generation failed"
       );
       await this.options.usageLedger?.recordUsage({
@@ -156,6 +150,23 @@ export class AIGateway {
       throw aiError;
     }
   }
+}
+
+function safeFailureLogMetadata(
+  provider: string,
+  model: string,
+  latencyMs: number,
+  error: AIError
+): Record<string, unknown> {
+  return {
+    provider,
+    model,
+    latencyMs,
+    success: false,
+    errorCode: error.code,
+    retryable: error.retryable,
+    ...(error.diagnostics ? { aiProvider: error.diagnostics } : {})
+  };
 }
 
 function usagePurposeFromRequest(request: GenerationRequest): AIUsagePurpose {

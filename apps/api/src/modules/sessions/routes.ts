@@ -1,6 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { sendApplicationError, ServiceUnavailableError } from "../../errors.js";
+import {
+  getErrorLogDetails,
+  isExpectedRequestError,
+  sendApplicationError,
+  ServiceUnavailableError
+} from "../../errors.js";
 import { getRequiredUser, requireUser } from "../auth/request-context.js";
 
 const createSessionSchema = z.object({
@@ -142,10 +147,17 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.setErrorHandler((error, request, reply) => {
-    request.log.warn(
-      { errorName: error instanceof Error ? error.name : "unknown" },
-      "session route error"
-    );
+    const details = getErrorLogDetails(error, {
+      requestId: request.id,
+      method: request.method,
+      url: request.url
+    });
+
+    if (isExpectedRequestError(error)) {
+      request.log.warn(details, "session route error");
+    } else {
+      request.log.error(details, "session route error");
+    }
 
     return sendApplicationError(error, reply, request.id, app.appConfig.nodeEnv);
   });

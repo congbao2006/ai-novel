@@ -8,6 +8,7 @@ import OpenAI, {
 } from "openai";
 import {
   AIAuthenticationError,
+  type AIProviderDiagnostics,
   AIInvalidResponseError,
   AIProviderError,
   AIRateLimitError,
@@ -78,12 +79,14 @@ export class OpenAIProvider implements LLMProvider {
         ...(status ? { status } : {})
       };
     } catch (error) {
-      throw mapOpenAIError(error);
+      throw mapOpenAIError(error, request);
     }
   }
 }
 
-function buildResponsesRequest(request: GenerationRequest): Record<string, unknown> {
+export function buildResponsesRequest(
+  request: GenerationRequest
+): Record<string, unknown> {
   const model = request.model ?? request.modelPolicy?.preferredModel;
 
   if (!model) {
@@ -117,19 +120,87 @@ function buildResponsesRequest(request: GenerationRequest): Record<string, unkno
 
   if (request.responseSchema) {
     body.text = {
-      format: {
-        type: "json_schema",
-        name: request.responseSchema.name,
-        ...(request.responseSchema.description
-          ? { description: request.responseSchema.description }
-          : {}),
-        strict: request.responseSchema.strict ?? true,
-        schema: request.responseSchema.schema
-      }
+      format: buildTextFormat(request.responseSchema)
     };
   }
 
   return body;
+}
+
+function buildTextFormat(
+  responseSchema: NonNullable<GenerationRequest["responseSchema"]>
+): Record<string, unknown> {
+  const requestedStrict = responseSchema.strict ?? true;
+  const strict = requestedStrict
+    ? isOpenAIStrictSchemaCompatible(responseSchema.schema)
+    : false;
+
+  return {
+    type: "json_schema",
+    name: responseSchema.name,
+    ...(responseSchema.description
+      ? { description: responseSchema.description }
+      : {}),
+    strict,
+    schema: responseSchema.schema
+  };
+}
+
+function isOpenAIStrictSchemaCompatible(schema: unknown): boolean {
+  return isOpenAIStrictSchemaNodeCompatible(schema);
+}
+
+function isOpenAIStrictSchemaNodeCompatible(node: unknown): boolean {
+  if (typeof node !== "object" || node === null) {
+    return true;
+  }
+
+  const record = node as Record<string, unknown>;
+  const properties = getObjectProperty(record, "properties");
+  const isObjectSchema =
+    record.type === "object" ||
+    properties !== null ||
+    "additionalProperties" in record;
+
+  if (isObjectSchema) {
+    if (record.additionalProperties !== false) {
+      return false;
+    }
+
+    if (properties) {
+      const required = Array.isArray(record.required)
+        ? new Set(record.required.filter((key): key is string => typeof key === "string"))
+        : new Set<string>();
+
+      for (const key of Object.keys(properties)) {
+        if (!required.has(key)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  if (properties) {
+    for (const child of Object.values(properties)) {
+      if (!isOpenAIStrictSchemaNodeCompatible(child)) {
+        return false;
+      }
+    }
+  }
+
+  if ("items" in record && !isOpenAIStrictSchemaNodeCompatible(record.items)) {
+    return false;
+  }
+
+  if (Array.isArray(record.anyOf)) {
+    for (const child of record.anyOf) {
+      if (!isOpenAIStrictSchemaNodeCompatible(child)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function buildInput(request: GenerationRequest): string | readonly Record<string, string>[] {
@@ -199,36 +270,117 @@ function parseStructuredOutput(text: string): unknown {
   }
 }
 
-function mapOpenAIError(error: unknown): Error {
+export function mapOpenAIError(
+  error: unknown,
+  request?: Pick<GenerationRequest, "model" | "modelPolicy">
+): Error {
+  const diagnostics = extractOpenAIErrorDiagnostics(
+    error,
+    request?.model ?? request?.modelPolicy?.preferredModel
+  );
+
   if (error instanceof AuthenticationError) {
-    return new AIAuthenticationError(undefined, error);
+    return new AIAuthenticationError(undefined, error, diagnostics);
   }
 
   if (error instanceof RateLimitError) {
-    return new AIRateLimitError(undefined, error);
+    return new AIRateLimitError(undefined, error, diagnostics);
   }
 
   if (error instanceof APIConnectionTimeoutError) {
-    return new AITimeoutError(undefined, error);
+    return new AITimeoutError(undefined, error, diagnostics);
   }
 
   if (error instanceof APIConnectionError) {
-    return new AIProviderError("OpenAI connection failed.", true, error);
+    return new AIProviderError(
+      "OpenAI connection failed.",
+      true,
+      error,
+      diagnostics
+    );
   }
 
   if (error instanceof InternalServerError) {
-    return new AIProviderError("OpenAI server error.", true, error);
+    return new AIProviderError(
+      "OpenAI server error.",
+      true,
+      error,
+      diagnostics
+    );
   }
 
   if (error instanceof APIError) {
     return new AIProviderError(
-      `OpenAI request failed with status ${error.status ?? "unknown"}.`,
+      "AI provider request failed.",
       Boolean(error.status && error.status >= 500),
-      error
+      error,
+      diagnostics
     );
   }
 
-  return new AIProviderError("OpenAI request failed.", false, error);
+  return new AIProviderError(
+    "AI provider request failed.",
+    Boolean(diagnostics.httpStatus && diagnostics.httpStatus >= 500),
+    error,
+    diagnostics
+  );
+}
+
+export function extractOpenAIErrorDiagnostics(
+  error: unknown,
+  model?: string
+): AIProviderDiagnostics {
+  const openAIError = getObjectProperty(error, "error");
+  const httpStatus =
+    getNumberProperty(error, "status") ?? getNumberProperty(error, "statusCode");
+  const requestId =
+    getStringProperty(error, "request_id") ??
+    getStringProperty(error, "requestID") ??
+    getStringProperty(error, "_request_id");
+  const providerErrorType =
+    getStringProperty(error, "type") ?? getStringProperty(openAIError, "type");
+  const providerErrorCode =
+    getStringProperty(error, "code") ?? getStringProperty(openAIError, "code");
+  const providerErrorParam =
+    getStringProperty(error, "param") ?? getStringProperty(openAIError, "param");
+  const providerMessage =
+    getStringProperty(openAIError, "message") ??
+    (error instanceof Error ? error.message : undefined);
+
+  return {
+    provider: "openai",
+    ...(model ? { model } : {}),
+    ...(httpStatus !== null ? { httpStatus } : {}),
+    ...(providerErrorType ? { providerErrorType } : {}),
+    ...(providerErrorCode ? { providerErrorCode } : {}),
+    ...(providerErrorParam !== null ? { providerErrorParam } : {}),
+    ...(providerMessage ? { providerMessage: sanitizeDiagnosticString(providerMessage) } : {}),
+    ...(requestId !== null ? { requestId } : {}),
+    ...(error instanceof Error ? { cause: serializeDiagnosticCause(error) } : {})
+  };
+}
+
+function serializeDiagnosticCause(error: Error): NonNullable<AIProviderDiagnostics["cause"]> {
+  const code = getStringProperty(error, "code");
+  const status =
+    getNumberProperty(error, "status") ?? getNumberProperty(error, "statusCode");
+
+  return {
+    name: error.name,
+    message: sanitizeDiagnosticString(error.message),
+    ...(code ? { code } : {}),
+    ...(status !== null ? { status } : {}),
+    ...(error.cause instanceof Error
+      ? { cause: serializeDiagnosticCause(error.cause) }
+      : {})
+  };
+}
+
+function sanitizeDiagnosticString(value: string): string {
+  return value
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-openai-key]")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .slice(0, 1000);
 }
 
 function getObjectProperty(value: unknown, key: string): Record<string, unknown> | null {

@@ -4,11 +4,14 @@ import {
   AIBudgetExceededError,
   AIGateway,
   EmbeddingGateway,
+  AIProviderError,
   AIProviderUnavailableError,
   AIRateLimitError,
   AITimeoutError,
+  buildResponsesRequest,
   createAIGateway,
   createEmbeddingGateway,
+  mapOpenAIError,
   createPolicy,
   evaluateAIBudget,
   estimateGenerationCostMicros,
@@ -320,6 +323,189 @@ describe("AIGateway", () => {
     });
 
     expect(captured?.responseSchema?.name).toBe("turn_proposal");
+  });
+
+  it("logs safe OpenAI provider diagnostics for failed generations", async () => {
+    const logs: Record<string, unknown>[] = [];
+    const gateway = new AIGateway({
+      providers: [
+        createFakeProvider(async () => {
+          throw new AIProviderError(
+            "AI provider request failed.",
+            false,
+            new Error("OpenAI request failed with status 400."),
+            {
+              provider: "openai",
+              model: "gpt-5.4-mini",
+              httpStatus: 400,
+              providerErrorType: "invalid_request_error",
+              providerErrorCode: "invalid_schema",
+              providerErrorParam: "text.format.schema",
+              providerMessage: "Invalid schema for response format.",
+              requestId: "req_openai_123",
+              cause: {
+                name: "BadRequestError",
+                message: "OpenAI request failed with status 400.",
+                code: "400",
+                status: 400
+              }
+            }
+          );
+        })
+      ],
+      defaultModelPolicy: policy,
+      timeoutMs: 100,
+      maxRetries: 0,
+      logger: {
+        info() {
+          throw new Error("unexpected success log");
+        },
+        warn(metadata) {
+          logs.push(metadata);
+        }
+      }
+    });
+
+    await expect(
+      gateway.generate({
+        feature: "story.default",
+        input: "private player action sk-test-secret"
+      })
+    ).rejects.toBeInstanceOf(AIProviderError);
+
+    expect(logs[0]).toMatchObject({
+      provider: "test-provider",
+      model: "test-model",
+      success: false,
+      errorCode: "ai_provider_error",
+      aiProvider: {
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        httpStatus: 400,
+        providerErrorType: "invalid_request_error",
+        providerErrorCode: "invalid_schema",
+        providerErrorParam: "text.format.schema",
+        providerMessage: "Invalid schema for response format.",
+        requestId: "req_openai_123",
+        cause: {
+          name: "BadRequestError",
+          status: 400
+        }
+      }
+    });
+    expect(JSON.stringify(logs[0])).not.toContain("private player action");
+    expect(JSON.stringify(logs[0])).not.toContain("sk-test-secret");
+  });
+
+  it("maps OpenAI 400 errors to provider-neutral errors with diagnostics", () => {
+    const openAIError = Object.assign(
+      new Error("400 Invalid schema; Authorization: Bearer sk-test-secret"),
+      {
+        status: 400,
+        code: "invalid_schema",
+        type: "invalid_request_error",
+        param: "text.format.schema",
+        request_id: "req_openai_400",
+        error: {
+          message: "Invalid schema for response format.",
+          type: "invalid_request_error",
+          code: "invalid_schema",
+          param: "text.format.schema"
+        }
+      }
+    );
+
+    const mapped = mapOpenAIError(openAIError, { model: "gpt-5.4-mini" });
+
+    expect(mapped).toBeInstanceOf(AIProviderError);
+    expect(mapped).toMatchObject({
+      message: "AI provider request failed.",
+      code: "ai_provider_error",
+      retryable: false,
+      diagnostics: {
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        httpStatus: 400,
+        providerErrorType: "invalid_request_error",
+        providerErrorCode: "invalid_schema",
+        providerErrorParam: "text.format.schema",
+        providerMessage: "Invalid schema for response format.",
+        requestId: "req_openai_400"
+      }
+    });
+    expect(JSON.stringify((mapped as AIProviderError).diagnostics)).not.toContain(
+      "sk-test-secret"
+    );
+  });
+
+  it("does not send OpenAI strict mode for schemas with dynamic object maps", () => {
+    const body = buildResponsesRequest({
+      feature: "story.default",
+      input: "return json",
+      model: "gpt-5.4-mini",
+      responseSchema: {
+        name: "ai_turn_proposal",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["narrative", "proposedStatePatch"],
+          properties: {
+            narrative: { type: "string" },
+            proposedStatePatch: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                flags: {
+                  type: "object",
+                  additionalProperties: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    expect(body).toMatchObject({
+      text: {
+        format: {
+          type: "json_schema",
+          name: "ai_turn_proposal",
+          strict: false
+        }
+      }
+    });
+  });
+
+  it("keeps OpenAI strict mode for compatible schemas", () => {
+    const body = buildResponsesRequest({
+      feature: "story.default",
+      input: "return json",
+      model: "gpt-5.4-mini",
+      responseSchema: {
+        name: "strict_schema",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ok"],
+          properties: {
+            ok: { type: "boolean" }
+          }
+        }
+      }
+    });
+
+    expect(body).toMatchObject({
+      text: {
+        format: {
+          type: "json_schema",
+          name: "strict_schema",
+          strict: true
+        }
+      }
+    });
   });
 });
 
