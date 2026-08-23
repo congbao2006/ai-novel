@@ -129,13 +129,25 @@ function createRepositoriesFixture(existingPasswordHash?: string): Repositories 
         }
       },
       async revokeAllForUser() {},
-      async touchLastUsedAt() {
+      async touchLastUsedAt(sessionId: string, now = new Date()) {
+        const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
+        const session = [...sessions.values()].find((item) => item.id === sessionId);
+        if (!session || session.lastUsedAt > staleBefore) {
+          return false;
+        }
+        session.lastUsedAt = now;
         touchCount += 1;
+        return true;
       }
     },
     testHooks: {
       getTouchCount() {
         return touchCount;
+      },
+      ageSessionLastUsedAt(ageMs: number) {
+        for (const session of sessions.values()) {
+          session.lastUsedAt = new Date(Date.now() - ageMs);
+        }
       }
     }
   } as unknown as Repositories;
@@ -273,6 +285,38 @@ describe("AuthService", () => {
       (repositories as unknown as { testHooks: { getTouchCount(): number } })
         .testHooks.getTouchCount()
     ).toBe(0);
+  });
+
+  it("touches stale sessions once and skips immediate follow-up requests", async () => {
+    const existingHash = await passwordHasher.hashPassword("password123");
+    const repositories = createRepositoriesFixture(existingHash);
+    const service = new AuthService({
+      repositories,
+      passwordHasher,
+      sessionTtlSeconds: 60 * 60
+    });
+
+    const session = await service.login({
+      email: "user@example.com",
+      password: "password123"
+    });
+    const fixture = repositories as unknown as {
+      testHooks: {
+        getTouchCount(): number;
+        ageSessionLastUsedAt(ageMs: number): void;
+      };
+    };
+
+    fixture.testHooks.ageSessionLastUsedAt(10 * 60 * 1000);
+    const staleTimings = {};
+    await service.getCurrentUser(session.rawToken, staleTimings);
+    expect(staleTimings).toMatchObject({ touchedSession: true });
+    expect(fixture.testHooks.getTouchCount()).toBe(1);
+
+    const immediateTimings = {};
+    await service.getCurrentUser(session.rawToken, immediateTimings);
+    expect(immediateTimings).toMatchObject({ touchedSession: false });
+    expect(fixture.testHooks.getTouchCount()).toBe(1);
   });
 
   it("records safe auth lookup timing details", async () => {

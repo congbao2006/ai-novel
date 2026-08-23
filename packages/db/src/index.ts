@@ -4,12 +4,15 @@ export {
   createDatabaseClient,
   createPgPool,
   getDatabaseClient,
-  getDatabasePool
+  getDatabasePool,
+  instrumentPgPool
 } from "./client.js";
 export type {
   DatabaseClient,
   DatabasePoolOptions,
   DatabaseReadinessResult,
+  PgPoolInstrumentationEvent,
+  PgPoolInstrumentationOptions,
   PgPool
 } from "./client.js";
 export * from "./repositories/index.js";

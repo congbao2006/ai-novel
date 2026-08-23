@@ -134,13 +134,13 @@ export class AuthService {
       sessionTouchThrottleMs
     ) {
       const touchStartedAt = nowMs();
-      await this.options.repositories.authSessions.touchLastUsedAt(
+      const touched = await this.options.repositories.authSessions.touchLastUsedAt(
         authenticatedSession.session.id,
         now
       );
       if (timings) {
         timings.touchLastUsedAtMs = elapsedMs(touchStartedAt);
-        timings.touchedSession = true;
+        timings.touchedSession = touched;
       }
     } else if (timings) {
       timings.touchedSession = false;

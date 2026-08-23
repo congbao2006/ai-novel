@@ -4,7 +4,8 @@ import {
   closeDatabaseClient,
   createRepositories,
   getDatabaseClient,
-  getDatabasePool
+  getDatabasePool,
+  instrumentPgPool
 } from "@ai-novel/db";
 import { buildApp } from "./app.js";
 import { BudgetService } from "./modules/ai/budget-service.js";
@@ -214,6 +215,44 @@ const app = await buildApp({
   dependencies,
   config
 });
+
+if (databasePool) {
+  instrumentPgPool(databasePool, {
+    onEvent(event) {
+      if (event.type === "acquire" && event.durationMs < 100) {
+        return;
+      }
+
+      const logPayload =
+        event.type === "error"
+          ? {
+              type: event.type,
+              errorName: event.errorName,
+              errorMessage: event.errorMessage,
+              poolTotal: event.poolTotal,
+              poolIdle: event.poolIdle,
+              poolWaiting: event.poolWaiting
+            }
+          : event.type === "acquire"
+            ? {
+                type: event.type,
+                durationMs: event.durationMs,
+                status: event.status,
+                poolTotal: event.poolTotal,
+                poolIdle: event.poolIdle,
+                poolWaiting: event.poolWaiting
+              }
+            : {
+                type: event.type,
+                poolTotal: event.poolTotal,
+                poolIdle: event.poolIdle,
+                poolWaiting: event.poolWaiting
+              };
+
+      app.log.info(logPayload, "[perf] db pool event");
+    }
+  });
+}
 
 let shuttingDown = false;
 

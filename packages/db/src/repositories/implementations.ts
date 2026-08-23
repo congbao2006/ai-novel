@@ -374,11 +374,11 @@ export class DrizzleAuthSessionRepository
     });
   }
 
-  async touchLastUsedAt(sessionId: string, now = new Date()): Promise<void> {
+  async touchLastUsedAt(sessionId: string, now = new Date()): Promise<boolean> {
     const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
 
-    await this.run(async () => {
-      await this.db
+    return this.run(async () => {
+      const updated = await this.db
         .update(authSessions)
         .set({ lastUsedAt: now })
         .where(
@@ -386,7 +386,10 @@ export class DrizzleAuthSessionRepository
             eq(authSessions.id, sessionId),
             lte(authSessions.lastUsedAt, staleBefore)
           )
-        );
+        )
+        .returning({ id: authSessions.id });
+
+      return updated.length > 0;
     });
   }
 }
