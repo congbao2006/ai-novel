@@ -169,12 +169,18 @@ AI is a proposer, not the authority.
 Allowed proposal effects are intentionally narrow:
 
 - `location`: non-empty text with length/control-character checks.
-- `playerStats`: only existing numeric stat keys may be updated.
+- `playerStats`: only existing numeric stat keys may be updated by the validator. The OpenAI structured schema keeps this object empty because valid stat keys are runtime-specific; future stat-schema support can expose known keys safely.
 - `flags`: only `aiSceneTone`.
 - `stateData`: only `aiLastActionSummary` and `aiSceneSummary`.
-- `proposedEvents`: at most five validated events; IDs, timestamps, session IDs, and turn numbers are assigned by the server.
+- `proposedEvents`: at most five validated events; `importance` must be an integer from 1 to 5; IDs, timestamps, session IDs, and turn numbers are assigned by the server.
 
 Rejected fields include IDs, `userId`, `sessionId`, `version`, `turnCount`, auth fields, timestamps, unknown state keys, non-finite numbers, nested arbitrary JSON, and oversized text.
+
+The AI turn JSON schema is kept OpenAI strict-compatible: nested object
+properties are required at the wire level, nullable where "no change" is valid,
+and backed by the same domain constants used by the validator. This keeps the
+provider from casually emitting values the server will reject while preserving
+server validation as the final authority.
 
 Narrative is user-facing prose only. It is not the source of truth for state. If narrative says a stat changed but the validated structured patch does not include that change, the stat does not change.
 

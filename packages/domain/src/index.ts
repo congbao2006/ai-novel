@@ -508,6 +508,17 @@ export const aiTurnProposalLimits = {
   eventDescriptionMaxLength: 1000
 } as const;
 
+export const aiTurnEventImportanceRange = {
+  min: 1,
+  max: 5
+} as const;
+
+export const aiTurnAllowedFlagKeys = ["aiSceneTone"] as const;
+export const aiTurnAllowedStateDataKeys = [
+  "aiLastActionSummary",
+  "aiSceneSummary"
+] as const;
+
 export const summaryOutputLimits = {
   summaryMaxLength: 6000,
   importantFactsMaxCount: 10,
@@ -612,39 +623,61 @@ export const aiTurnProposalJsonSchema = {
     proposedStatePatch: {
       type: "object",
       additionalProperties: false,
+      required: ["location", "playerStats", "flags", "stateData"],
       properties: {
         location: {
-          type: "string",
-          minLength: 1,
-          maxLength: aiTurnProposalLimits.locationMaxLength
+          anyOf: [
+            {
+              type: "string",
+              minLength: 1,
+              maxLength: aiTurnProposalLimits.locationMaxLength
+            },
+            { type: "null" }
+          ]
         },
         playerStats: {
           type: "object",
-          additionalProperties: {
-            type: "number"
-          }
+          additionalProperties: false,
+          properties: {}
         },
         flags: {
           type: "object",
           additionalProperties: false,
+          required: [...aiTurnAllowedFlagKeys],
           properties: {
             aiSceneTone: {
-              type: "string",
-              maxLength: aiTurnProposalLimits.stateStringMaxLength
+              anyOf: [
+                {
+                  type: "string",
+                  maxLength: aiTurnProposalLimits.stateStringMaxLength
+                },
+                { type: "null" }
+              ]
             }
           }
         },
         stateData: {
           type: "object",
           additionalProperties: false,
+          required: [...aiTurnAllowedStateDataKeys],
           properties: {
             aiLastActionSummary: {
-              type: "string",
-              maxLength: aiTurnProposalLimits.stateStringMaxLength
+              anyOf: [
+                {
+                  type: "string",
+                  maxLength: aiTurnProposalLimits.stateStringMaxLength
+                },
+                { type: "null" }
+              ]
             },
             aiSceneSummary: {
-              type: "string",
-              maxLength: aiTurnProposalLimits.stateStringMaxLength
+              anyOf: [
+                {
+                  type: "string",
+                  maxLength: aiTurnProposalLimits.stateStringMaxLength
+                },
+                { type: "null" }
+              ]
             }
           }
         }
@@ -675,8 +708,8 @@ export const aiTurnProposalJsonSchema = {
           },
           importance: {
             type: "integer",
-            minimum: 1,
-            maximum: 5
+            minimum: aiTurnEventImportanceRange.min,
+            maximum: aiTurnEventImportanceRange.max
           }
         }
       }
@@ -829,11 +862,8 @@ const forbiddenStatePatchKeys = new Set([
   "authSessionId"
 ]);
 
-const allowedAIFlagKeys = new Set(["aiSceneTone"]);
-const allowedAIStateDataKeys = new Set([
-  "aiLastActionSummary",
-  "aiSceneSummary"
-]);
+const allowedAIFlagKeys = new Set<string>(aiTurnAllowedFlagKeys);
+const allowedAIStateDataKeys = new Set<string>(aiTurnAllowedStateDataKeys);
 
 export function validateAITurnProposal(
   proposal: unknown,
@@ -1941,7 +1971,7 @@ function validateAITurnStatePatch(
 
   const validated: StatePatch = {};
 
-  if (patch.location !== undefined) {
+  if (patch.location !== undefined && patch.location !== null) {
     const location = validateText(
       patch.location,
       "location",
@@ -1952,12 +1982,14 @@ function validateAITurnStatePatch(
   }
 
   if (patch.playerStats !== undefined) {
-    Object.assign(validated, {
-      playerStats: validateAIPlayerStatsPatch(
-        patch.playerStats,
-        currentState.playerStats
-      )
-    });
+    const playerStats = validateAIPlayerStatsPatch(
+      patch.playerStats,
+      currentState.playerStats
+    );
+
+    if (playerStats !== null) {
+      Object.assign(validated, { playerStats });
+    }
   }
 
   if (patch.flags !== undefined) {
@@ -1992,10 +2024,14 @@ function validateAITurnStatePatch(
 function validateAIPlayerStatsPatch(
   value: unknown,
   currentPlayerStats: Record<string, unknown>
-): Record<string, unknown> {
+): Record<string, unknown> | null {
   const patch = expectRecord(value, "playerStats");
   assertObjectSize(patch, "playerStats");
   assertNoForbiddenKeys(patch, "playerStats");
+
+  if (Object.keys(patch).length === 0) {
+    return null;
+  }
 
   const nextStats = copyJsonObject(currentPlayerStats);
 
@@ -2040,6 +2076,10 @@ function validateAISafeObjectPatch(
       throw new AITurnProposalValidationError(
         `AI cannot update ${path} key: ${key}.`
       );
+    }
+
+    if (nextValue === null) {
+      continue;
     }
 
     validated[key] = validateScalarJsonValue(nextValue, `${path}.${key}`);

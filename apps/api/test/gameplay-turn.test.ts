@@ -10,6 +10,7 @@ import {
   AIGateway,
   AIRateLimitError,
   AITimeoutError,
+  buildResponsesRequest,
   createPolicy
 } from "@ai-novel/ai-engine";
 import type {
@@ -1362,11 +1363,29 @@ describe("AI turn prompt builder", () => {
       "stateData may only include aiLastActionSummary and aiSceneSummary"
     );
     expect(serialized).toContain("Do not put aiSceneTone under stateData");
+    expect(serialized).toContain(
+      "importance must be an integer from 1 to 5"
+    );
     expect(serialized).not.toContain("summary/tone keys");
     expect(serialized).toContain("message-24");
     expect(serialized).not.toContain("message-0");
     expect(serialized).not.toContain("passwordHash");
     expect(serialized).not.toContain("OPENAI_API_KEY");
+
+    const openAIRequest = buildResponsesRequest({
+      ...request,
+      model: "gpt-5.4-mini"
+    });
+
+    expect(openAIRequest).toMatchObject({
+      text: {
+        format: {
+          type: "json_schema",
+          name: "ai_turn_proposal",
+          strict: true
+        }
+      }
+    });
   });
 });
 

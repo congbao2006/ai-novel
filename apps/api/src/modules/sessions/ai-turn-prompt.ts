@@ -124,14 +124,14 @@ function buildContextMessage(input: BuildAITurnPromptInput): string {
     [
       "OUTPUT CONTRACT",
       "- narrative: required non-empty player-facing result text.",
-      "- proposedStatePatch: required object; use {} when no canonical state change is needed.",
+      "- proposedStatePatch: required object. Use null for no location/flag/stateData change and {} for no playerStats change.",
       "- proposedEvents: required array; use [] when no important event happened.",
       "- Do not include ids, userId, sessionId, version, turnCount, timestamps, auth fields, or raw DB fields.",
-      "- Only propose existing numeric playerStats keys.",
+      "- Leave playerStats as {}; runtime-specific stat keys are not exposed in this schema yet.",
       "- If needed, flags may only include aiSceneTone.",
       "- If needed, stateData may only include aiLastActionSummary and aiSceneSummary.",
       "- Do not put aiSceneTone under stateData.",
-      "- proposedEvents must be important enough to persist and at most five items.",
+      "- proposedEvents must be important enough to persist and at most five items; importance must be an integer from 1 to 5.",
       "- If memory conflicts with AUTHORITATIVE CURRENT STATE, follow AUTHORITATIVE CURRENT STATE."
     ].join("\n")
   ].join("\n\n");

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   domainModuleStatus,
   aiTurnProposalJsonSchema,
+  aiTurnAllowedFlagKeys,
+  aiTurnAllowedStateDataKeys,
+  aiTurnEventImportanceRange,
   aiUsagePurposes,
   aiUsageStatuses,
   entityTypes,
@@ -170,6 +173,34 @@ describe("domain package", () => {
     });
   });
 
+  it("accepts an OpenAI strict-shaped normal narrative turn proposal", () => {
+    const result = validateAITurnProposal(
+      {
+        narrative: "Bạn dừng lại quan sát. Mọi thứ vẫn trong tầm kiểm soát.",
+        proposedStatePatch: {
+          location: null,
+          playerStats: {},
+          flags: { aiSceneTone: null },
+          stateData: {
+            aiLastActionSummary: null,
+            aiSceneSummary: "Người chơi quan sát khu vực hiện tại."
+          }
+        },
+        proposedEvents: []
+      },
+      context.state
+    );
+
+    expect(result.resultText).toContain("quan sát");
+    expect(result.statePatch).toEqual({
+      flags: {},
+      stateData: {
+        aiSceneSummary: "Người chơi quan sát khu vực hiện tại."
+      }
+    });
+    expect(result.events).toEqual([]);
+  });
+
   it("keeps AI scene tone scoped to flags, not stateData", () => {
     expect(() =>
       validateAITurnProposal(
@@ -214,30 +245,102 @@ describe("domain package", () => {
   it("advertises only validator-accepted AI state keys in the turn schema", () => {
     const patchSchema = aiTurnProposalJsonSchema.properties
       .proposedStatePatch as {
+      readonly required: readonly string[];
       readonly properties: {
+        readonly location: unknown;
+        readonly playerStats: {
+          readonly properties: Record<string, unknown>;
+          readonly additionalProperties: boolean;
+        };
         readonly flags: {
+          readonly required: readonly string[];
           readonly properties: Record<string, unknown>;
           readonly additionalProperties: boolean;
         };
         readonly stateData: {
+          readonly required: readonly string[];
           readonly properties: Record<string, unknown>;
           readonly additionalProperties: boolean;
         };
       };
     };
 
+    expect(patchSchema.required).toEqual([
+      "location",
+      "playerStats",
+      "flags",
+      "stateData"
+    ]);
+    expect(patchSchema.properties.playerStats.additionalProperties).toBe(false);
+    expect(patchSchema.properties.playerStats.properties).toEqual({});
     expect(patchSchema.properties.flags.additionalProperties).toBe(false);
-    expect(Object.keys(patchSchema.properties.flags.properties)).toEqual([
-      "aiSceneTone"
-    ]);
+    expect(patchSchema.properties.flags.required).toEqual(aiTurnAllowedFlagKeys);
+    expect(Object.keys(patchSchema.properties.flags.properties)).toEqual(
+      aiTurnAllowedFlagKeys
+    );
     expect(patchSchema.properties.stateData.additionalProperties).toBe(false);
-    expect(Object.keys(patchSchema.properties.stateData.properties)).toEqual([
-      "aiLastActionSummary",
-      "aiSceneSummary"
-    ]);
+    expect(patchSchema.properties.stateData.required).toEqual(
+      aiTurnAllowedStateDataKeys
+    );
+    expect(Object.keys(patchSchema.properties.stateData.properties)).toEqual(
+      aiTurnAllowedStateDataKeys
+    );
     expect(patchSchema.properties.stateData.properties).not.toHaveProperty(
       "aiSceneTone"
     );
+  });
+
+  it("keeps AI event schema in lockstep with validator ranges", () => {
+    const eventsSchema = aiTurnProposalJsonSchema.properties.proposedEvents as {
+      readonly maxItems: number;
+      readonly items: {
+        readonly required: readonly string[];
+        readonly additionalProperties: boolean;
+        readonly properties: {
+          readonly eventType: Record<string, unknown>;
+          readonly title: Record<string, unknown>;
+          readonly description: Record<string, unknown>;
+          readonly importance: Record<string, unknown>;
+        };
+      };
+    };
+
+    expect(eventsSchema.maxItems).toBe(5);
+    expect(eventsSchema.items.additionalProperties).toBe(false);
+    expect(eventsSchema.items.required).toEqual([
+      "eventType",
+      "title",
+      "description",
+      "importance"
+    ]);
+    expect(eventsSchema.items.properties.importance).toMatchObject({
+      type: "integer",
+      minimum: aiTurnEventImportanceRange.min,
+      maximum: aiTurnEventImportanceRange.max
+    });
+
+    for (const importance of [
+      aiTurnEventImportanceRange.min,
+      aiTurnEventImportanceRange.max
+    ]) {
+      expect(
+        validateAITurnProposal(
+          {
+            narrative: "Một sự kiện hợp lệ.",
+            proposedStatePatch: {},
+            proposedEvents: [
+              {
+                eventType: "test_event",
+                title: "Sự kiện",
+                description: "Sự kiện có importance hợp lệ.",
+                importance
+              }
+            ]
+          },
+          context.state
+        ).events[0]?.importance
+      ).toBe(importance);
+    }
   });
 
   it("rejects unsafe AI proposal shape and protected state fields", () => {
@@ -277,6 +380,42 @@ describe("domain package", () => {
               title: "Bad",
               description: "Bad",
               importance: 6
+            }
+          ]
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: {},
+          proposedEvents: [
+            {
+              eventType: "movement",
+              title: "Bad",
+              description: "Bad",
+              importance: 1.5
+            }
+          ]
+        },
+        context.state
+      )
+    ).toThrow(AITurnProposalValidationError);
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Nope",
+          proposedStatePatch: {},
+          proposedEvents: [
+            {
+              eventType: "movement",
+              title: "Bad",
+              description: "Bad",
+              importance: "3"
             }
           ]
         },
