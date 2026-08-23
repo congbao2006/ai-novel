@@ -109,7 +109,20 @@ function createRepositoriesFixture(existingPasswordHash?: string): Repositories 
         }
         return session;
       },
-      async getValidUserSessionByTokenHash(tokenHash: string, now = new Date()) {
+      async getValidUserSessionByTokenHash(
+        tokenHash: string,
+        now = new Date(),
+        timings?: {
+          poolAcquireMs?: number;
+          dbProbeMs?: number;
+          authSqlMs?: number;
+        }
+      ) {
+        if (timings) {
+          timings.poolAcquireMs = 1.25;
+          timings.dbProbeMs = 2.5;
+          timings.authSqlMs = 3.75;
+        }
         const session = sessions.get(tokenHash);
         if (!session || session.revokedAt || session.expiresAt <= now) {
           return null;
@@ -341,5 +354,10 @@ describe("AuthService", () => {
     });
     expect(timings).toHaveProperty("tokenHashMs");
     expect(timings).toHaveProperty("userSessionQueryMs");
+    expect(timings).toMatchObject({
+      poolAcquireMs: 1.25,
+      dbProbeMs: 2.5,
+      authSqlMs: 3.75
+    });
   });
 });

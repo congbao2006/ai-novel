@@ -41,7 +41,7 @@ const database = config.database.url
   ? getDatabaseClient(config.database.url, databasePoolOptions)
   : undefined;
 const repositories = config.database.url
-  ? createRepositories(database!)
+  ? createRepositories(database!, { pool: databasePool })
   : undefined;
 const authService = repositories
   ? new AuthService({

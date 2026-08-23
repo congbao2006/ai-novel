@@ -12,7 +12,9 @@ import {
   ne,
   sql
 } from "drizzle-orm";
+import { performance } from "node:perf_hooks";
 import type { DbExecutor } from "./context.js";
+import type { PgPool } from "../client.js";
 import {
   ConflictError,
   DataAccessError,
@@ -146,6 +148,7 @@ import {
 import type {
   AIUsageRepository,
   AuthSessionRepository,
+  AuthSessionLookupTimings,
   FactionRelationshipRepository,
   FactionRepository,
   GameMessageRepository,
@@ -181,6 +184,50 @@ const publicUserColumns = {
   createdAt: users.createdAt,
   updatedAt: users.updatedAt
 };
+
+type RawAuthenticatedUserSessionRow = {
+  readonly session_id: string;
+  readonly session_user_id: string;
+  readonly session_token_hash: string;
+  readonly session_created_at: Date;
+  readonly session_expires_at: Date;
+  readonly session_last_used_at: Date;
+  readonly session_revoked_at: Date | null;
+  readonly user_id: string;
+  readonly user_email: string;
+  readonly user_display_name: string;
+  readonly user_email_verified_at: Date | null;
+  readonly user_created_at: Date;
+  readonly user_updated_at: Date;
+};
+
+function mapRawAuthenticatedUserSessionRow(
+  row: RawAuthenticatedUserSessionRow
+): AuthenticatedUserSessionRecord {
+  return {
+    session: {
+      id: row.session_id,
+      userId: row.session_user_id,
+      tokenHash: row.session_token_hash,
+      createdAt: row.session_created_at,
+      expiresAt: row.session_expires_at,
+      lastUsedAt: row.session_last_used_at,
+      revokedAt: row.session_revoked_at
+    },
+    user: {
+      id: row.user_id,
+      email: row.user_email,
+      displayName: row.user_display_name,
+      emailVerifiedAt: row.user_email_verified_at,
+      createdAt: row.user_created_at,
+      updatedAt: row.user_updated_at
+    }
+  };
+}
+
+function roundMs(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 const storyListItemColumns = {
   id: stories.id,
@@ -292,6 +339,10 @@ export class DrizzleAuthSessionRepository
   extends BaseRepository
   implements AuthSessionRepository
 {
+  constructor(db: DbExecutor, private readonly pool?: PgPool | undefined) {
+    super(db);
+  }
+
   create(input: CreateAuthSessionInput): Promise<AuthSessionRecord> {
     return this.run(async () =>
       firstOrThrow(
@@ -324,8 +375,17 @@ export class DrizzleAuthSessionRepository
 
   getValidUserSessionByTokenHash(
     tokenHash: string,
-    now = new Date()
+    now = new Date(),
+    timings?: AuthSessionLookupTimings
   ): Promise<AuthenticatedUserSessionRecord | null> {
+    if (this.pool) {
+      return this.getValidUserSessionByTokenHashWithPool(
+        tokenHash,
+        now,
+        timings
+      );
+    }
+
     return this.run(async () => {
       const row = firstOrNull(
         await this.db
@@ -351,6 +411,63 @@ export class DrizzleAuthSessionRepository
             user: row.user
           }
         : null;
+    });
+  }
+
+  private async getValidUserSessionByTokenHashWithPool(
+    tokenHash: string,
+    now: Date,
+    timings?: AuthSessionLookupTimings
+  ): Promise<AuthenticatedUserSessionRecord | null> {
+    return this.run(async () => {
+      const acquireStartedAt = performance.now();
+      const client = await this.pool!.connect();
+      if (timings) {
+        timings.poolAcquireMs = roundMs(performance.now() - acquireStartedAt);
+      }
+
+      try {
+        if (timings) {
+          const probeStartedAt = performance.now();
+          await client.query("select 1");
+          timings.dbProbeMs = roundMs(performance.now() - probeStartedAt);
+        }
+
+        const authSqlStartedAt = performance.now();
+        const result = await client.query<RawAuthenticatedUserSessionRow>(
+          `
+            select
+              s.id as session_id,
+              s.user_id as session_user_id,
+              s.token_hash as session_token_hash,
+              s.created_at as session_created_at,
+              s.expires_at as session_expires_at,
+              s.last_used_at as session_last_used_at,
+              s.revoked_at as session_revoked_at,
+              u.id as user_id,
+              u.email as user_email,
+              u.display_name as user_display_name,
+              u.email_verified_at as user_email_verified_at,
+              u.created_at as user_created_at,
+              u.updated_at as user_updated_at
+            from auth_sessions s
+            inner join users u on u.id = s.user_id
+            where s.token_hash = $1
+              and s.revoked_at is null
+              and s.expires_at > $2
+            limit 1
+          `,
+          [tokenHash, now]
+        );
+        if (timings) {
+          timings.authSqlMs = roundMs(performance.now() - authSqlStartedAt);
+        }
+
+        const row = result.rows[0];
+        return row ? mapRawAuthenticatedUserSessionRow(row) : null;
+      } finally {
+        client.release();
+      }
     });
   }
 

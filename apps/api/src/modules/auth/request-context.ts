@@ -44,12 +44,12 @@ export async function requireUser(
   const dbPoolSnapshot = shouldProfile
     ? getPoolSnapshot(request.server.dependencies.databasePool)
     : undefined;
-  const timings: AuthLookupTimings = {};
+  const timings: AuthLookupTimings | undefined = shouldProfile ? {} : undefined;
   const startedAt = nowMs();
   const user = await authService.getCurrentUser(token, timings);
   const latencyMs = elapsedMs(startedAt);
   request.authPerf = {
-    ...timings,
+    ...(timings ?? {}),
     tokenParseMs,
     authTotalMs: latencyMs,
     ...(dbPoolSnapshot ? { dbPoolSnapshot } : {})
@@ -63,10 +63,13 @@ export async function requireUser(
         url: request.url,
         authLookupMs: latencyMs,
         tokenParseMs,
-        tokenHashMs: timings.tokenHashMs,
-        userSessionQueryMs: timings.userSessionQueryMs,
-        touchLastUsedAtMs: timings.touchLastUsedAtMs,
-        touchedSession: timings.touchedSession,
+        tokenHashMs: timings?.tokenHashMs,
+        poolAcquireMs: timings?.poolAcquireMs,
+        dbProbeMs: timings?.dbProbeMs,
+        authSqlMs: timings?.authSqlMs,
+        userSessionQueryMs: timings?.userSessionQueryMs,
+        touchLastUsedAtMs: timings?.touchLastUsedAtMs,
+        touchedSession: timings?.touchedSession,
         ...(dbPoolSnapshot ?? getPoolSnapshot(request.server.dependencies.databasePool))
       },
       "auth lookup timing"

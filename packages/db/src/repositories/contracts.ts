@@ -94,11 +94,18 @@ export type AuthSessionRepository = {
   getValidSessionByTokenHash(tokenHash: string, now?: Date): Promise<AuthSessionRecord | null>;
   getValidUserSessionByTokenHash(
     tokenHash: string,
-    now?: Date
+    now?: Date,
+    timings?: AuthSessionLookupTimings
   ): Promise<AuthenticatedUserSessionRecord | null>;
   revokeByTokenHash(tokenHash: string, now?: Date): Promise<void>;
   revokeAllForUser(userId: string, now?: Date): Promise<void>;
   touchLastUsedAt(sessionId: string, now?: Date): Promise<boolean>;
+};
+
+export type AuthSessionLookupTimings = {
+  poolAcquireMs?: number;
+  dbProbeMs?: number;
+  authSqlMs?: number;
 };
 
 export type StoryRepository = {

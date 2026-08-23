@@ -1,4 +1,4 @@
-import type { Repositories } from "@ai-novel/db";
+import type { AuthSessionLookupTimings, Repositories } from "@ai-novel/db";
 import { ConflictError } from "@ai-novel/db";
 import { elapsedMs, nowMs } from "../../performance.js";
 import {
@@ -25,7 +25,7 @@ export type AuthServiceOptions = {
   readonly sessionTtlSeconds: number;
 };
 
-export type AuthLookupTimings = {
+export type AuthLookupTimings = AuthSessionLookupTimings & {
   tokenHashMs?: number;
   userSessionQueryMs?: number;
   touchLastUsedAtMs?: number;
@@ -119,7 +119,8 @@ export class AuthService {
     const authenticatedSession =
       await this.options.repositories.authSessions.getValidUserSessionByTokenHash(
         tokenHash,
-        now
+        now,
+        timings
       );
     if (timings) {
       timings.userSessionQueryMs = elapsedMs(queryStartedAt);

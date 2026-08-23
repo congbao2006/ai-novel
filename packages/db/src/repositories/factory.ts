@@ -1,4 +1,5 @@
 import type { DbExecutor } from "./context.js";
+import type { PgPool } from "../client.js";
 import type {
   AIUsageRepository,
   AuthSessionRepository,
@@ -88,11 +89,18 @@ export type Repositories = {
   readonly worldSimulationStates: WorldSimulationStateRepository;
 };
 
-export function createRepositories(db: DbExecutor): Repositories {
+export type RepositoryFactoryOptions = {
+  readonly pool?: PgPool | undefined;
+};
+
+export function createRepositories(
+  db: DbExecutor,
+  options: RepositoryFactoryOptions = {}
+): Repositories {
   return {
     users: new DrizzleUserRepository(db),
     aiUsage: new DrizzleAIUsageRepository(db),
-    authSessions: new DrizzleAuthSessionRepository(db),
+    authSessions: new DrizzleAuthSessionRepository(db, options.pool),
     stories: new DrizzleStoryRepository(db),
     storyAbilities: new DrizzleStoryAbilityRepository(db),
     storyFactions: new DrizzleStoryFactionRepository(db),
