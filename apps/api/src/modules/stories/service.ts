@@ -20,7 +20,7 @@ export class StoryService {
     const page = Math.max(1, input.page);
     const limit = Math.min(Math.max(1, input.limit), 50);
     const offset = (page - 1) * limit;
-    const stories = await this.repositories.stories.listPublishedPage({
+    const stories = await this.repositories.stories.listPublishedListItemsPage({
       genre: input.genre,
       limit: limit + 1,
       offset

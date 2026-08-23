@@ -1,0 +1,2 @@
+CREATE INDEX "stories_public_catalog_idx" ON "stories" USING btree ("status","current_published_version_id","created_at","id");--> statement-breakpoint
+CREATE INDEX "game_sessions_user_last_played_idx" ON "game_sessions" USING btree ("user_id","last_played_at");

@@ -218,6 +218,17 @@ function createRepositoriesFixture(options: {
       async listPublishedPage() {
         return [publishedStory];
       },
+      async listPublishedListItemsPage() {
+        return [
+          {
+            id: publishedStory.id,
+            title: publishedStory.title,
+            slug: publishedStory.slug,
+            description: publishedStory.description,
+            genre: publishedStory.genre
+          }
+        ];
+      },
       async listPublished() {
         return [publishedStory];
       },
@@ -317,6 +328,19 @@ function createRepositoriesFixture(options: {
       },
       async listForUser(userId: string) {
         return sessions.filter((session) => session.userId === userId);
+      },
+      async listReferencesForUser(userId: string) {
+        return sessions
+          .filter((session) => session.userId === userId)
+          .map((session) => ({
+            session,
+            story: publishedStory,
+            storyVersion,
+            versionCharacter,
+            legacyCharacter: null,
+            currentState:
+              states.find((state) => state.sessionId === session.id) ?? null
+          }));
       }
     },
     gameStates: {

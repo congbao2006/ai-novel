@@ -89,6 +89,10 @@ export type JsonObject = Record<string, unknown>;
 
 export type UserRecord = Omit<User, "passwordHash">;
 export type AuthUserRecord = User;
+export type AuthenticatedUserSessionRecord = {
+  readonly session: AuthSessionRecord;
+  readonly user: UserRecord;
+};
 export type CreateUserInput = Pick<
   NewUser,
   "email" | "displayName" | "passwordHash"
@@ -101,6 +105,10 @@ export type CreateAuthSessionInput = Pick<
 >;
 
 export type StoryRecord = Story;
+export type StoryListItemRecord = Pick<
+  Story,
+  "id" | "title" | "slug" | "description" | "genre"
+>;
 export type StoryCharacterRecord = StoryCharacter;
 export type StoryAbilityRecord = StoryAbility;
 export type StoryCharacterAbilityRecord = StoryCharacterAbility;
@@ -194,6 +202,14 @@ export type StoryListPageInput = {
 };
 
 export type GameSessionRecord = GameSession;
+export type SessionListReferenceRecord = {
+  readonly session: GameSessionRecord;
+  readonly story: StoryRecord;
+  readonly storyVersion: StoryVersionRecord | null;
+  readonly versionCharacter: StoryVersionCharacterRecord | null;
+  readonly legacyCharacter: StoryCharacterRecord | null;
+  readonly currentState: GameStateRecord | null;
+};
 export type CreateSessionInput = Pick<
   NewGameSession,
   | "userId"

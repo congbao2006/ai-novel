@@ -4,6 +4,7 @@ import type {
   AIUsageRecordRecord,
   AppendMessageInput,
   AppendWorldEventInput,
+  AuthenticatedUserSessionRecord,
   AuthSessionRecord,
   AuthUserRecord,
   ChangeInventoryQuantityInput,
@@ -44,7 +45,9 @@ import type {
   SearchSimilarMemoriesInput,
   SemanticMemorySearchResult,
   SessionMemoryRecord,
+  SessionListReferenceRecord,
   SessionSummaryRecord,
+  StoryListItemRecord,
   StoryRecord,
   StoryAbilityRecord,
   StoryCharacterRecord,
@@ -89,6 +92,10 @@ export type UserRepository = {
 export type AuthSessionRepository = {
   create(input: CreateAuthSessionInput): Promise<AuthSessionRecord>;
   getValidSessionByTokenHash(tokenHash: string, now?: Date): Promise<AuthSessionRecord | null>;
+  getValidUserSessionByTokenHash(
+    tokenHash: string,
+    now?: Date
+  ): Promise<AuthenticatedUserSessionRecord | null>;
   revokeByTokenHash(tokenHash: string, now?: Date): Promise<void>;
   revokeAllForUser(userId: string, now?: Date): Promise<void>;
   touchLastUsedAt(sessionId: string, now?: Date): Promise<void>;
@@ -100,6 +107,7 @@ export type StoryRepository = {
   getBySlug(slug: string): Promise<StoryRecord | null>;
   update(storyId: string, input: UpdateStoryInput): Promise<StoryRecord>;
   listPublishedPage(input: StoryListPageInput): Promise<StoryRecord[]>;
+  listPublishedListItemsPage(input: StoryListPageInput): Promise<StoryListItemRecord[]>;
   listPublished(limit?: number): Promise<StoryRecord[]>;
   listByGenre(genre: string, limit?: number): Promise<StoryRecord[]>;
   listCreatedByUser(userId: string): Promise<StoryRecord[]>;
@@ -210,6 +218,7 @@ export type GameSessionRepository = {
   create(input: CreateSessionInput): Promise<GameSessionRecord>;
   getById(id: string): Promise<GameSessionRecord | null>;
   listForUser(userId: string): Promise<GameSessionRecord[]>;
+  listReferencesForUser(userId: string): Promise<SessionListReferenceRecord[]>;
   updateMetadata(
     sessionId: string,
     input: UpdateSessionMetadataInput

@@ -29,6 +29,7 @@ function toSafeUser(user: UserRecord & { passwordHash: string }): UserRecord {
 
 function createRepositoriesFixture(existingPasswordHash?: string): Repositories {
   const users = new Map<string, UserRecord & { passwordHash: string }>();
+  let touchCount = 0;
   const sessions = new Map<
     string,
     {
@@ -108,6 +109,19 @@ function createRepositoriesFixture(existingPasswordHash?: string): Repositories 
         }
         return session;
       },
+      async getValidUserSessionByTokenHash(tokenHash: string, now = new Date()) {
+        const session = sessions.get(tokenHash);
+        if (!session || session.revokedAt || session.expiresAt <= now) {
+          return null;
+        }
+        const user = [...users.values()].find((item) => item.id === session.userId);
+        return user
+          ? {
+              session,
+              user: toSafeUser(user)
+            }
+          : null;
+      },
       async revokeByTokenHash(tokenHash: string, now = new Date()) {
         const session = sessions.get(tokenHash);
         if (session) {
@@ -115,7 +129,14 @@ function createRepositoriesFixture(existingPasswordHash?: string): Repositories 
         }
       },
       async revokeAllForUser() {},
-      async touchLastUsedAt() {}
+      async touchLastUsedAt() {
+        touchCount += 1;
+      }
+    },
+    testHooks: {
+      getTouchCount() {
+        return touchCount;
+      }
     }
   } as unknown as Repositories;
 }
@@ -229,5 +250,28 @@ describe("AuthService", () => {
     await expect(service.getCurrentUser(session.rawToken)).rejects.toBeInstanceOf(
       UnauthenticatedError
     );
+  });
+
+  it("does not touch recently used sessions on every authenticated request", async () => {
+    const existingHash = await passwordHasher.hashPassword("password123");
+    const repositories = createRepositoriesFixture(existingHash);
+    const service = new AuthService({
+      repositories,
+      passwordHasher,
+      sessionTtlSeconds: 60
+    });
+
+    const session = await service.login({
+      email: "user@example.com",
+      password: "password123"
+    });
+
+    await expect(service.getCurrentUser(session.rawToken)).resolves.toMatchObject({
+      userId: "user-1"
+    });
+    expect(
+      (repositories as unknown as { testHooks: { getTouchCount(): number } })
+        .testHooks.getTouchCount()
+    ).toBe(0);
   });
 });

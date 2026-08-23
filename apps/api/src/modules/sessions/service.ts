@@ -162,22 +162,14 @@ export class SessionService {
   }
 
   async listSessions(user: CurrentUser): Promise<SessionListResponseDto> {
-    const sessions = await this.repositories.gameSessions.listForUser(user.userId);
-    const statesBySessionId = await loadStatesBySessionId(
-      this.repositories,
-      sessions.map((session) => session.id)
-    );
-    const items = await Promise.all(
-      sessions.map(async (session) => {
-        const { story, storyVersion, character } =
-          await this.loadSessionReferences(session);
-        return toSessionListItemDto({
-          session,
-          story,
-          character,
-          storyVersion,
-          currentState: statesBySessionId.get(session.id) ?? null
-        });
+    const rows = await loadSessionListReferences(this.repositories, user.userId);
+    const items = rows.map((row) =>
+      toSessionListItemDto({
+        session: row.session,
+        story: row.story,
+        character: row.versionCharacter ?? row.legacyCharacter,
+        storyVersion: row.storyVersion,
+        currentState: row.currentState
       })
     );
 
@@ -331,6 +323,58 @@ export class SessionService {
   }
 }
 
+type SessionListReferences = {
+  readonly session: GameSessionRecord;
+  readonly story: StoryRecord;
+  readonly storyVersion: StoryVersionRecord | null;
+  readonly versionCharacter: StoryVersionCharacterRecord | null;
+  readonly legacyCharacter: StoryCharacterRecord | null;
+  readonly currentState: GameStateRecord | null;
+};
+
+async function loadSessionListReferences(
+  repositories: Repositories,
+  userId: string
+): Promise<readonly SessionListReferences[]> {
+  const sessionRepository = repositories.gameSessions as typeof repositories.gameSessions & {
+    readonly listReferencesForUser?: (
+      userId: string
+    ) => Promise<SessionListReferences[]>;
+  };
+
+  if (sessionRepository.listReferencesForUser) {
+    return sessionRepository.listReferencesForUser(userId);
+  }
+
+  const sessions = await repositories.gameSessions.listForUser(userId);
+  const statesBySessionId = await loadStatesBySessionId(
+    repositories,
+    sessions.map((session) => session.id)
+  );
+
+  return Promise.all(
+    sessions.map(async (session) => {
+      const { story, storyVersion, character } = await loadSessionReferences(
+        repositories,
+        session
+      );
+
+      return {
+        session,
+        story,
+        storyVersion,
+        versionCharacter: storyVersion
+          ? (character as StoryVersionCharacterRecord | null)
+          : null,
+        legacyCharacter: storyVersion
+          ? null
+          : (character as StoryCharacterRecord | null),
+        currentState: statesBySessionId.get(session.id) ?? null
+      };
+    })
+  );
+}
+
 async function loadStatesBySessionId(
   repositories: Repositories,
   sessionIds: readonly string[]
@@ -357,6 +401,39 @@ async function loadStatesBySessionId(
       .filter((state): state is GameStateRecord => state !== null)
       .map((state) => [state.sessionId, state])
   );
+}
+
+async function loadSessionReferences(
+  repositories: Repositories,
+  session: GameSessionRecord
+): Promise<{
+  readonly story: StoryRecord;
+  readonly storyVersion: StoryVersionRecord | null;
+  readonly character: StoryCharacterRecord | StoryVersionCharacterRecord | null;
+}> {
+  const story = await repositories.stories.getById(session.storyId);
+
+  if (!story) {
+    throw new ResourceNotFoundError("Story was not found.");
+  }
+
+  const storyVersion = session.storyVersionId
+    ? await repositories.storyVersions.getById(session.storyVersionId)
+    : null;
+  const character =
+    storyVersion && session.selectedVersionCharacterId
+      ? await repositories.storyVersionCharacters.getForVersion(
+          storyVersion.id,
+          session.selectedVersionCharacterId
+        )
+      : session.selectedCharacterId
+        ? await repositories.stories.getCharacterForStory(
+            session.storyId,
+            session.selectedCharacterId
+          )
+        : null;
+
+  return { story, storyVersion, character };
 }
 
 function compareMessagesForTranscript(

@@ -4,14 +4,16 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authRequest, type CurrentUser } from "../lib/api";
 
+let currentUserRequest: Promise<CurrentUser | null> | null = null;
+
 export function AuthStatus({ compact = false }: { readonly compact?: boolean }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    authRequest<{ user: CurrentUser }>("/auth/me")
-      .then((result) => setUser(result.user))
+    getCurrentUserOnce()
+      .then((result) => setUser(result))
       .catch(() => setUser(null))
       .finally(() => setLoaded(true));
   }, []);
@@ -20,6 +22,7 @@ export function AuthStatus({ compact = false }: { readonly compact?: boolean }) 
     setBusy(true);
     try {
       await authRequest("/auth/logout", { method: "POST" });
+      currentUserRequest = null;
       setUser(null);
       window.location.href = "/login";
     } finally {
@@ -66,4 +69,15 @@ export function AuthStatus({ compact = false }: { readonly compact?: boolean }) 
       </Link>
     </div>
   );
+}
+
+function getCurrentUserOnce(): Promise<CurrentUser | null> {
+  currentUserRequest ??= authRequest<{ user: CurrentUser }>("/auth/me")
+    .then((result) => result.user)
+    .catch(() => null)
+    .finally(() => {
+      currentUserRequest = null;
+    });
+
+  return currentUserRequest;
 }

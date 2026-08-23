@@ -46,7 +46,15 @@ export const stories = pgTable(
       .notNull()
       .defaultNow()
   },
-  (table) => [index("stories_status_idx").on(table.status)]
+  (table) => [
+    index("stories_status_idx").on(table.status),
+    index("stories_public_catalog_idx").on(
+      table.status,
+      table.currentPublishedVersionId,
+      table.createdAt,
+      table.id
+    )
+  ]
 );
 
 export const storyVersions = pgTable(

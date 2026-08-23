@@ -16,6 +16,7 @@ import type { PasswordHasher } from "./password.js";
 import { createSessionToken, hashSessionToken } from "./tokens.js";
 
 const minPasswordLength = 8;
+const sessionTouchThrottleMs = 5 * 60 * 1000;
 
 export type AuthServiceOptions = {
   readonly repositories: Repositories;
@@ -96,27 +97,31 @@ export class AuthService {
       throw new UnauthenticatedError();
     }
 
-    const session =
-      await this.options.repositories.authSessions.getValidSessionByTokenHash(
-        hashSessionToken(rawToken)
+    const now = new Date();
+    const authenticatedSession =
+      await this.options.repositories.authSessions.getValidUserSessionByTokenHash(
+        hashSessionToken(rawToken),
+        now
       );
 
-    if (!session) {
+    if (!authenticatedSession) {
       throw new UnauthenticatedError();
     }
 
-    const user = await this.options.repositories.users.getById(session.userId);
-
-    if (!user) {
-      throw new UnauthenticatedError();
+    if (
+      now.getTime() - authenticatedSession.session.lastUsedAt.getTime() >
+      sessionTouchThrottleMs
+    ) {
+      await this.options.repositories.authSessions.touchLastUsedAt(
+        authenticatedSession.session.id,
+        now
+      );
     }
-
-    await this.options.repositories.authSessions.touchLastUsedAt(session.id);
 
     return {
-      userId: user.id,
-      email: user.email,
-      displayName: user.displayName
+      userId: authenticatedSession.user.id,
+      email: authenticatedSession.user.email,
+      displayName: authenticatedSession.user.displayName
     };
   }
 

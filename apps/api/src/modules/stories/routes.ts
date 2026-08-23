@@ -21,7 +21,25 @@ export const registerStoriesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const query = listStoriesQuerySchema.parse(request.query);
-    return storyService.listPublished(query);
+    const startedAt = Date.now();
+    const result = await storyService.listPublished(query);
+    const latencyMs = Date.now() - startedAt;
+
+    if (latencyMs > 250) {
+      request.log.warn(
+        {
+          requestId: request.id,
+          route: "/stories",
+          storyListMs: latencyMs,
+          storyCount: result.stories.length,
+          page: result.page,
+          limit: result.limit
+        },
+        "story list timing"
+      );
+    }
+
+    return result;
   });
 
   app.get("/:slug", async (request) => {

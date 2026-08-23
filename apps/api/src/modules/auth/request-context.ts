@@ -24,7 +24,21 @@ export async function requireUser(
 
   const config = request.server.appConfig;
   const token = getAuthCookie(request, config.auth.cookieName);
+  const startedAt = Date.now();
   const user = await authService.getCurrentUser(token);
+  const latencyMs = Date.now() - startedAt;
+
+  if (latencyMs > 250) {
+    request.log.warn(
+      {
+        requestId: request.id,
+        method: request.method,
+        url: request.url,
+        authLookupMs: latencyMs
+      },
+      "auth lookup timing"
+    );
+  }
 
   request.currentUser = user;
 }

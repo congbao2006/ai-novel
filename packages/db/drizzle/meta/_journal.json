@@ -64,6 +64,13 @@
       "when": 1787476813770,
       "tag": "0008_last_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787483982178,
+      "tag": "0009_skinny_bloodaxe",
+      "breakpoints": true
     }
   ]
 }

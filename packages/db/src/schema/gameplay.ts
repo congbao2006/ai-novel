@@ -93,6 +93,10 @@ export const gameSessions = pgTable(
   },
   (table) => [
     index("game_sessions_user_id_idx").on(table.userId),
+    index("game_sessions_user_last_played_idx").on(
+      table.userId,
+      table.lastPlayedAt
+    ),
     index("game_sessions_story_id_idx").on(table.storyId),
     index("game_sessions_story_version_id_idx").on(table.storyVersionId),
     index("game_sessions_status_idx").on(table.status),

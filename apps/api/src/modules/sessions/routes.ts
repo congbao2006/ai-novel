@@ -29,7 +29,23 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
       throw new ServiceUnavailableError("Session service is unavailable.");
     }
 
-    return sessionService.listSessions(getRequiredUser(request));
+    const startedAt = Date.now();
+    const result = await sessionService.listSessions(getRequiredUser(request));
+    const latencyMs = Date.now() - startedAt;
+
+    if (latencyMs > 250) {
+      request.log.warn(
+        {
+          requestId: request.id,
+          route: "/sessions",
+          sessionListMs: latencyMs,
+          sessionCount: result.sessions.length
+        },
+        "session list timing"
+      );
+    }
+
+    return result;
   });
 
   app.post("/", { preHandler: requireUser }, async (request, reply) => {

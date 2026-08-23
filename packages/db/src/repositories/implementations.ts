@@ -36,6 +36,7 @@ import type {
   AppendMessageInput,
   AppendWorldEventInput,
   AuthSessionRecord,
+  AuthenticatedUserSessionRecord,
   AuthUserRecord,
   ChangeInventoryQuantityInput,
   AssignStoryCharacterAbilityInput,
@@ -75,8 +76,10 @@ import type {
   SearchSimilarMemoriesInput,
   SemanticMemorySearchResult,
   SessionMemoryRecord,
+  SessionListReferenceRecord,
   SessionSummaryRecord,
   StoryRecord,
+  StoryListItemRecord,
   StoryAbilityRecord,
   StoryCharacterRecord,
   StoryCharacterAbilityRecord,
@@ -286,6 +289,38 @@ export class DrizzleAuthSessionRepository
     );
   }
 
+  getValidUserSessionByTokenHash(
+    tokenHash: string,
+    now = new Date()
+  ): Promise<AuthenticatedUserSessionRecord | null> {
+    return this.run(async () => {
+      const row = firstOrNull(
+        await this.db
+          .select({
+            session: authSessions,
+            user: publicUserColumns
+          })
+          .from(authSessions)
+          .innerJoin(users, eq(users.id, authSessions.userId))
+          .where(
+            and(
+              eq(authSessions.tokenHash, tokenHash),
+              isNull(authSessions.revokedAt),
+              gt(authSessions.expiresAt, now)
+            )
+          )
+          .limit(1)
+      );
+
+      return row
+        ? {
+            session: row.session,
+            user: row.user
+          }
+        : null;
+    });
+  }
+
   async revokeByTokenHash(tokenHash: string, now = new Date()): Promise<void> {
     await this.run(async () => {
       await this.db
@@ -391,6 +426,39 @@ export class DrizzleStoryRepository
     return this.run(async () =>
       this.db
         .select()
+        .from(stories)
+        .where(and(...predicates))
+        .orderBy(stories.createdAt, stories.id)
+        .limit(input.limit)
+        .offset(input.offset)
+    );
+  }
+
+  listPublishedListItemsPage(input: StoryListPageInput): Promise<StoryListItemRecord[]> {
+    assertPositiveLimit(input.limit);
+
+    if (input.offset < 0) {
+      throw new ValidationError("Offset must be non-negative.");
+    }
+
+    const predicates = [
+      isNotNull(stories.currentPublishedVersionId),
+      ne(stories.status, "archived")
+    ];
+
+    if (input.genre) {
+      predicates.push(eq(stories.genre, input.genre));
+    }
+
+    return this.run(async () =>
+      this.db
+        .select({
+          id: stories.id,
+          title: stories.title,
+          slug: stories.slug,
+          description: stories.description,
+          genre: stories.genre
+        })
         .from(stories)
         .where(and(...predicates))
         .orderBy(stories.createdAt, stories.id)
@@ -1193,6 +1261,37 @@ export class DrizzleGameSessionRepository
         .from(gameSessions)
         .where(eq(gameSessions.userId, userId))
         .orderBy(desc(gameSessions.lastPlayedAt))
+    );
+  }
+
+  listReferencesForUser(userId: string): Promise<SessionListReferenceRecord[]> {
+    return this.run(async () =>
+      this.db
+        .select({
+          session: gameSessions,
+          story: stories,
+          storyVersion: storyVersions,
+          versionCharacter: storyVersionCharacters,
+          legacyCharacter: storyCharacters,
+          currentState: gameStates
+        })
+        .from(gameSessions)
+        .innerJoin(stories, eq(stories.id, gameSessions.storyId))
+        .leftJoin(
+          storyVersions,
+          eq(storyVersions.id, gameSessions.storyVersionId)
+        )
+        .leftJoin(
+          storyVersionCharacters,
+          eq(storyVersionCharacters.id, gameSessions.selectedVersionCharacterId)
+        )
+        .leftJoin(
+          storyCharacters,
+          eq(storyCharacters.id, gameSessions.selectedCharacterId)
+        )
+        .leftJoin(gameStates, eq(gameStates.sessionId, gameSessions.id))
+        .where(eq(gameSessions.userId, userId))
+        .orderBy(desc(gameSessions.lastPlayedAt), desc(gameSessions.createdAt))
     );
   }
 
