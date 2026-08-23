@@ -316,6 +316,19 @@ export const registerAuthoringRoutes: FastifyPluginAsync = async (app) => {
     return service.createRevision(getRequiredUser(request), params.id);
   });
 
+  app.get("/stories/:id/versions/:childId", async (request) => {
+    const service = app.dependencies.storyAuthoringService;
+    if (!service) {
+      throw new ServiceUnavailableError("Story authoring service is unavailable.");
+    }
+    const params = nestedParamsSchema.parse(request.params);
+    return service.getVersionSnapshot(
+      getRequiredUser(request),
+      params.id,
+      params.childId
+    );
+  });
+
   app.post("/stories/:id/archive", async (request) => {
     const service = app.dependencies.storyAuthoringService;
     if (!service) {

@@ -43,6 +43,20 @@ export type AuthorStoryCharacter = {
   readonly initialLocation: string | null;
   readonly metadata: Record<string, unknown>;
   readonly abilityKeys: readonly string[];
+  readonly assignedAbilities: readonly AuthorAssignedAbility[];
+};
+
+export type AuthorAssignedAbility = {
+  readonly abilityId: string;
+  readonly abilityKey: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly rank: number;
+  readonly resourceCost: Record<string, unknown> | null;
+  readonly cooldownTurns: number;
+  readonly enabled: boolean;
+  readonly unlocked: boolean;
 };
 
 export type AuthorStoryAbility = {
@@ -85,6 +99,33 @@ export type AuthorStoryVersion = {
   readonly status: string;
   readonly createdAt: string;
   readonly publishedAt: string;
+};
+
+export type AuthorStoryVersionSnapshot = {
+  readonly version: AuthorStoryVersion;
+  readonly characters: readonly AuthorStoryVersionCharacter[];
+  readonly abilities: readonly AuthorStoryVersionAbility[];
+};
+
+export type AuthorStoryVersionCharacter = {
+  readonly id: string;
+  readonly type: string;
+  readonly name: string;
+  readonly description: string;
+  readonly initialLocation: string | null;
+  readonly assignedAbilities: readonly AuthorAssignedAbility[];
+};
+
+export type AuthorStoryVersionAbility = {
+  readonly id: string;
+  readonly abilityKey: string;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
+  readonly rank: number;
+  readonly resourceCost: Record<string, unknown> | null;
+  readonly cooldownTurns: number;
+  readonly enabled: boolean;
 };
 
 export type AuthorStoryDetail = AuthorStorySummary & {

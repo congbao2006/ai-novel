@@ -237,8 +237,106 @@ describe("StoryAuthoringService", () => {
     expect(detail.characters[0]).toMatchObject({
       id: playable.id,
       name: "Kẻ Vô Danh",
-      abilityKeys: ["shadow-step", "inner-sight"]
+      abilityKeys: ["shadow-step", "inner-sight"],
+      assignedAbilities: [
+        expect.objectContaining({
+          abilityKey: "shadow-step",
+          name: "Ảnh Bộ",
+          category: "movement",
+          rank: 1,
+          cooldownTurns: 2
+        }),
+        expect.objectContaining({
+          abilityKey: "inner-sight",
+          name: "Nội Quan",
+          category: "perception",
+          rank: 1,
+          cooldownTurns: 1
+        })
+      ]
     });
+  });
+
+  it("prevents duplicate character templates with the same name and type", async () => {
+    const fixture = createAuthoringFixture();
+    const service = new StoryAuthoringService(
+      fixture.repositories,
+      undefined,
+      fixture.transactionRunner
+    );
+    const draft = await service.createDraft(author, {
+      title: "Duplicate Guard",
+      genre: "fantasy",
+      description: "Prevent repeated submissions."
+    });
+
+    await service.createCharacter(author, draft.id, {
+      type: "playable",
+      name: "Kẻ Vô Danh",
+      description: "First playable."
+    });
+
+    await expect(
+      service.createCharacter(author, draft.id, {
+        type: "playable",
+        name: "Kẻ Vô Danh",
+        description: "Repeated playable."
+      })
+    ).rejects.toBeInstanceOf(ConflictApplicationError);
+
+    await expect(
+      service.createCharacter(author, draft.id, {
+        type: "npc",
+        name: "Kẻ Vô Danh",
+        description: "Same display name but different template type."
+      })
+    ).resolves.toMatchObject({ type: "npc" });
+  });
+
+  it("returns assigned abilities in owned detail and published version snapshots", async () => {
+    const fixture = createAuthoringFixture();
+    const service = new StoryAuthoringService(
+      fixture.repositories,
+      undefined,
+      fixture.transactionRunner
+    );
+    const draft = await createPublishableStory(service);
+    const detail = await service.getOwnedStory(author, draft.id);
+
+    expect(detail.characters.find((character) => character.type === "playable"))
+      .toMatchObject({
+        assignedAbilities: [
+          expect.objectContaining({
+            abilityKey: "shadow-step",
+            name: "Ảnh Bộ",
+            category: "movement",
+            rank: 1,
+            cooldownTurns: 2
+          })
+        ]
+      });
+
+    const published = await service.publish(author, draft.id);
+    const snapshot = await service.getVersionSnapshot(
+      author,
+      published.id,
+      published.currentPublishedVersionId!
+    );
+
+    expect(snapshot.version.versionNumber).toBe(1);
+    expect(snapshot.characters.find((character) => character.type === "playable"))
+      .toMatchObject({
+        name: "Người Gác",
+        assignedAbilities: [
+          expect.objectContaining({
+            abilityKey: "shadow-step",
+            name: "Ảnh Bộ",
+            category: "movement",
+            rank: 1,
+            cooldownTurns: 2
+          })
+        ]
+      });
   });
 
   it("initializes sessions from authored playable, NPC, faction, and world settings", async () => {

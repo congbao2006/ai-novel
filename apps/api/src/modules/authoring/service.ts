@@ -29,11 +29,13 @@ import {
   toAuthorStoryAbilityDto,
   toAuthorStoryFactionDto,
   toAuthorStorySummaryDto,
+  toAuthorStoryVersionSnapshotDto,
   toAuthorStoryVersionDto,
   type AuthorStoryCharacterDto,
   type AuthorStoryAbilityDto,
   type AuthorStoryDetailDto,
   type AuthorStoryFactionDto,
+  type AuthorStoryVersionSnapshotDto,
   type AuthorStoryListResponseDto,
   type PublishValidationIssueDto,
   type PublishValidationResponseDto
@@ -235,6 +237,11 @@ export class StoryAuthoringService {
     const story = await this.requireOwnedStory(user, storyId);
     this.assertRuntimeCriticalEditable(story);
     const normalized = normalizeCharacterInput(input);
+    await this.assertCharacterNameAvailable(
+      story.id,
+      normalized.name,
+      normalized.type
+    );
     const character = await this.repositories.stories.createCharacter({
       storyId: story.id,
       characterType: normalized.type,
@@ -261,6 +268,12 @@ export class StoryAuthoringService {
     const story = await this.requireOwnedStory(user, storyId);
     this.assertRuntimeCriticalEditable(story);
     const normalized = normalizeCharacterInput(input);
+    await this.assertCharacterNameAvailable(
+      story.id,
+      normalized.name,
+      normalized.type,
+      characterId
+    );
     const character = await this.repositories.stories.updateCharacter({
       storyId: story.id,
       characterId,
@@ -374,6 +387,19 @@ export class StoryAuthoringService {
     );
     if (!ability) {
       throw new ResourceNotFoundError("Story ability was not found.");
+    }
+    const existingAssignments =
+      await this.repositories.storyAbilities.listAssignmentsForCharacter(
+        character.id
+      );
+    if (
+      existingAssignments.some(
+        (assignment) => assignment.abilityId === ability.id
+      )
+    ) {
+      throw new ConflictApplicationError(
+        "This ability is already assigned to the character."
+      );
     }
 
     await this.repositories.storyAbilities.assignToCharacter({
@@ -540,6 +566,31 @@ export class StoryAuthoringService {
     };
   }
 
+  async getVersionSnapshot(
+    user: CurrentUser,
+    storyId: string,
+    versionId: string
+  ): Promise<AuthorStoryVersionSnapshotDto> {
+    const story = await this.requireOwnedStory(user, storyId);
+    const version = await this.repositories.storyVersions.getById(versionId);
+    if (!version || version.storyId !== story.id) {
+      throw new ResourceNotFoundError("Story version was not found.");
+    }
+
+    const [characters, abilities, assignments] = await Promise.all([
+      this.repositories.storyVersionCharacters.listForVersion(version.id),
+      this.repositories.storyVersionAbilities.listForVersion(version.id),
+      this.repositories.storyVersionCharacterAbilities.listForVersion(version.id)
+    ]);
+
+    return toAuthorStoryVersionSnapshotDto(
+      version,
+      characters,
+      abilities,
+      assignments
+    );
+  }
+
   async archive(user: CurrentUser, storyId: string): Promise<AuthorStoryDetailDto> {
     const story = await this.requireOwnedStory(user, storyId);
     if (story.status !== "published") {
@@ -569,6 +620,29 @@ export class StoryAuthoringService {
     if (story.status !== "draft") {
       throw new ConflictApplicationError(
         "Published story runtime configuration is locked. Archive or create a new version for structural changes."
+      );
+    }
+  }
+
+  private async assertCharacterNameAvailable(
+    storyId: string,
+    name: string,
+    characterType: StoryCharacterRecord["characterType"],
+    exceptCharacterId?: string
+  ): Promise<void> {
+    const characters = await this.repositories.stories.listCharactersForStory(
+      storyId
+    );
+    const normalizedName = name.trim().toLocaleLowerCase("vi-VN");
+    const duplicate = characters.find(
+      (character) =>
+        character.id !== exceptCharacterId &&
+        character.characterType === characterType &&
+        character.name.trim().toLocaleLowerCase("vi-VN") === normalizedName
+    );
+    if (duplicate) {
+      throw new ConflictApplicationError(
+        "A character template with this name and type already exists."
       );
     }
   }

@@ -7,7 +7,9 @@ import { AuthorAbilitySection } from "../../../../components/author-ability-sect
 import {
   ApiRequestError,
   authRequest,
+  type AuthorStoryCharacter,
   type AuthorStoryDetail,
+  type AuthorStoryVersionSnapshot,
   type PublishValidationIssue,
   type PublishValidationResponse
 } from "../../../../lib/api";
@@ -15,6 +17,7 @@ import {
   formatValidationIssue,
   getValidationIssueSummary
 } from "../../../../lib/authoring-validation";
+import { getRevisionStatusCopy } from "../../../../lib/authoring-ui";
 import { authorEditorSections } from "../../../../lib/product-navigation";
 
 export default function EditStoryPage({
@@ -29,6 +32,9 @@ export default function EditStoryPage({
   const [validationIssues, setValidationIssues] = useState<
     readonly PublishValidationIssue[]
   >([]);
+  const [versionSnapshots, setVersionSnapshots] = useState<
+    Record<string, AuthorStoryVersionSnapshot>
+  >({});
   const [isWorking, setIsWorking] = useState(false);
 
   useEffect(() => {
@@ -105,6 +111,38 @@ export default function EditStoryPage({
     );
   }
 
+  async function updateCharacter(
+    characterId: string,
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    if (!storyId) return;
+    const form = new FormData(event.currentTarget);
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        await authRequest(`/author/stories/${storyId}/characters/${characterId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            type: form.get("type"),
+            name: form.get("name"),
+            description: form.get("description"),
+            personality: form.get("personality"),
+            background: form.get("background"),
+            initialLocation: form.get("initialLocation") || null,
+            initialStats: parseJsonObject(String(form.get("initialStats") || "{}")),
+            goals: parseJsonArray(String(form.get("goals") || "[]")),
+            secrets: parseJsonObject(String(form.get("secrets") || "{}"))
+          })
+        });
+        await loadStory(storyId, setStory, setError);
+      }
+    );
+  }
+
   async function addAbility(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!storyId) return;
@@ -164,6 +202,56 @@ export default function EditStoryPage({
         );
         await loadStory(editableStory.id, setStory, setError);
         event.currentTarget.reset();
+      }
+    );
+  }
+
+  async function saveCharacterAbilityAssignments(
+    character: AuthorStoryCharacter,
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    if (!storyId) return;
+    const form = new FormData(event.currentTarget);
+    const selectedAbilityIds = new Set(
+      form.getAll("abilityId").map((value) => String(value))
+    );
+    const assignedAbilityIds = new Set(
+      character.assignedAbilities.map((ability) => ability.abilityId)
+    );
+
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const editableStory = await ensureEditableStory();
+        if (!editableStory) return;
+
+        for (const abilityId of selectedAbilityIds) {
+          if (!assignedAbilityIds.has(abilityId)) {
+            await authRequest(
+              `/author/stories/${editableStory.id}/characters/${character.id}/abilities`,
+              {
+                method: "POST",
+                body: JSON.stringify({ abilityId, rank: 1 })
+              }
+            );
+          }
+        }
+
+        for (const ability of character.assignedAbilities) {
+          if (!selectedAbilityIds.has(ability.abilityId)) {
+            await authRequest(
+              `/author/stories/${editableStory.id}/characters/${character.id}/abilities/${ability.abilityId}`,
+              { method: "DELETE" }
+            );
+          }
+        }
+
+        await loadStory(editableStory.id, setStory, setError);
+        return "Ability assignments saved.";
       }
     );
   }
@@ -283,6 +371,26 @@ export default function EditStoryPage({
     );
   }
 
+  async function inspectVersion(versionId: string) {
+    if (!storyId) return;
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const snapshot = await authRequest<AuthorStoryVersionSnapshot>(
+          `/author/stories/${storyId}/versions/${versionId}`
+        );
+        setVersionSnapshots((current) => ({
+          ...current,
+          [versionId]: snapshot
+        }));
+        return "Version snapshot loaded.";
+      }
+    );
+  }
+
   async function ensureEditableStory(): Promise<AuthorStoryDetail | null> {
     if (!storyId) return null;
     if (story?.status === "draft") return story;
@@ -304,6 +412,7 @@ export default function EditStoryPage({
 
   const locked = story.status !== "draft";
   const settings = story.settings;
+  const revisionStatus = getRevisionStatusCopy(story);
 
   return (
     <main className="page-shell page-shell-wide">
@@ -330,6 +439,25 @@ export default function EditStoryPage({
       {message ? (
         <div className="panel text-[var(--success)] whitespace-pre-wrap">{message}</div>
       ) : null}
+
+      <section className="card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="kicker">Revision Status</p>
+            <h2 className="mt-2 text-2xl font-semibold">
+              {revisionStatus.statusLabel}
+            </h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              LIVE: {revisionStatus.liveLabel} · {revisionStatus.workingLabel}
+            </p>
+          </div>
+          {locked && story.status === "published" ? (
+            <button className="btn" disabled={isWorking} onClick={createRevision} type="button">
+              Create revision to edit
+            </button>
+          ) : null}
+        </div>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
         <aside className="card h-max lg:sticky lg:top-6">
@@ -478,12 +606,187 @@ export default function EditStoryPage({
                           Abilities
                         </dt>
                         <dd>
-                          {character.abilityKeys.length > 0
-                            ? character.abilityKeys.join(", ")
-                            : "None assigned"}
+                          {character.assignedAbilities.length > 0 ? (
+                            <span className="grid gap-2">
+                              {character.assignedAbilities.map((ability) => (
+                                <span key={ability.abilityKey}>
+                                  <span className="block font-semibold text-[var(--foreground)]">
+                                    {ability.name}
+                                  </span>
+                                  <span>
+                                    {ability.category} · Rank {ability.rank} ·
+                                    Cooldown {ability.cooldownTurns}
+                                  </span>
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            "None assigned"
+                          )}
                         </dd>
                       </div>
                     </dl>
+                    {!locked ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <a className="btn btn-secondary" href={`#edit-${character.id}`}>
+                          Edit
+                        </a>
+                        <a
+                          className="btn btn-secondary"
+                          href={`#abilities-${character.id}`}
+                        >
+                          Manage Abilities
+                        </a>
+                      </div>
+                    ) : null}
+                    {locked ? null : (
+                      <details className="mt-4 panel" id={`edit-${character.id}`}>
+                        <summary className="cursor-pointer font-semibold">
+                          Edit character
+                        </summary>
+                        <form
+                          className="mt-4 grid gap-4"
+                          onSubmit={(event) => updateCharacter(character.id, event)}
+                        >
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <label className="field">
+                              <span>Type</span>
+                              <select
+                                className="select"
+                                defaultValue={character.type}
+                                name="type"
+                              >
+                                <option value="playable">playable</option>
+                                <option value="npc">npc</option>
+                              </select>
+                            </label>
+                            <label className="field">
+                              <span>Name</span>
+                              <input
+                                className="input"
+                                defaultValue={character.name}
+                                name="name"
+                                required
+                              />
+                            </label>
+                            <label className="field md:col-span-2">
+                              <span>Description</span>
+                              <textarea
+                                className="textarea"
+                                defaultValue={character.description}
+                                name="description"
+                                required
+                              />
+                            </label>
+                            <label className="field">
+                              <span>Personality</span>
+                              <input
+                                className="input"
+                                defaultValue={character.personality}
+                                name="personality"
+                              />
+                            </label>
+                            <label className="field">
+                              <span>Initial location</span>
+                              <input
+                                className="input"
+                                defaultValue={character.initialLocation ?? ""}
+                                name="initialLocation"
+                              />
+                            </label>
+                            <label className="field md:col-span-2">
+                              <span>Background</span>
+                              <textarea
+                                className="textarea"
+                                defaultValue={character.background}
+                                name="background"
+                              />
+                            </label>
+                            <label className="field">
+                              <span>Initial stats JSON</span>
+                              <textarea
+                                className="textarea"
+                                defaultValue={JSON.stringify(character.initialStats)}
+                                name="initialStats"
+                              />
+                            </label>
+                            <label className="field">
+                              <span>Goals JSON array</span>
+                              <textarea
+                                className="textarea"
+                                defaultValue={JSON.stringify(character.goals)}
+                                name="goals"
+                              />
+                            </label>
+                            <label className="field md:col-span-2">
+                              <span>Secrets JSON object</span>
+                              <textarea
+                                className="textarea"
+                                defaultValue={JSON.stringify(character.secrets)}
+                                name="secrets"
+                              />
+                            </label>
+                          </div>
+                          <button className="btn w-max" disabled={isWorking} type="submit">
+                            Save character
+                          </button>
+                        </form>
+                      </details>
+                    )}
+                    {locked ? null : (
+                      <details className="mt-4 panel" id={`abilities-${character.id}`}>
+                        <summary className="cursor-pointer font-semibold">
+                          Manage abilities
+                        </summary>
+                        <form
+                          className="mt-4 grid gap-4"
+                          onSubmit={(event) =>
+                            saveCharacterAbilityAssignments(character, event)
+                          }
+                        >
+                          <div className="grid gap-3">
+                            {story.abilities.length > 0 ? (
+                              story.abilities.map((ability) => {
+                                const assigned = character.abilityKeys.includes(
+                                  ability.abilityKey
+                                );
+                                return (
+                                  <label className="subtle-card" key={ability.id}>
+                                    <span className="flex items-start gap-3">
+                                      <input
+                                        defaultChecked={assigned}
+                                        name="abilityId"
+                                        type="checkbox"
+                                        value={ability.id}
+                                      />
+                                      <span>
+                                        <span className="block font-semibold">
+                                          {ability.name}
+                                        </span>
+                                        <span className="block font-mono text-xs text-[var(--muted)]">
+                                          {ability.abilityKey}
+                                        </span>
+                                        <span className="mt-2 block text-xs text-[var(--muted)]">
+                                          {ability.category} · Rank {ability.rank} ·
+                                          Cooldown {ability.cooldownTurns}
+                                        </span>
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            ) : (
+                              <p className="text-sm text-[var(--muted)]">
+                                Create an ability definition before assigning.
+                              </p>
+                            )}
+                          </div>
+                          <button className="btn w-max" disabled={isWorking} type="submit">
+                            Save assignments
+                          </button>
+                        </form>
+                      </details>
+                    )}
                   </article>
                 ))
               ) : (
@@ -548,8 +851,7 @@ export default function EditStoryPage({
               </form>
             ) : (
               <p className="mt-5 text-sm text-[var(--muted)]">
-                Runtime-critical templates are locked for this published version.
-                Create a revision to edit them.
+                LOCKED: Create revision to edit characters and ability assignments.
               </p>
             )}
           </section>
@@ -660,27 +962,68 @@ export default function EditStoryPage({
             <div className="mt-5 grid gap-3">
               {story.versions.length > 0 ? (
                 story.versions.map((version) => (
-                  <article
-                    className="subtle-card flex flex-wrap items-center justify-between gap-3"
-                    key={version.id}
-                  >
-                    <div>
-                      <p className="font-semibold">v{version.versionNumber}</p>
-                      <p className="text-xs text-[var(--muted)]">
-                        Published {new Date(version.publishedAt).toLocaleString()}
-                      </p>
+                  <article className="subtle-card" key={version.id}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">v{version.versionNumber}</p>
+                        <p className="text-xs text-[var(--muted)]">
+                          Published {new Date(version.publishedAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span
+                          className={
+                            version.id === story.currentPublishedVersionId
+                              ? "badge badge-ready"
+                              : "badge"
+                          }
+                        >
+                          {version.id === story.currentPublishedVersionId
+                            ? "Live"
+                            : version.status}
+                        </span>
+                        <button
+                          className="btn btn-secondary"
+                          disabled={isWorking}
+                          onClick={() => inspectVersion(version.id)}
+                          type="button"
+                        >
+                          Inspect snapshot
+                        </button>
+                      </div>
                     </div>
-                    <span
-                      className={
-                        version.id === story.currentPublishedVersionId
-                          ? "badge badge-ready"
-                          : "badge"
-                      }
-                    >
-                      {version.id === story.currentPublishedVersionId
-                        ? "Live"
-                        : version.status}
-                    </span>
+                    {versionSnapshots[version.id] ? (
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {versionSnapshots[version.id]!.characters.map(
+                          (character) => (
+                            <div className="panel" key={character.id}>
+                              <p className="font-semibold">{character.name}</p>
+                              <p className="mt-1 text-xs text-[var(--muted)]">
+                                {character.type} ·{" "}
+                                {character.initialLocation ?? "Story default"}
+                              </p>
+                              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted-2)]">
+                                Abilities
+                              </p>
+                              <div className="mt-2 grid gap-2 text-sm">
+                                {character.assignedAbilities.length > 0 ? (
+                                  character.assignedAbilities.map((ability) => (
+                                    <span key={ability.abilityKey}>
+                                      {ability.name} · {ability.category} · Rank{" "}
+                                      {ability.rank}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-[var(--muted)]">
+                                    None assigned
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    ) : null}
                   </article>
                 ))
               ) : (

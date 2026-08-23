@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import type { AuthorStoryAbility, AuthorStoryDetail } from "../lib/api";
 import {
   canSubmitRuntimeAuthoringForm,
+  getAssignedCharacterNamesForAbility,
   getAbilityAssignmentSubmitLabel,
   getAbilitySubmitLabel,
   requiresRevisionBeforeRuntimeEdit
@@ -72,6 +73,10 @@ export function AuthorAbilitySection({
           {story.abilities.map((ability) => (
             <AbilityRow
               ability={ability}
+              assignedCharacterNames={getAssignedCharacterNamesForAbility(
+                story.characters,
+                ability.abilityKey
+              )}
               disabled={disabled || archived}
               key={ability.id}
               onDelete={handlers.deleteAbility}
@@ -240,10 +245,12 @@ export function AuthorAbilitySection({
 
 function AbilityRow({
   ability,
+  assignedCharacterNames,
   disabled,
   onDelete
 }: {
   readonly ability: AuthorStoryAbility;
+  readonly assignedCharacterNames: readonly string[];
   readonly disabled: boolean;
   readonly onDelete: (abilityId: string) => void;
 }) {
@@ -266,6 +273,16 @@ function AbilityRow({
           <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
             {ability.description || "Không có mô tả."}
           </p>
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-2)]">
+              Assigned to
+            </p>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {assignedCharacterNames.length > 0
+                ? assignedCharacterNames.join(", ")
+                : "Nobody"}
+            </p>
+          </div>
         </div>
         <button
           className="btn btn-danger min-h-0 px-3 py-1 text-xs"
@@ -293,7 +310,7 @@ function AssignedAbilities({
 }) {
   const abilitiesByKey = new Map(abilities.map((ability) => [ability.abilityKey, ability]));
   const assignedCharacters = story.characters.filter(
-    (character) => character.abilityKeys.length > 0
+    (character) => character.assignedAbilities.length > 0
   );
 
   if (assignedCharacters.length === 0) {
@@ -307,14 +324,14 @@ function AssignedAbilities({
         <div className="subtle-card" key={character.id}>
           <p className="font-medium">{character.name}</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {character.abilityKeys.map((abilityKey) => {
-              const ability = abilitiesByKey.get(abilityKey);
+            {character.assignedAbilities.map((assignment) => {
+              const ability = abilitiesByKey.get(assignment.abilityKey);
               return (
                 <span
                   className="badge"
-                  key={`${character.id}-${abilityKey}`}
+                  key={`${character.id}-${assignment.abilityKey}`}
                 >
-                  {ability?.name ?? abilityKey}
+                  {ability?.name ?? assignment.name}
                   {ability ? (
                     <button
                       className="text-xs text-[var(--danger)] disabled:text-[var(--muted-2)]"
