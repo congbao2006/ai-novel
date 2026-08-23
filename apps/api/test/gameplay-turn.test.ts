@@ -976,11 +976,35 @@ describe("GameplayService", () => {
     );
 
     expect(result.resultMessage.content).toContain("không có Thiên Nhãn");
+    expect(result.abilityAttempt).toMatchObject({
+      requestedName: "Thiên Nhãn",
+      matchedAbilityKey: null,
+      authorized: false,
+      reason: "unknown_ability",
+      noAbilityStateMutation: true
+    });
+    expect(result.playerMessage.abilityAttempt).toMatchObject({
+      requestedName: "Thiên Nhãn",
+      authorized: false
+    });
     expect(serializedRequest).toContain("ABILITY ATTEMPT RESOLUTION");
     expect(serializedRequest).toContain("unknown_ability");
-    expect(states[0]?.stateData.abilities).toEqual({
-      definitions: [],
-      owned: []
+    expect(states[0]?.stateData).toMatchObject({
+      abilities: {
+        definitions: [],
+        owned: []
+      },
+      latestAbilityAttempt: expect.objectContaining({
+        requestedName: "Thiên Nhãn",
+        authorized: false,
+        noAbilityStateMutation: true
+      }),
+      abilityAttempts: [
+        expect.objectContaining({
+          requestedName: "Thiên Nhãn",
+          authorized: false
+        })
+      ]
     });
   });
 
@@ -1017,19 +1041,40 @@ describe("GameplayService", () => {
     };
     const service = new GameplayService(repositories, undefined, transactionRunner);
 
-    await service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+    const firstTurn = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      {
       action: "Tôi dùng Ảnh Bộ để né đòn."
+      }
+    );
+    expect(firstTurn.abilityAttempt).toMatchObject({
+      abilityName: "Ảnh Bộ",
+      abilityKey: "shadow-step",
+      authorized: true,
+      cooldownApplied: 2
     });
     expect(states[0]?.stateData.abilities).toMatchObject({
       owned: [expect.objectContaining({ currentCooldown: 2 })]
     });
 
-    await service.submitTurn(user, "550e8400-e29b-41d4-a716-446655440002", {
+    const secondTurn = await service.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      {
       action: "Tôi dùng Ảnh Bộ lần nữa."
+      }
+    );
+    expect(secondTurn.abilityAttempt).toMatchObject({
+      abilityKey: "shadow-step",
+      authorized: false,
+      reason: "cooldown",
+      noAbilityStateMutation: true
     });
     expect(states[0]?.stateData.abilities).toMatchObject({
       owned: [expect.objectContaining({ currentCooldown: 1 })]
     });
+    expect(states[0]?.stateData.abilityAttempts).toHaveLength(2);
   });
 
   it("persists optional NPC reactions in the same AI turn transaction", async () => {

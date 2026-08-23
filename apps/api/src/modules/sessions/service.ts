@@ -26,6 +26,7 @@ import { buildInitialGameState } from "./initial-state.js";
 import type { FactionInitializationService } from "./faction-initialization-service.js";
 import type { NPCInitializationService } from "./npc-initialization-service.js";
 import {
+  abilityAttemptsByTurnFromStateData,
   toGameMessageDto,
   toGameStateDto,
   toFactionDto,
@@ -302,6 +303,11 @@ export class SessionService {
       this.repositories.gameStates.getCurrentState(session.id),
       this.repositories.gameMessages.getRecentMessages(session.id, 50)
     ]);
+    const abilityAttemptsByTurn = currentState
+      ? abilityAttemptsByTurnFromStateData(
+          (currentState as GameStateRecord).stateData
+        )
+      : new Map();
 
     return {
       ...toSessionListItemDto({ session, story, character, storyVersion }),
@@ -310,7 +316,7 @@ export class SessionService {
         : null,
       recentMessages: [...(recentMessages as GameMessageRecord[])]
         .sort(compareMessagesForTranscript)
-        .map(toGameMessageDto)
+        .map((message) => toGameMessageDto(message, abilityAttemptsByTurn))
     };
   }
 }

@@ -11,6 +11,7 @@ import type {
   StoryVersionRecord,
   WorldEventRecord
 } from "@ai-novel/db";
+import type { AbilityAttempt } from "@ai-novel/domain";
 import type { ConsequenceSummary } from "./consequence-engine.js";
 import { toStoryCharacterDto, toStoryListItemDto } from "../stories/dto.js";
 
@@ -22,6 +23,7 @@ export type SessionListItemDto = {
   readonly story: SessionStoryDto;
   readonly selectedCharacter: SessionCharacterDto | null;
   readonly status: string;
+  readonly storyVersionId: string | null;
   readonly storyVersionNumber: number | null;
   readonly turnCount: number;
   readonly lastPlayedAt: string;
@@ -45,6 +47,22 @@ export type GameMessageDto = {
   readonly content: string;
   readonly turnNumber: number;
   readonly createdAt: string;
+  readonly abilityAttempt?: AbilityAttemptDto | null;
+};
+
+export type AbilityAttemptDto = {
+  readonly turnNumber: number;
+  readonly requestedName: string | null;
+  readonly requestedKey: string | null;
+  readonly matchedAbilityKey: string | null;
+  readonly authorized: boolean;
+  readonly reason: AbilityAttempt["reason"];
+  readonly cooldownRemaining: number | null;
+  readonly resourceCost: AbilityAttempt["resourceCost"] | null;
+  readonly abilityName: string | null;
+  readonly abilityKey: string | null;
+  readonly cooldownApplied: number | null;
+  readonly noAbilityStateMutation: boolean;
 };
 
 export type WorldEventDto = {
@@ -105,6 +123,7 @@ export type GameplayTurnResponseDto = {
   readonly resultMessage: GameMessageDto;
   readonly state: GameStateDto;
   readonly events: WorldEventDto[];
+  readonly abilityAttempt?: AbilityAttemptDto | null;
   readonly consequences?: readonly ConsequenceSummary[];
 };
 
@@ -133,6 +152,7 @@ export function toSessionListItemDto(input: {
       ? toStoryCharacterDto(input.character)
       : null,
     status: input.session.status,
+    storyVersionId: input.storyVersion?.id ?? input.session.storyVersionId,
     storyVersionNumber: input.storyVersion?.versionNumber ?? null,
     turnCount: input.session.turnCount,
     lastPlayedAt: input.session.lastPlayedAt.toISOString(),
@@ -153,14 +173,82 @@ export function toGameStateDto(state: GameStateRecord): GameStateDto {
   };
 }
 
-export function toGameMessageDto(message: GameMessageRecord): GameMessageDto {
+export function toGameMessageDto(
+  message: GameMessageRecord,
+  abilityAttemptsByTurn: ReadonlyMap<number, AbilityAttemptDto> = new Map()
+): GameMessageDto {
   return {
     id: message.id,
     role: message.role,
     content: message.content,
     turnNumber: message.turnNumber,
-    createdAt: message.createdAt.toISOString()
+    createdAt: message.createdAt.toISOString(),
+    abilityAttempt:
+      message.role === "player"
+        ? abilityAttemptsByTurn.get(message.turnNumber) ?? null
+        : null
   };
+}
+
+export function abilityAttemptsByTurnFromStateData(
+  stateData: Record<string, unknown>
+): ReadonlyMap<number, AbilityAttemptDto> {
+  const attempts = Array.isArray(stateData.abilityAttempts)
+    ? stateData.abilityAttempts
+    : [];
+  return new Map(
+    attempts.flatMap((attempt) => {
+      if (!attempt || typeof attempt !== "object") return [];
+      const record = attempt as Record<string, unknown>;
+      if (
+        typeof record.turnNumber !== "number" ||
+        typeof record.authorized !== "boolean" ||
+        typeof record.reason !== "string"
+      ) {
+        return [];
+      }
+
+      return [
+        [
+          record.turnNumber,
+          {
+            turnNumber: record.turnNumber,
+            requestedName:
+              typeof record.requestedName === "string"
+                ? record.requestedName
+                : null,
+            requestedKey:
+              typeof record.requestedKey === "string" ? record.requestedKey : null,
+            matchedAbilityKey:
+              typeof record.matchedAbilityKey === "string"
+                ? record.matchedAbilityKey
+                : null,
+            authorized: record.authorized,
+            reason: record.reason as AbilityAttempt["reason"],
+            cooldownRemaining:
+              typeof record.cooldownRemaining === "number"
+                ? record.cooldownRemaining
+                : null,
+            resourceCost:
+              record.resourceCost &&
+              typeof record.resourceCost === "object" &&
+              !Array.isArray(record.resourceCost)
+                ? (record.resourceCost as AbilityAttempt["resourceCost"])
+                : null,
+            abilityName:
+              typeof record.abilityName === "string" ? record.abilityName : null,
+            abilityKey:
+              typeof record.abilityKey === "string" ? record.abilityKey : null,
+            cooldownApplied:
+              typeof record.cooldownApplied === "number"
+                ? record.cooldownApplied
+                : null,
+            noAbilityStateMutation: record.noAbilityStateMutation !== false
+          }
+        ] as const
+      ];
+    })
+  );
 }
 
 export function toWorldEventDto(event: WorldEventRecord): WorldEventDto {

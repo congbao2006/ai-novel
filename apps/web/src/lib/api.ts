@@ -118,6 +118,7 @@ export type SessionListItem = {
   readonly story: StoryListItem;
   readonly selectedCharacter: StoryCharacter | null;
   readonly status: string;
+  readonly storyVersionId: string | null;
   readonly storyVersionNumber: number | null;
   readonly turnCount: number;
   readonly lastPlayedAt: string;
@@ -141,6 +142,22 @@ export type GameMessage = {
   readonly content: string;
   readonly turnNumber: number;
   readonly createdAt: string;
+  readonly abilityAttempt?: AbilityAttempt | null;
+};
+
+export type AbilityAttempt = {
+  readonly turnNumber: number;
+  readonly requestedName: string | null;
+  readonly requestedKey: string | null;
+  readonly matchedAbilityKey: string | null;
+  readonly authorized: boolean;
+  readonly reason: string;
+  readonly cooldownRemaining: number | null;
+  readonly resourceCost: Record<string, unknown> | null;
+  readonly abilityName: string | null;
+  readonly abilityKey: string | null;
+  readonly cooldownApplied: number | null;
+  readonly noAbilityStateMutation: boolean;
 };
 
 export type WorldEvent = {
@@ -211,6 +228,7 @@ export type GameplayTurnResponse = {
   readonly resultMessage: GameMessage;
   readonly state: GameState;
   readonly events: WorldEvent[];
+  readonly abilityAttempt?: AbilityAttempt | null;
   readonly consequences?: readonly ConsequenceSummary[];
 };
 

@@ -354,6 +354,27 @@ describe("StoryAuthoringService", () => {
       category: "movement",
       cooldownTurns: 3
     });
+    const innerSight = await authoring.createAbility(author, publishedV1.id, {
+      abilityKey: "inner-sight",
+      name: "Thiên Nhãn",
+      description: "Nhìn thấy dấu vết ẩn trong cảnh.",
+      category: "perception",
+      cooldownTurns: 1
+    });
+    const workingPlayable = fixture.characters.find(
+      (character) =>
+        character.storyId === publishedV1.id &&
+        character.characterType === "playable"
+    )!;
+    await authoring.assignAbilityToCharacter(
+      author,
+      publishedV1.id,
+      workingPlayable.id,
+      {
+        abilityId: innerSight.id,
+        rank: 1
+      }
+    );
     const publishedV2 = await authoring.publish(author, publishedV1.id);
     const version2 = fixture.storyVersions.find(
       (version) => version.id === publishedV2.currentPublishedVersionId
@@ -377,11 +398,29 @@ describe("StoryAuthoringService", () => {
     expect(loadedA.currentState?.stateData.abilities).toMatchObject({
       definitions: [expect.objectContaining({ cooldownTurns: 2 })]
     });
+    expect(
+      (
+        loadedA.currentState?.stateData.abilities as {
+          definitions: readonly { key: string }[];
+        }
+      ).definitions.map((ability) => ability.key)
+    ).toEqual(["shadow-step"]);
     expect(sessionB.session.storyVersionNumber).toBe(2);
     expect(sessionB.session.currentState?.location).toBe("Cầu cảng");
-    expect(sessionB.session.currentState?.stateData.abilities).toMatchObject({
-      definitions: [expect.objectContaining({ cooldownTurns: 3 })]
-    });
+    expect(
+      (
+        sessionB.session.currentState?.stateData.abilities as {
+          definitions: readonly { key: string; cooldownTurns: number }[];
+        }
+      ).definitions.map((ability) => ability.key)
+    ).toEqual(["shadow-step", "inner-sight"]);
+    expect(
+      (
+        sessionB.session.currentState?.stateData.abilities as {
+          definitions: readonly { key: string; cooldownTurns: number }[];
+        }
+      ).definitions.find((ability) => ability.key === "shadow-step")?.cooldownTurns
+    ).toBe(3);
   });
 });
 

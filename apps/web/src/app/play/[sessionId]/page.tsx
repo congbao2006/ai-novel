@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ApiRequestError,
   authRequest,
+  type AbilityAttempt,
   type ConsequenceSummary,
   type Faction,
   type FactionListResponse,
@@ -17,9 +18,16 @@ import {
   type QuestListResponse,
   type SessionDetail
 } from "../../../lib/api";
+import {
+  formatAbilityAttemptReason,
+  formatResourceCost,
+  readLatestAbilityAttempt,
+  readRuntimeAbilities
+} from "../../../lib/play-session-ui";
 
 export default function PlayShellPage() {
   const params = useParams<{ sessionId: string }>();
+  const searchParams = useSearchParams();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [messages, setMessages] = useState<GameMessage[]>([]);
   const [action, setAction] = useState("");
@@ -30,6 +38,8 @@ export default function PlayShellPage() {
   const [factions, setFactions] = useState<Faction[]>([]);
   const [quests, setQuests] = useState<Quest[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const debugEnabled =
+    searchParams.get("debug") === "1" || process.env.NODE_ENV !== "production";
 
   useEffect(() => {
     if (!params.sessionId) {
@@ -140,12 +150,28 @@ export default function PlayShellPage() {
         {loaded && session ? (
           <div className="mt-8">
             <p className="text-sm font-medium uppercase tracking-[0.18em] text-[var(--accent)]">
-              Play shell
+              Play
             </p>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-3xl font-semibold">{session.story.title}</h1>
               <span className="status-pill">{session.status}</span>
             </div>
+
+            <SessionStatusPanel session={session} />
+
+            <div className="mt-6 muted-panel">
+              <p className="text-sm leading-6 text-[var(--muted)]">
+                Gameplay engine đang xử lý ở server. Streaming chưa được bật.
+              </p>
+            </div>
+
+            {session.currentState ? (
+              <AbilityPanel stateData={session.currentState.stateData} />
+            ) : null}
+
+            {debugEnabled && session.currentState ? (
+              <SessionDebugPanel session={session} />
+            ) : null}
 
             <div className="mt-8 grid gap-4 md:grid-cols-3">
               <div className="surface-card">
@@ -164,12 +190,6 @@ export default function PlayShellPage() {
                 <p className="text-sm text-[var(--muted)]">Turn</p>
                 <p className="mt-2 font-semibold">{session.turnCount}</p>
               </div>
-            </div>
-
-            <div className="mt-6 muted-panel">
-              <p className="text-sm leading-6 text-[var(--muted)]">
-                Gameplay engine đang xử lý ở server. Streaming chưa được bật.
-              </p>
             </div>
 
             {factions.length > 0 ? (
@@ -232,10 +252,6 @@ export default function PlayShellPage() {
               </section>
             ) : null}
 
-            {session.currentState ? (
-              <AbilityPanel stateData={session.currentState.stateData} />
-            ) : null}
-
             {consequences.length > 0 ? (
               <div className="mt-6 grid gap-2">
                 {consequences.map((item, index) => (
@@ -267,6 +283,9 @@ export default function PlayShellPage() {
                     {message.role} · turn {message.turnNumber}
                   </p>
                   <p className="mt-2 text-sm leading-6">{message.content}</p>
+                  {message.abilityAttempt ? (
+                    <AbilityAttemptCard attempt={message.abilityAttempt} />
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -301,14 +320,53 @@ export default function PlayShellPage() {
   );
 }
 
-type RuntimeAbility = {
-  readonly abilityKey: string;
-  readonly name: string;
-  readonly rank: number;
-  readonly currentCooldown: number;
-  readonly enabled: boolean;
-  readonly unlocked: boolean;
-};
+function SessionStatusPanel({ session }: { readonly session: SessionDetail }) {
+  return (
+    <section className="mt-6">
+      <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+        Session Status
+      </h2>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <StatusCard label="Story" value={session.story.title} />
+        <StatusCard label="Session" value={session.status} />
+        <StatusCard
+          label="Playable character"
+          value={session.selectedCharacter?.name ?? "Chưa chọn"}
+        />
+        <StatusCard
+          label="Current location"
+          value={session.currentState?.location ?? "Chưa có state"}
+        />
+        <StatusCard label="Current turn" value={String(session.turnCount)} />
+        <StatusCard
+          label="Story version"
+          value={
+            session.storyVersionNumber
+              ? `v${session.storyVersionNumber}`
+              : "Legacy/unknown"
+          }
+        />
+      </div>
+    </section>
+  );
+}
+
+function StatusCard({
+  label,
+  value
+}: {
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <article className="surface-card">
+      <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-sm font-semibold">{value}</p>
+    </article>
+  );
+}
 
 function AbilityPanel({
   stateData
@@ -323,20 +381,29 @@ function AbilityPanel({
   return (
     <section className="mt-6">
       <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
-        Kỹ năng
+        Abilities
       </h2>
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
         {abilities.map((ability) => (
           <article className="surface-card" key={ability.abilityKey}>
-            <p className="text-sm font-semibold">{ability.name}</p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Rank {ability.rank} ·{" "}
-              {ability.currentCooldown > 0
-                ? `Cooldown ${ability.currentCooldown}`
-                : ability.enabled && ability.unlocked
-                  ? "Sẵn sàng"
-                  : "Chưa khả dụng"}
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">{ability.name}</p>
+                <p className="mt-1 font-mono text-xs text-[var(--muted)]">
+                  {ability.abilityKey}
+                </p>
+              </div>
+              <span className="status-pill">{ability.status}</span>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+              {ability.description || "Không có mô tả."}
             </p>
+            <div className="mt-3 grid gap-2 text-xs text-[var(--muted)] sm:grid-cols-2">
+              <p>Type: {ability.category}</p>
+              <p>Rank: {ability.rank}</p>
+              <p>Cooldown: {ability.currentCooldown}/{ability.cooldownTurns}</p>
+              <p>Resource: {formatResourceCost(ability.resourceCost)}</p>
+            </div>
           </article>
         ))}
       </div>
@@ -344,48 +411,64 @@ function AbilityPanel({
   );
 }
 
-function readRuntimeAbilities(
-  stateData: Record<string, unknown>
-): RuntimeAbility[] {
-  const abilitiesRecord =
-    stateData.abilities &&
-    typeof stateData.abilities === "object" &&
-    !Array.isArray(stateData.abilities)
-      ? (stateData.abilities as Record<string, unknown>)
-      : null;
-  const definitions = Array.isArray(abilitiesRecord?.definitions)
-    ? abilitiesRecord.definitions
-    : [];
-  const owned = Array.isArray(abilitiesRecord?.owned) ? abilitiesRecord.owned : [];
-  const definitionsByKey = new Map(
-    definitions.flatMap((definition) => {
-      if (!definition || typeof definition !== "object") return [];
-      const record = definition as Record<string, unknown>;
-      return typeof record.key === "string" && typeof record.name === "string"
-        ? [[record.key, record.name] as const]
-        : [];
-    })
+function AbilityAttemptCard({
+  attempt
+}: {
+  readonly attempt: AbilityAttempt;
+}) {
+  return (
+    <div className="mt-3 rounded border border-[var(--border)] p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="status-pill">
+          {attempt.authorized ? "AUTHORIZED" : formatAbilityAttemptReason(attempt.reason)}
+        </span>
+        <span className="font-semibold">
+          {attempt.abilityName ?? attempt.requestedName ?? "Ability attempt"}
+        </span>
+        {attempt.abilityKey ? (
+          <span className="font-mono text-[var(--muted)]">{attempt.abilityKey}</span>
+        ) : null}
+      </div>
+      {attempt.authorized ? (
+        <p className="mt-2 text-[var(--muted)]">
+          Cooldown applied: {attempt.cooldownApplied ?? 0}. Resource cost:{" "}
+          {formatResourceCost(attempt.resourceCost)}.
+        </p>
+      ) : (
+        <p className="mt-2 text-[var(--muted)]">
+          Attempted: {attempt.requestedName ?? attempt.requestedKey ?? "unknown"}.
+          No ability was granted and no ability state was mutated.
+        </p>
+      )}
+    </div>
   );
+}
 
-  return owned.flatMap((ability) => {
-    if (!ability || typeof ability !== "object") return [];
-    const record = ability as Record<string, unknown>;
-    if (typeof record.abilityKey !== "string") return [];
-    const name = definitionsByKey.get(record.abilityKey);
-    if (!name) return [];
+function SessionDebugPanel({ session }: { readonly session: SessionDetail }) {
+  const stateData = session.currentState?.stateData ?? {};
+  const abilities = readRuntimeAbilities(stateData);
+  const latestAttempt = readLatestAbilityAttempt(stateData);
 
-    return [
-      {
-        abilityKey: record.abilityKey,
-        name,
-        rank: typeof record.rank === "number" ? record.rank : 1,
-        currentCooldown:
-          typeof record.currentCooldown === "number" ? record.currentCooldown : 0,
-        enabled: record.enabled !== false,
-        unlocked: record.unlocked !== false
-      }
-    ];
-  });
+  return (
+    <details className="mt-6 muted-panel">
+      <summary className="cursor-pointer text-sm font-semibold">
+        Developer/debug
+      </summary>
+      <div className="mt-4 grid gap-3 text-xs text-[var(--muted)]">
+        <p>Session ID: {session.id}</p>
+        <p>Story version ID: {session.storyVersionId ?? "unknown"}</p>
+        <p>Story version number: {session.storyVersionNumber ?? "unknown"}</p>
+        <p>Character ID: {session.selectedCharacter?.id ?? "unknown"}</p>
+        <p>Authoritative ability count: {abilities.length}</p>
+        <pre className="overflow-auto rounded border border-[var(--border)] p-3">
+          {JSON.stringify(stateData.abilities ?? null, null, 2)}
+        </pre>
+        <pre className="overflow-auto rounded border border-[var(--border)] p-3">
+          {JSON.stringify(latestAttempt, null, 2)}
+        </pre>
+      </div>
+    </details>
+  );
 }
 
 function formatPlayError(caught: unknown): string {

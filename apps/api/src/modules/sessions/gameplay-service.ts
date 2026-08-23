@@ -52,6 +52,7 @@ import {
   toGameMessageDto,
   toGameStateDto,
   toWorldEventDto,
+  type AbilityAttemptDto,
   type GameplayTurnResponseDto
 } from "./dto.js";
 import {
@@ -193,7 +194,10 @@ export class GameplayService {
         const statePatchWithAbilities = mergeServerAbilityStatePatch(
           statePatch,
           state,
-          abilityTurn.finalState
+          abilityTurn.finalState,
+          abilityTurn.attempt,
+          abilityTurn.beforeUse,
+          turnNumber
         );
         const plan = this.consequenceEngine.buildPlan({
           state,
@@ -209,7 +213,12 @@ export class GameplayService {
           turnNumber,
           action,
           plan,
-          preAppendedPlayerMessage: playerMessage
+          preAppendedPlayerMessage: playerMessage,
+          abilityAttempt: serializeAbilityAttempt(
+            abilityTurn.attempt,
+            abilityTurn.beforeUse,
+            turnNumber
+          )
         });
       });
 
@@ -329,7 +338,10 @@ export class GameplayService {
         baseStatePatch: mergeServerAbilityStatePatch(
           validatedProposal.statePatch,
           snapshot.state,
-          abilityTurn.finalState
+          abilityTurn.finalState,
+          abilityTurn.attempt,
+          abilityTurn.beforeUse,
+          turnNumber
         ),
         baseEvents: validatedProposal.events,
         npcReactions: npcReactions?.reactions ?? [],
@@ -353,7 +365,12 @@ export class GameplayService {
           expectedVersion,
           turnNumber,
           action,
-          plan
+          plan,
+          abilityAttempt: serializeAbilityAttempt(
+            abilityTurn.attempt,
+            abilityTurn.beforeUse,
+            turnNumber
+          )
         });
       });
 
@@ -517,15 +534,66 @@ function resolveAbilityTurnState(
 function mergeServerAbilityStatePatch(
   patch: StatePatch,
   currentState: GameStateRecord,
-  abilities: AbilityRuntimeState
+  abilities: AbilityRuntimeState,
+  abilityAttempt: AbilityAttempt,
+  abilityStateBeforeUse: AbilityRuntimeState,
+  turnNumber: number
 ): StatePatch {
+  const abilityAttemptRecord = serializeAbilityAttempt(
+    abilityAttempt,
+    abilityStateBeforeUse,
+    turnNumber
+  );
+  const stateData = {
+    ...copyJsonObject(currentState.stateData),
+    ...(patch.stateData ? copyJsonObject(patch.stateData) : {}),
+    abilities: copyJsonObject(abilities as unknown as Record<string, unknown>)
+  };
+
+  if (abilityAttemptRecord) {
+    const previousAttempts = Array.isArray(currentState.stateData.abilityAttempts)
+      ? currentState.stateData.abilityAttempts
+      : [];
+    Object.assign(stateData, {
+      latestAbilityAttempt: abilityAttemptRecord,
+      abilityAttempts: [...previousAttempts, abilityAttemptRecord].slice(-50)
+    });
+  } else {
+    Object.assign(stateData, { latestAbilityAttempt: null });
+  }
+
   return {
     ...patch,
-    stateData: {
-      ...copyJsonObject(currentState.stateData),
-      ...(patch.stateData ? copyJsonObject(patch.stateData) : {}),
-      abilities: copyJsonObject(abilities as unknown as Record<string, unknown>)
-    }
+    stateData
+  };
+}
+
+function serializeAbilityAttempt(
+  attempt: AbilityAttempt,
+  abilityStateBeforeUse: AbilityRuntimeState,
+  turnNumber: number
+): AbilityAttemptDto | null {
+  if (!attempt.requestedName && !attempt.matchedAbilityKey && !attempt.requestedKey) {
+    return null;
+  }
+
+  const definition = abilityStateBeforeUse.definitions.find(
+    (candidate) => candidate.key === attempt.matchedAbilityKey
+  );
+
+  return {
+    turnNumber,
+    requestedName: attempt.requestedName,
+    requestedKey: attempt.requestedKey,
+    matchedAbilityKey: attempt.matchedAbilityKey,
+    authorized: attempt.authorized,
+    reason: attempt.reason,
+    cooldownRemaining: attempt.cooldownRemaining ?? null,
+    resourceCost: attempt.resourceCost ?? definition?.resourceCost ?? null,
+    abilityName: definition?.name ?? attempt.requestedName ?? null,
+    abilityKey: definition?.key ?? attempt.matchedAbilityKey ?? null,
+    cooldownApplied: attempt.authorized ? (definition?.cooldownTurns ?? 0) : null,
+    noAbilityStateMutation: !attempt.authorized
   };
 }
 
@@ -651,8 +719,12 @@ async function persistTurn(
     readonly action: string;
     readonly plan: InternalTurnPersistencePlan;
     readonly preAppendedPlayerMessage?: GameMessageRecord;
+    readonly abilityAttempt?: AbilityAttemptDto | null;
   }
 ): Promise<PersistedTurnResult> {
+  const abilityAttemptsByTurn = input.abilityAttempt
+    ? new Map([[input.turnNumber, input.abilityAttempt] as const])
+    : new Map<number, AbilityAttemptDto>();
   const playerMessage =
     input.preAppendedPlayerMessage ??
     (await context.repositories.gameMessages.append({
@@ -702,10 +774,11 @@ async function persistTurn(
   return {
     response: {
       turnNumber: input.turnNumber,
-      playerMessage: toGameMessageDto(playerMessage),
+      playerMessage: toGameMessageDto(playerMessage, abilityAttemptsByTurn),
       resultMessage: toGameMessageDto(resultMessage),
       state: toGameStateDto(updatedState),
       events: events.map(toWorldEventDto),
+      abilityAttempt: input.abilityAttempt ?? null,
       consequences: input.plan.summaries
     },
     memories: consequenceMemories

@@ -79,6 +79,7 @@ function createSession(
       initialStats: {}
     },
     status: overrides.status ?? "active",
+    storyVersionId: "version-1",
     storyVersionNumber: overrides.storyVersionNumber ?? 1,
     turnCount: overrides.turnCount ?? 3,
     lastPlayedAt: overrides.lastPlayedAt ?? "2026-01-01T00:00:00Z",
