@@ -13,6 +13,7 @@ import {
   formatValidationIssue,
   getValidationIssueSummary
 } from "../../../../lib/authoring-validation";
+import { AuthorAbilitySection } from "../../../../components/author-ability-section";
 
 export default function EditStoryPage({
   params
@@ -26,6 +27,7 @@ export default function EditStoryPage({
   const [validationIssues, setValidationIssues] = useState<
     readonly PublishValidationIssue[]
   >([]);
+  const [isWorking, setIsWorking] = useState(false);
 
   useEffect(() => {
     params.then((value) => setStoryId(value.id)).catch(() => setError("URL không hợp lệ."));
@@ -40,7 +42,7 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
       const updated = await authRequest<AuthorStoryDetail>(`/author/stories/${storyId}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -64,7 +66,7 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
       await authRequest(`/author/stories/${storyId}/characters`, {
         method: "POST",
         body: JSON.stringify({
@@ -88,10 +90,12 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
+      const editableStory = await ensureEditableStory();
+      if (!editableStory) return;
       const resourceStatKey = String(form.get("resourceStatKey") ?? "").trim();
       const resourceAmount = Number(form.get("resourceAmount") || 0);
-      await authRequest(`/author/stories/${storyId}/abilities`, {
+      await authRequest(`/author/stories/${editableStory.id}/abilities`, {
         method: "POST",
         body: JSON.stringify({
           abilityKey: form.get("abilityKey"),
@@ -105,7 +109,7 @@ export default function EditStoryPage({
             : null
         })
       });
-      await loadStory(storyId, setStory, setError);
+      await loadStory(editableStory.id, setStory, setError);
       event.currentTarget.reset();
     });
   }
@@ -115,9 +119,11 @@ export default function EditStoryPage({
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
     const characterId = String(form.get("characterId") ?? "");
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
+      const editableStory = await ensureEditableStory();
+      if (!editableStory) return;
       await authRequest(
-        `/author/stories/${storyId}/characters/${characterId}/abilities`,
+        `/author/stories/${editableStory.id}/characters/${characterId}/abilities`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -126,8 +132,33 @@ export default function EditStoryPage({
           })
         }
       );
-      await loadStory(storyId, setStory, setError);
+      await loadStory(editableStory.id, setStory, setError);
       event.currentTarget.reset();
+    });
+  }
+
+  async function deleteAbility(abilityId: string) {
+    if (!storyId) return;
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
+      const editableStory = await ensureEditableStory();
+      if (!editableStory) return;
+      await authRequest(`/author/stories/${editableStory.id}/abilities/${abilityId}`, {
+        method: "DELETE"
+      });
+      await loadStory(editableStory.id, setStory, setError);
+    });
+  }
+
+  async function unassignAbility(characterId: string, abilityId: string) {
+    if (!storyId) return;
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
+      const editableStory = await ensureEditableStory();
+      if (!editableStory) return;
+      await authRequest(
+        `/author/stories/${editableStory.id}/characters/${characterId}/abilities/${abilityId}`,
+        { method: "DELETE" }
+      );
+      await loadStory(editableStory.id, setStory, setError);
     });
   }
 
@@ -135,7 +166,7 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
       await authRequest(`/author/stories/${storyId}/factions`, {
         method: "POST",
         body: JSON.stringify({
@@ -155,7 +186,7 @@ export default function EditStoryPage({
 
   async function validateOrPublish(path: "validate" | "publish" | "archive") {
     if (!storyId) return;
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
       if (path === "validate" || path === "publish") {
         const validation = await authRequest<PublishValidationResponse>(
           `/author/stories/${storyId}/validate`,
@@ -182,13 +213,24 @@ export default function EditStoryPage({
 
   async function createRevision() {
     if (!storyId) return;
-    await runAction(setError, setMessage, setValidationIssues, async () => {
+    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
       const updated = await authRequest<AuthorStoryDetail>(
         `/author/stories/${storyId}/revisions`,
         { method: "POST" }
       );
       setStory(updated);
     });
+  }
+
+  async function ensureEditableStory(): Promise<AuthorStoryDetail | null> {
+    if (!storyId) return null;
+    if (story?.status === "draft") return story;
+    const updated = await authRequest<AuthorStoryDetail>(
+      `/author/stories/${storyId}/revisions`,
+      { method: "POST" }
+    );
+    setStory(updated);
+    return updated;
   }
 
   if (!story) {
@@ -253,7 +295,7 @@ export default function EditStoryPage({
         />
         <textarea className="min-h-40 rounded border p-2" defaultValue={story.worldPrompt} disabled={locked} name="worldPrompt" />
         <textarea className="min-h-32 rounded border p-2" defaultValue={story.openingPrompt} disabled={locked} name="openingPrompt" />
-        <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">
+        <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} type="submit">
           Lưu story
         </button>
       </form>
@@ -286,67 +328,22 @@ export default function EditStoryPage({
             <textarea className="rounded border p-2" name="initialStats" placeholder='{"hp":100}' />
             <textarea className="rounded border p-2" name="goals" placeholder='[]' />
             <textarea className="rounded border p-2" name="secrets" placeholder='{}' />
-            <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">Thêm character</button>
+            <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} type="submit">Thêm character</button>
           </form>
         ) : null}
       </section>
 
-      <section className="grid gap-4 rounded border border-zinc-200 p-4">
-        <h2 className="text-xl font-medium">Abilities</h2>
-        <div className="grid gap-2">
-          {story.abilities.map((ability) => (
-            <div className="rounded border p-3 text-sm" key={ability.id}>
-              <strong>{ability.name}</strong> ({ability.abilityKey}) ·{" "}
-              {ability.category} · cooldown {ability.cooldownTurns}
-              <p className="mt-1 text-zinc-600">{ability.description}</p>
-            </div>
-          ))}
-        </div>
-        {!locked ? (
-          <>
-            <form className="grid gap-2" onSubmit={addAbility}>
-              <input className="rounded border p-2" name="abilityKey" placeholder="shadow-step" required />
-              <input className="rounded border p-2" name="name" placeholder="Ảnh Bộ" required />
-              <textarea className="rounded border p-2" name="description" placeholder="Description" />
-              <select className="rounded border p-2" name="category">
-                <option value="movement">movement</option>
-                <option value="combat">combat</option>
-                <option value="perception">perception</option>
-                <option value="social">social</option>
-                <option value="utility">utility</option>
-                <option value="magic">magic</option>
-                <option value="other">other</option>
-              </select>
-              <input className="rounded border p-2" name="rank" placeholder="1" type="number" />
-              <input className="rounded border p-2" name="cooldownTurns" placeholder="2" type="number" />
-              <input className="rounded border p-2" name="resourceStatKey" placeholder="Resource stat key, optional" />
-              <input className="rounded border p-2" name="resourceAmount" placeholder="0" type="number" />
-              <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">Thêm ability</button>
-            </form>
-
-            {story.abilities.length > 0 && story.characters.length > 0 ? (
-              <form className="grid gap-2" onSubmit={assignAbility}>
-                <select className="rounded border p-2" name="characterId">
-                  {story.characters.map((character) => (
-                    <option key={character.id} value={character.id}>
-                      {character.name} ({character.type})
-                    </option>
-                  ))}
-                </select>
-                <select className="rounded border p-2" name="abilityId">
-                  {story.abilities.map((ability) => (
-                    <option key={ability.id} value={ability.id}>
-                      {ability.name} ({ability.abilityKey})
-                    </option>
-                  ))}
-                </select>
-                <input className="rounded border p-2" name="rank" placeholder="1" type="number" />
-                <button className="rounded border px-4 py-2" type="submit">Gán ability</button>
-              </form>
-            ) : null}
-          </>
-        ) : null}
-      </section>
+      <AuthorAbilitySection
+        disabled={isWorking}
+        handlers={{
+          addAbility,
+          assignAbility,
+          createRevision,
+          deleteAbility,
+          unassignAbility
+        }}
+        story={story}
+      />
 
       <section className="grid gap-4 rounded border border-zinc-200 p-4">
         <h2 className="text-xl font-medium">Factions</h2>
@@ -371,26 +368,26 @@ export default function EditStoryPage({
             <input className="rounded border p-2" name="initialInfluence" placeholder="50" type="number" />
             <textarea className="rounded border p-2" name="resources" placeholder='{"wealth":50}' />
             <textarea className="rounded border p-2" name="goals" placeholder='[]' />
-            <button className="rounded bg-zinc-900 px-4 py-2 text-white" type="submit">Thêm faction</button>
+            <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} type="submit">Thêm faction</button>
           </form>
         ) : null}
       </section>
 
       <section className="flex flex-wrap gap-3">
-        <button className="rounded border px-4 py-2" onClick={() => validateOrPublish("validate")} type="button">
+        <button className="rounded border px-4 py-2 disabled:opacity-60" disabled={isWorking} onClick={() => validateOrPublish("validate")} type="button">
           Validate
         </button>
         {story.status === "draft" ? (
-          <button className="rounded bg-emerald-700 px-4 py-2 text-white" onClick={() => validateOrPublish("publish")} type="button">
+          <button className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} onClick={() => validateOrPublish("publish")} type="button">
             Publish
           </button>
         ) : null}
         {story.status === "published" ? (
           <>
-            <button className="rounded bg-zinc-900 px-4 py-2 text-white" onClick={createRevision} type="button">
+            <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} onClick={createRevision} type="button">
               Create revision
             </button>
-            <button className="rounded border px-4 py-2" onClick={() => validateOrPublish("archive")} type="button">
+            <button className="rounded border px-4 py-2 disabled:opacity-60" disabled={isWorking} onClick={() => validateOrPublish("archive")} type="button">
               Archive
             </button>
           </>
@@ -435,11 +432,13 @@ async function runAction(
   setError: (message: string | null) => void,
   setMessage: (message: string | null) => void,
   setValidationIssues: (issues: readonly PublishValidationIssue[]) => void,
+  setWorking: (working: boolean) => void,
   action: () => Promise<string | void>
 ) {
   setError(null);
   setMessage(null);
   setValidationIssues([]);
+  setWorking(true);
   try {
     const successMessage = await action();
     setMessage(successMessage ?? "Đã lưu.");
@@ -448,6 +447,8 @@ async function runAction(
       setValidationIssues(reason.issues);
     }
     setError(reason instanceof Error ? reason.message : "Thao tác thất bại.");
+  } finally {
+    setWorking(false);
   }
 }
 

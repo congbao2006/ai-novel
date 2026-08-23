@@ -194,6 +194,53 @@ describe("StoryAuthoringService", () => {
     ).rejects.toBeInstanceOf(ConflictApplicationError);
   });
 
+  it("serializes a character once when multiple abilities are assigned", async () => {
+    const fixture = createAuthoringFixture();
+    const service = new StoryAuthoringService(
+      fixture.repositories,
+      undefined,
+      fixture.transactionRunner
+    );
+    const draft = await service.createDraft(author, {
+      title: "Ability Test",
+      genre: "fantasy",
+      description: "Ability authoring."
+    });
+    const playable = await service.createCharacter(author, draft.id, {
+      type: "playable",
+      name: "Kẻ Vô Danh",
+      description: "A playable character."
+    });
+    const shadowStep = await service.createAbility(author, draft.id, {
+      abilityKey: "shadow-step",
+      name: "Ảnh Bộ",
+      category: "movement",
+      cooldownTurns: 2
+    });
+    const innerSight = await service.createAbility(author, draft.id, {
+      abilityKey: "inner-sight",
+      name: "Nội Quan",
+      category: "perception",
+      cooldownTurns: 1
+    });
+
+    await service.assignAbilityToCharacter(author, draft.id, playable.id, {
+      abilityId: shadowStep.id
+    });
+    await service.assignAbilityToCharacter(author, draft.id, playable.id, {
+      abilityId: innerSight.id
+    });
+
+    const detail = await service.getOwnedStory(author, draft.id);
+
+    expect(detail.characters).toHaveLength(1);
+    expect(detail.characters[0]).toMatchObject({
+      id: playable.id,
+      name: "Kẻ Vô Danh",
+      abilityKeys: ["shadow-step", "inner-sight"]
+    });
+  });
+
   it("initializes sessions from authored playable, NPC, faction, and world settings", async () => {
     const fixture = createAuthoringFixture();
     const authoring = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);
