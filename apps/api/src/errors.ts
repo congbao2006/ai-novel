@@ -67,7 +67,14 @@ type SerializedErrorCause = {
   readonly name?: string | undefined;
   readonly message?: string | undefined;
   readonly code?: string | undefined;
+  readonly sqlState?: string | undefined;
+  readonly detail?: string | undefined;
+  readonly constraint?: string | undefined;
+  readonly table?: string | undefined;
+  readonly column?: string | undefined;
+  readonly schema?: string | undefined;
   readonly stack?: string | undefined;
+  readonly cause?: SerializedErrorCause | undefined;
   readonly value?: string | undefined;
 };
 
@@ -196,16 +203,25 @@ function getErrorName(error: unknown): string {
 
 function getErrorMessage(error: unknown): string | undefined {
   if (error instanceof Error) {
-    return error.message;
+    return sanitizeLogString(error.message);
   }
 
-  return typeof error === "string" ? error : undefined;
+  return typeof error === "string" ? sanitizeLogString(error) : undefined;
 }
 
 function getErrorCode(error: unknown): string | undefined {
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { readonly code?: unknown }).code;
     return typeof code === "string" ? code : undefined;
+  }
+
+  return undefined;
+}
+
+function getErrorField(error: unknown, field: string): string | undefined {
+  if (error && typeof error === "object" && field in error) {
+    const value = (error as Record<string, unknown>)[field];
+    return typeof value === "string" ? sanitizeLogString(value) : undefined;
   }
 
   return undefined;
@@ -222,16 +238,34 @@ function getFastifyStatusCode(error: unknown): number | undefined {
 
 function serializeCause(cause: unknown): SerializedErrorCause {
   if (cause instanceof Error) {
+    const code = getErrorCode(cause);
     return {
       name: cause.name,
-      message: cause.message,
-      ...(getErrorCode(cause) ? { code: getErrorCode(cause) } : {}),
-      ...(cause.stack ? { stack: cause.stack } : {})
+      message: sanitizeLogString(cause.message),
+      ...(code ? { code } : {}),
+      ...(code && isSqlState(code) ? { sqlState: code } : {}),
+      ...(getErrorField(cause, "detail")
+        ? { detail: getErrorField(cause, "detail") }
+        : {}),
+      ...(getErrorField(cause, "constraint")
+        ? { constraint: getErrorField(cause, "constraint") }
+        : {}),
+      ...(getErrorField(cause, "table")
+        ? { table: getErrorField(cause, "table") }
+        : {}),
+      ...(getErrorField(cause, "column")
+        ? { column: getErrorField(cause, "column") }
+        : {}),
+      ...(getErrorField(cause, "schema")
+        ? { schema: getErrorField(cause, "schema") }
+        : {}),
+      ...(cause.stack ? { stack: sanitizeLogString(cause.stack) } : {}),
+      ...(cause.cause ? { cause: serializeCause(cause.cause) } : {})
     };
   }
 
   if (typeof cause === "string") {
-    return { value: cause };
+    return { value: sanitizeLogString(cause) };
   }
 
   if (cause && typeof cause === "object") {
@@ -241,5 +275,18 @@ function serializeCause(cause: unknown): SerializedErrorCause {
     };
   }
 
-  return { value: String(cause) };
+  return { value: sanitizeLogString(String(cause)) };
+}
+
+function isSqlState(code: string): boolean {
+  return /^[0-9A-Z]{5}$/.test(code);
+}
+
+function sanitizeLogString(value: string): string {
+  return value
+    .replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted-database-url]")
+    .replace(/(password=)[^\s"'&]+/gi, "$1[redacted]")
+    .replace(/(api[_-]?key=)[^\s"'&]+/gi, "$1[redacted]")
+    .replace(/(authorization:\s*bearer\s+)[^\s"']+/gi, "$1[redacted]")
+    .replace(/\nparams: [^\n]*/gi, "\nparams: [redacted]");
 }

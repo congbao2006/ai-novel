@@ -159,7 +159,7 @@ pnpm db:migrate
 pnpm db:status
 ```
 
-`pnpm db:status` should report the same number of applied migrations as migration files and should show `story_factions table: present`.
+`pnpm db:status` should report the same number of applied migrations as migration files, `story_factions table: present`, and `story_factions columns: ok`.
 
 6. For a brand-new beta database, legacy backfills are normally not needed.
 7. For an existing/legacy database:

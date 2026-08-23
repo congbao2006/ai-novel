@@ -95,6 +95,64 @@ describe("StoryAuthoringService", () => {
     expect(validation.issues.map((issue) => issue.field)).toContain("characters");
   });
 
+  it("creates a faction from the API DTO shape used by the authoring form", async () => {
+    const fixture = createAuthoringFixture();
+    const service = new StoryAuthoringService(
+      fixture.repositories,
+      undefined,
+      fixture.transactionRunner
+    );
+    const draft = await service.createDraft(author, {
+      title: "Hắc Nguyệt Thành",
+      genre: "fantasy",
+      description: "Một thành trì nằm dưới bóng trăng đen."
+    });
+
+    const faction = await service.createFaction(author, draft.id, {
+      factionKey: "hac-nguyet-hoi",
+      name: "Hắc Nguyệt Hội",
+      description:
+        "Tổ chức quyền lực bí ẩn kiểm soát phần lớn Hắc Nguyệt Thành.",
+      initialStatus: "active",
+      initialInfluence: 75,
+      resources: { wealth: 80, influence: 90, military: 65 },
+      goals: [
+        "kiem-soat-thanh-pho",
+        "thu-thap-thong-tin",
+        "bao-ve-bi-mat"
+      ]
+    });
+
+    expect(faction).toMatchObject({
+      factionKey: "hac-nguyet-hoi",
+      name: "Hắc Nguyệt Hội",
+      description:
+        "Tổ chức quyền lực bí ẩn kiểm soát phần lớn Hắc Nguyệt Thành.",
+      initialStatus: "active",
+      initialInfluence: 75,
+      resources: { wealth: 80, influence: 90, military: 65 },
+      goals: [
+        "kiem-soat-thanh-pho",
+        "thu-thap-thong-tin",
+        "bao-ve-bi-mat"
+      ],
+      state: {}
+    });
+    expect(fixture.storyFactions[0]).toMatchObject({
+      storyId: draft.id,
+      factionKey: "hac-nguyet-hoi",
+      initialStatus: "active",
+      initialInfluence: 75,
+      resources: { wealth: 80, influence: 90, military: 65 },
+      goals: [
+        "kiem-soat-thanh-pho",
+        "thu-thap-thong-tin",
+        "bao-ve-bi-mat"
+      ],
+      state: {}
+    });
+  });
+
   it("locks runtime-critical content after publish", async () => {
     const fixture = createAuthoringFixture();
     const service = new StoryAuthoringService(fixture.repositories, undefined, fixture.transactionRunner);

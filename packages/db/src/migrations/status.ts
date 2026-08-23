@@ -10,6 +10,33 @@ type DrizzleJournal = {
   }[];
 };
 
+type ExpectedColumn = {
+  readonly name: string;
+  readonly dataType: string;
+  readonly nullable: "YES" | "NO";
+  readonly udtName?: string | undefined;
+};
+
+const expectedStoryFactionColumns = [
+  { name: "id", dataType: "uuid", nullable: "NO" },
+  { name: "story_id", dataType: "uuid", nullable: "NO" },
+  { name: "faction_key", dataType: "text", nullable: "NO" },
+  { name: "name", dataType: "text", nullable: "NO" },
+  { name: "description", dataType: "text", nullable: "NO" },
+  {
+    name: "initial_status",
+    dataType: "USER-DEFINED",
+    nullable: "NO",
+    udtName: "faction_status"
+  },
+  { name: "initial_influence", dataType: "integer", nullable: "NO" },
+  { name: "resources", dataType: "jsonb", nullable: "NO" },
+  { name: "goals", dataType: "jsonb", nullable: "NO" },
+  { name: "state", dataType: "jsonb", nullable: "NO" },
+  { name: "created_at", dataType: "timestamp with time zone", nullable: "NO" },
+  { name: "updated_at", dataType: "timestamp with time zone", nullable: "NO" }
+] satisfies readonly ExpectedColumn[];
+
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
@@ -32,12 +59,18 @@ async function runStatus(connectionString: string): Promise<void> {
     const expectedCount = journal.entries.length;
     const latestExpected = journal.entries.at(-1)?.tag ?? "none";
     const tableStatus = await getSchemaTableStatus(pool);
+    const columnMismatches = await getStoryFactionColumnMismatches(pool);
 
     console.log(`Migration files: ${expectedCount}`);
     console.log(`Applied migrations: ${appliedCount}`);
     console.log(`Latest expected migration: ${latestExpected}`);
     console.log(`story_factions table: ${tableStatus.storyFactions}`);
     console.log(`story_version_factions table: ${tableStatus.storyVersionFactions}`);
+    console.log(
+      `story_factions columns: ${
+        columnMismatches.length === 0 ? "ok" : columnMismatches.join(", ")
+      }`
+    );
 
     if (appliedCount < expectedCount) {
       console.log(
@@ -53,10 +86,64 @@ async function runStatus(connectionString: string): Promise<void> {
       return;
     }
 
-    console.log("Status: migration count matches this checkout");
+    if (columnMismatches.length > 0) {
+      console.log("Status: schema drift detected");
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log("Status: migration count and checked schema match this checkout");
   } finally {
     await pool.end();
   }
+}
+
+async function getStoryFactionColumnMismatches(
+  pool: pg.Pool
+): Promise<string[]> {
+  const result = await pool.query<{
+    column_name: string;
+    data_type: string;
+    is_nullable: "YES" | "NO";
+    udt_name: string;
+  }>(
+    `
+      select column_name, data_type, is_nullable, udt_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'story_factions'
+    `
+  );
+  const columns = new Map(result.rows.map((row) => [row.column_name, row]));
+  const mismatches: string[] = [];
+
+  for (const expected of expectedStoryFactionColumns) {
+    const actual = columns.get(expected.name);
+    if (!actual) {
+      mismatches.push(`${expected.name}:missing`);
+      continue;
+    }
+
+    if (actual.data_type !== expected.dataType) {
+      mismatches.push(
+        `${expected.name}:type=${actual.data_type},expected=${expected.dataType}`
+      );
+    }
+
+    if (actual.is_nullable !== expected.nullable) {
+      mismatches.push(
+        `${expected.name}:nullable=${actual.is_nullable},expected=${expected.nullable}`
+      );
+    }
+
+    if (expected.udtName && actual.udt_name !== expected.udtName) {
+      mismatches.push(
+        `${expected.name}:udt=${actual.udt_name},expected=${expected.udtName}`
+      );
+    }
+  }
+
+  return mismatches;
 }
 
 async function readJournal(): Promise<DrizzleJournal> {

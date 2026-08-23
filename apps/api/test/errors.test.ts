@@ -46,6 +46,49 @@ describe("API error handling", () => {
     });
   });
 
+  it("serializes nested PostgreSQL driver fields safely", () => {
+    const pgCause = Object.assign(new Error("duplicate key value"), {
+      code: "23505",
+      detail:
+        'Key (story_id, faction_key)=(story-1, hac-nguyet-hoi) already exists.',
+      constraint: "story_factions_story_key_unique",
+      table: "story_factions",
+      column: "faction_key",
+      schema: "public"
+    });
+    const drizzleCause = Object.assign(
+      new Error(
+        'Failed query: insert into "story_factions" ...\nparams: secret-token'
+      ),
+      { cause: pgCause }
+    );
+    const error = Object.assign(new Error("Database operation failed."), {
+      cause: drizzleCause
+    });
+
+    const details = getErrorLogDetails(error, {
+      method: "POST",
+      url: "/author/stories/story-1/factions"
+    });
+
+    expect(details.cause).toMatchObject({
+      name: "Error",
+      message: 'Failed query: insert into "story_factions" ...\nparams: [redacted]',
+      cause: {
+        name: "Error",
+        message: "duplicate key value",
+        code: "23505",
+        sqlState: "23505",
+        detail:
+          'Key (story_id, faction_key)=(story-1, hac-nguyet-hoi) already exists.',
+        constraint: "story_factions_story_key_unique",
+        table: "story_factions",
+        column: "faction_key",
+        schema: "public"
+      }
+    });
+  });
+
   it("maps Fastify empty JSON body errors to safe 400 responses", async () => {
     const app = await buildApp({
       config: getServerConfig({

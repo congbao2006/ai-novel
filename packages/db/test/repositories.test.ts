@@ -9,6 +9,7 @@ import {
   DrizzleMemoryRepository,
   DrizzleSemanticMemoryRepository,
   DrizzleSessionSummaryRepository,
+  DrizzleStoryFactionRepository,
   DrizzleWorldSimulationStateRepository,
   StateVersionConflictError,
   ValidationError,
@@ -99,6 +100,66 @@ describe("repository layer", () => {
         metadata: {}
       })
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("passes authored story faction values to the Drizzle insert", async () => {
+    let capturedValues: unknown;
+    const repository = new DrizzleStoryFactionRepository({
+      insert() {
+        return {
+          values(values: unknown) {
+            capturedValues = values;
+            return {
+              async returning() {
+                return [
+                  {
+                    id: "faction-1",
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                    updatedAt: new Date("2026-01-01T00:00:00Z"),
+                    ...(values as Record<string, unknown>)
+                  }
+                ];
+              }
+            };
+          }
+        };
+      }
+    } as unknown as DbExecutor);
+
+    const faction = await repository.create({
+      storyId: "story-1",
+      factionKey: "hac-nguyet-hoi",
+      name: "Hắc Nguyệt Hội",
+      description:
+        "Tổ chức quyền lực bí ẩn kiểm soát phần lớn Hắc Nguyệt Thành.",
+      initialStatus: "active",
+      initialInfluence: 75,
+      resources: { wealth: 80, influence: 90, military: 65 },
+      goals: [
+        "kiem-soat-thanh-pho",
+        "thu-thap-thong-tin",
+        "bao-ve-bi-mat"
+      ],
+      state: {}
+    });
+
+    expect(capturedValues).toEqual({
+      storyId: "story-1",
+      factionKey: "hac-nguyet-hoi",
+      name: "Hắc Nguyệt Hội",
+      description:
+        "Tổ chức quyền lực bí ẩn kiểm soát phần lớn Hắc Nguyệt Thành.",
+      initialStatus: "active",
+      initialInfluence: 75,
+      resources: { wealth: 80, influence: 90, military: 65 },
+      goals: [
+        "kiem-soat-thanh-pho",
+        "thu-thap-thong-tin",
+        "bao-ve-bi-mat"
+      ],
+      state: {}
+    });
+    expect(faction.factionKey).toBe("hac-nguyet-hoi");
   });
 
   it("throws ConflictError when world tick optimistic update affects no rows", async () => {

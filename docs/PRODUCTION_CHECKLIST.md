@@ -21,6 +21,7 @@
 - [ ] `pnpm db:migrate` completed.
 - [ ] `pnpm db:status` completed and reports all migration files applied.
 - [ ] `story_factions table: present`.
+- [ ] `story_factions columns: ok`.
 - [ ] `story_version_factions table: present`.
 - [ ] On Railway, migrations were run as a one-off command: `pnpm db:migrate:prod`.
 - [ ] Managed backups/PITR enabled.
