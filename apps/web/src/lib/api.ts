@@ -186,12 +186,7 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new ApiRequestError(
-      typeof body.message === "string" ? body.message : "Request failed.",
-      response.status,
-      typeof body.error === "string" ? body.error : undefined
-    );
+    throw await createApiRequestError(response);
   }
 
   if (response.status === 204) {
@@ -212,12 +207,7 @@ export async function authRequest<T>(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new ApiRequestError(
-      typeof body.message === "string" ? body.message : "Request failed.",
-      response.status,
-      typeof body.error === "string" ? body.error : undefined
-    );
+    throw await createApiRequestError(response);
   }
 
   if (response.status === 204) {
@@ -230,9 +220,44 @@ export async function authRequest<T>(
 function buildRequestHeaders(init: RequestInit): Headers {
   const headers = new Headers(init.headers);
 
-  if (init.body !== undefined && !headers.has("content-type")) {
+  if (
+    init.body !== undefined &&
+    init.body !== null &&
+    !headers.has("content-type")
+  ) {
     headers.set("content-type", "application/json");
   }
 
   return headers;
+}
+
+async function createApiRequestError(
+  response: Response
+): Promise<ApiRequestError> {
+  const body = await parseErrorBody(response);
+  const message =
+    typeof body.message === "string" && body.message.trim()
+      ? body.message
+      : response.status >= 500
+        ? "Unexpected server error."
+        : "Request failed.";
+
+  return new ApiRequestError(
+    message,
+    response.status,
+    typeof body.error === "string" ? body.error : undefined
+  );
+}
+
+async function parseErrorBody(
+  response: Response
+): Promise<{ readonly error?: unknown; readonly message?: unknown }> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const parsed = (await response.json().catch(() => ({}))) as unknown;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  }
+
+  const text = await response.text().catch(() => "");
+  return text.trim() ? { message: text } : {};
 }
