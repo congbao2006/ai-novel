@@ -170,8 +170,8 @@ Allowed proposal effects are intentionally narrow:
 
 - `location`: non-empty text with length/control-character checks.
 - `playerStats`: only existing numeric stat keys may be updated.
-- `flags`: only safe AI-owned keys such as `aiSceneTone`.
-- `stateData`: only safe AI-owned keys such as `aiLastActionSummary` and `aiSceneSummary`.
+- `flags`: only `aiSceneTone`.
+- `stateData`: only `aiLastActionSummary` and `aiSceneSummary`.
 - `proposedEvents`: at most five validated events; IDs, timestamps, session IDs, and turn numbers are assigned by the server.
 
 Rejected fields include IDs, `userId`, `sessionId`, `version`, `turnCount`, auth fields, timestamps, unknown state keys, non-finite numbers, nested arbitrary JSON, and oversized text.

@@ -626,24 +626,26 @@ export const aiTurnProposalJsonSchema = {
         },
         flags: {
           type: "object",
-          additionalProperties: {
-            anyOf: [
-              { type: "string", maxLength: aiTurnProposalLimits.stateStringMaxLength },
-              { type: "number" },
-              { type: "boolean" },
-              { type: "null" }
-            ]
+          additionalProperties: false,
+          properties: {
+            aiSceneTone: {
+              type: "string",
+              maxLength: aiTurnProposalLimits.stateStringMaxLength
+            }
           }
         },
         stateData: {
           type: "object",
-          additionalProperties: {
-            anyOf: [
-              { type: "string", maxLength: aiTurnProposalLimits.stateStringMaxLength },
-              { type: "number" },
-              { type: "boolean" },
-              { type: "null" }
-            ]
+          additionalProperties: false,
+          properties: {
+            aiLastActionSummary: {
+              type: "string",
+              maxLength: aiTurnProposalLimits.stateStringMaxLength
+            },
+            aiSceneSummary: {
+              type: "string",
+              maxLength: aiTurnProposalLimits.stateStringMaxLength
+            }
           }
         }
       }

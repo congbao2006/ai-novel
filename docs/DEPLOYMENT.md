@@ -183,8 +183,23 @@ Backfills must not run automatically during API startup.
 3. Set Dockerfile path to `apps/api/Dockerfile`.
 4. Do not override the Dockerfile start command unless necessary.
 5. Configure Railway environment variables from the Railway/API matrix above.
-6. Deploy.
-7. Apply database migrations as a one-off Railway command after the deploy has access to production `DATABASE_URL`:
+6. If Railway deploy triggers use watched paths, include every source path that can affect the API image:
+
+```text
+apps/api/**
+packages/**
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+tsconfig.base.json
+```
+
+The API imports shared packages such as `@ai-novel/domain`, `@ai-novel/db`,
+`@ai-novel/config`, and `@ai-novel/ai-engine`; excluding `packages/**` can make
+Railway skip production API deploys for critical shared-code fixes.
+
+7. Deploy.
+8. Apply database migrations as a one-off Railway command after the deploy has access to production `DATABASE_URL`:
 
 ```bash
 railway run --service <api-service-name> pnpm db:migrate:prod
@@ -198,8 +213,8 @@ pnpm db:migrate:prod
 
 Do not put `pnpm db:migrate` in the API start command. Migrations must be an explicit deploy step so startup remains fast, repeatable, and non-destructive.
 
-8. Set Railway healthcheck path to `/ready`.
-9. Verify:
+9. Set Railway healthcheck path to `/ready`.
+10. Verify:
 
 ```bash
 curl https://your-api.up.railway.app/health

@@ -852,6 +852,9 @@ describe("GameplayService", () => {
         proposedStatePatch: {
           location: "Sân trong",
           playerStats: { agility: 8 },
+          flags: {
+            aiSceneTone: "tense"
+          },
           stateData: {
             aiLastActionSummary: "Người chơi tiến vào sân trong."
           }
@@ -885,6 +888,7 @@ describe("GameplayService", () => {
     expect(result.resultMessage.content).toContain("Sân trong");
     expect(states[0]?.location).toBe("Sân trong");
     expect(states[0]?.playerStats).toMatchObject({ agility: 8 });
+    expect(states[0]?.flags).toMatchObject({ aiSceneTone: "tense" });
     expect(states[0]?.stateData).toMatchObject({
       aiLastActionSummary: "Người chơi tiến vào sân trong."
     });
@@ -1353,6 +1357,12 @@ describe("AI turn prompt builder", () => {
     expect(serialized).toContain("ROLLING STORY SUMMARY");
     expect(serialized).toContain("PERSISTENT IMPORTANT MEMORIES");
     expect(serialized).toContain("AUTHORITATIVE CURRENT STATE");
+    expect(serialized).toContain("flags may only include aiSceneTone");
+    expect(serialized).toContain(
+      "stateData may only include aiLastActionSummary and aiSceneSummary"
+    );
+    expect(serialized).toContain("Do not put aiSceneTone under stateData");
+    expect(serialized).not.toContain("summary/tone keys");
     expect(serialized).toContain("message-24");
     expect(serialized).not.toContain("message-0");
     expect(serialized).not.toContain("passwordHash");

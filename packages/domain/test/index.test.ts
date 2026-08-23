@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   domainModuleStatus,
+  aiTurnProposalJsonSchema,
   aiUsagePurposes,
   aiUsageStatuses,
   entityTypes,
@@ -167,6 +168,76 @@ describe("domain package", () => {
       importance: 2,
       payload: { source: "ai" }
     });
+  });
+
+  it("keeps AI scene tone scoped to flags, not stateData", () => {
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Không khí trở nên căng thẳng.",
+          proposedStatePatch: {
+            stateData: { aiSceneTone: "tense" }
+          },
+          proposedEvents: []
+        },
+        context.state
+      )
+    ).toThrow("AI cannot update stateData key: aiSceneTone.");
+
+    expect(() =>
+      validateAITurnProposal(
+        {
+          narrative: "Một nhãn trạng thái không hợp lệ.",
+          proposedStatePatch: {
+            stateData: { arbitraryMood: "tense" }
+          },
+          proposedEvents: []
+        },
+        context.state
+      )
+    ).toThrow("AI cannot update stateData key: arbitraryMood.");
+
+    const result = validateAITurnProposal(
+      {
+        narrative: "Không khí trở nên căng thẳng.",
+        proposedStatePatch: {
+          flags: { aiSceneTone: "tense" }
+        },
+        proposedEvents: []
+      },
+      context.state
+    );
+
+    expect(result.statePatch.flags).toMatchObject({ aiSceneTone: "tense" });
+  });
+
+  it("advertises only validator-accepted AI state keys in the turn schema", () => {
+    const patchSchema = aiTurnProposalJsonSchema.properties
+      .proposedStatePatch as {
+      readonly properties: {
+        readonly flags: {
+          readonly properties: Record<string, unknown>;
+          readonly additionalProperties: boolean;
+        };
+        readonly stateData: {
+          readonly properties: Record<string, unknown>;
+          readonly additionalProperties: boolean;
+        };
+      };
+    };
+
+    expect(patchSchema.properties.flags.additionalProperties).toBe(false);
+    expect(Object.keys(patchSchema.properties.flags.properties)).toEqual([
+      "aiSceneTone"
+    ]);
+    expect(patchSchema.properties.stateData.additionalProperties).toBe(false);
+    expect(Object.keys(patchSchema.properties.stateData.properties)).toEqual([
+      "aiLastActionSummary",
+      "aiSceneSummary"
+    ]);
+    expect(patchSchema.properties.stateData.properties).not.toHaveProperty(
+      "aiSceneTone"
+    );
   });
 
   it("rejects unsafe AI proposal shape and protected state fields", () => {
