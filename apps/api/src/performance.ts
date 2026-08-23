@@ -7,10 +7,6 @@ export type DatabasePoolSnapshot = {
   readonly dbPoolWaiting: number;
 };
 
-export type DatabaseAcquireTiming = DatabasePoolSnapshot & {
-  readonly dbAcquireMs: number;
-};
-
 export function nowMs(): number {
   return performance.now();
 }
@@ -29,26 +25,6 @@ export function getPoolSnapshot(pool: PgPool | undefined): DatabasePoolSnapshot 
     dbPoolIdle: pool.idleCount,
     dbPoolWaiting: pool.waitingCount
   };
-}
-
-export async function measureDatabaseAcquire(
-  pool: PgPool | undefined
-): Promise<DatabaseAcquireTiming | undefined> {
-  if (!pool) {
-    return undefined;
-  }
-
-  const startedAt = performance.now();
-  const client = await pool.connect();
-
-  try {
-    return {
-      ...getPoolSnapshot(pool)!,
-      dbAcquireMs: roundMs(performance.now() - startedAt)
-    };
-  } finally {
-    client.release();
-  }
 }
 
 function roundMs(value: number): number {

@@ -5,7 +5,10 @@ import type {
   GameStateRecord,
   RepositoryContext,
   Repositories,
+  SessionListCharacterRecord,
+  SessionListVersionCharacterRecord,
   StoryCharacterRecord,
+  StoryListItemRecord,
   StoryRecord,
   StoryVersionCharacterRecord,
   StoryVersionRecord
@@ -345,11 +348,11 @@ export type SessionListTimings = {
 
 type SessionListReferences = {
   readonly session: GameSessionRecord;
-  readonly story: StoryRecord;
-  readonly storyVersion: StoryVersionRecord | null;
-  readonly versionCharacter: StoryVersionCharacterRecord | null;
-  readonly legacyCharacter: StoryCharacterRecord | null;
-  readonly currentState: GameStateRecord | null;
+  readonly story: StoryListItemRecord;
+  readonly storyVersion: Pick<StoryVersionRecord, "id" | "versionNumber"> | null;
+  readonly versionCharacter: SessionListVersionCharacterRecord | null;
+  readonly legacyCharacter: SessionListCharacterRecord | null;
+  readonly currentState: Pick<GameStateRecord, "location"> | null;
 };
 
 async function loadSessionListReferences(

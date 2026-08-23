@@ -5,8 +5,10 @@ import type {
   FactionRecord,
   InventoryItemRecord,
   QuestRecord,
+  SessionListCharacterRecord,
+  SessionListVersionCharacterRecord,
   StoryCharacterRecord,
-  StoryRecord,
+  StoryListItemRecord,
   StoryVersionCharacterRecord,
   StoryVersionRecord,
   WorldEventRecord
@@ -142,10 +144,15 @@ export type FactionListResponseDto = {
 
 export function toSessionListItemDto(input: {
   readonly session: GameSessionRecord;
-  readonly story: StoryRecord;
-  readonly character: StoryCharacterRecord | StoryVersionCharacterRecord | null;
-  readonly storyVersion?: StoryVersionRecord | null;
-  readonly currentState?: GameStateRecord | null;
+  readonly story: StoryListItemRecord;
+  readonly character:
+    | StoryCharacterRecord
+    | StoryVersionCharacterRecord
+    | SessionListCharacterRecord
+    | SessionListVersionCharacterRecord
+    | null;
+  readonly storyVersion?: Pick<StoryVersionRecord, "id" | "versionNumber"> | null;
+  readonly currentState?: Pick<GameStateRecord, "location"> | null;
 }): SessionListItemDto {
   return {
     id: input.session.id,

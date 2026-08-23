@@ -2,9 +2,8 @@ import type { FastifyRequest } from "fastify";
 import {
   elapsedMs,
   getPoolSnapshot,
-  measureDatabaseAcquire,
   nowMs,
-  type DatabaseAcquireTiming
+  type DatabasePoolSnapshot
 } from "../../performance.js";
 import { AuthUnavailableError, UnauthenticatedError } from "./errors.js";
 import { getAuthCookie } from "./cookies.js";
@@ -21,7 +20,7 @@ declare module "fastify" {
 export type AuthRequestPerformance = AuthLookupTimings & {
   readonly tokenParseMs: number;
   readonly authTotalMs: number;
-  readonly dbAcquireProbe?: DatabaseAcquireTiming;
+  readonly dbPoolSnapshot?: DatabasePoolSnapshot;
 };
 
 export async function requireUser(
@@ -42,8 +41,8 @@ export async function requireUser(
   const token = getAuthCookie(request, config.auth.cookieName);
   const tokenParseMs = elapsedMs(tokenParseStartedAt);
   const shouldProfile = shouldProfileAuthRoute(request);
-  const dbAcquireProbe = shouldProfile && token
-    ? await measureDatabaseAcquire(request.server.dependencies.databasePool)
+  const dbPoolSnapshot = shouldProfile
+    ? getPoolSnapshot(request.server.dependencies.databasePool)
     : undefined;
   const timings: AuthLookupTimings = {};
   const startedAt = nowMs();
@@ -53,7 +52,7 @@ export async function requireUser(
     ...timings,
     tokenParseMs,
     authTotalMs: latencyMs,
-    ...(dbAcquireProbe ? { dbAcquireProbe } : {})
+    ...(dbPoolSnapshot ? { dbPoolSnapshot } : {})
   };
 
   if (latencyMs > 250) {
@@ -68,9 +67,7 @@ export async function requireUser(
         userSessionQueryMs: timings.userSessionQueryMs,
         touchLastUsedAtMs: timings.touchLastUsedAtMs,
         touchedSession: timings.touchedSession,
-        ...(dbAcquireProbe
-          ? dbAcquireProbe
-          : getPoolSnapshot(request.server.dependencies.databasePool))
+        ...(dbPoolSnapshot ?? getPoolSnapshot(request.server.dependencies.databasePool))
       },
       "auth lookup timing"
     );

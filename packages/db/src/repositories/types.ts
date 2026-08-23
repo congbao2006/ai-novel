@@ -110,6 +110,14 @@ export type StoryListItemRecord = Pick<
   "id" | "title" | "slug" | "description" | "genre"
 >;
 export type StoryCharacterRecord = StoryCharacter;
+export type SessionListCharacterRecord = Pick<
+  StoryCharacter,
+  "id" | "name" | "description" | "background" | "initialStats"
+>;
+export type SessionListVersionCharacterRecord = Pick<
+  StoryVersionCharacter,
+  "id" | "name" | "description" | "background" | "initialStats"
+>;
 export type StoryAbilityRecord = StoryAbility;
 export type StoryCharacterAbilityRecord = StoryCharacterAbility;
 export type CreateStoryInput = Omit<NewStory, "id" | "createdAt" | "updatedAt">;
@@ -204,11 +212,11 @@ export type StoryListPageInput = {
 export type GameSessionRecord = GameSession;
 export type SessionListReferenceRecord = {
   readonly session: GameSessionRecord;
-  readonly story: StoryRecord;
-  readonly storyVersion: StoryVersionRecord | null;
-  readonly versionCharacter: StoryVersionCharacterRecord | null;
-  readonly legacyCharacter: StoryCharacterRecord | null;
-  readonly currentState: GameStateRecord | null;
+  readonly story: StoryListItemRecord;
+  readonly storyVersion: Pick<StoryVersionRecord, "id" | "versionNumber"> | null;
+  readonly versionCharacter: SessionListVersionCharacterRecord | null;
+  readonly legacyCharacter: SessionListCharacterRecord | null;
+  readonly currentState: Pick<GameStateRecord, "location"> | null;
 };
 export type CreateSessionInput = Pick<
   NewGameSession,

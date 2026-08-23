@@ -182,6 +182,39 @@ const publicUserColumns = {
   updatedAt: users.updatedAt
 };
 
+const storyListItemColumns = {
+  id: stories.id,
+  title: stories.title,
+  slug: stories.slug,
+  description: stories.description,
+  genre: stories.genre
+};
+
+const sessionListVersionColumns = {
+  id: storyVersions.id,
+  versionNumber: storyVersions.versionNumber
+};
+
+const sessionListVersionCharacterColumns = {
+  id: storyVersionCharacters.id,
+  name: storyVersionCharacters.name,
+  description: storyVersionCharacters.description,
+  background: storyVersionCharacters.background,
+  initialStats: storyVersionCharacters.initialStats
+};
+
+const sessionListLegacyCharacterColumns = {
+  id: storyCharacters.id,
+  name: storyCharacters.name,
+  description: storyCharacters.description,
+  background: storyCharacters.background,
+  initialStats: storyCharacters.initialStats
+};
+
+const sessionListStateColumns = {
+  location: gameStates.location
+};
+
 const memoryEmbeddingPublicColumns = {
   id: memoryEmbeddings.id,
   memoryId: memoryEmbeddings.memoryId,
@@ -342,11 +375,18 @@ export class DrizzleAuthSessionRepository
   }
 
   async touchLastUsedAt(sessionId: string, now = new Date()): Promise<void> {
+    const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
+
     await this.run(async () => {
       await this.db
         .update(authSessions)
         .set({ lastUsedAt: now })
-        .where(eq(authSessions.id, sessionId));
+        .where(
+          and(
+            eq(authSessions.id, sessionId),
+            lte(authSessions.lastUsedAt, staleBefore)
+          )
+        );
     });
   }
 }
@@ -452,13 +492,7 @@ export class DrizzleStoryRepository
 
     return this.run(async () =>
       this.db
-        .select({
-          id: stories.id,
-          title: stories.title,
-          slug: stories.slug,
-          description: stories.description,
-          genre: stories.genre
-        })
+        .select(storyListItemColumns)
         .from(stories)
         .where(and(...predicates))
         .orderBy(stories.createdAt, stories.id)
@@ -1269,11 +1303,11 @@ export class DrizzleGameSessionRepository
       this.db
         .select({
           session: gameSessions,
-          story: stories,
-          storyVersion: storyVersions,
-          versionCharacter: storyVersionCharacters,
-          legacyCharacter: storyCharacters,
-          currentState: gameStates
+          story: storyListItemColumns,
+          storyVersion: sessionListVersionColumns,
+          versionCharacter: sessionListVersionCharacterColumns,
+          legacyCharacter: sessionListLegacyCharacterColumns,
+          currentState: sessionListStateColumns
         })
         .from(gameSessions)
         .innerJoin(stories, eq(stories.id, gameSessions.storyId))

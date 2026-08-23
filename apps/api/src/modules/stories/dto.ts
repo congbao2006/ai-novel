@@ -1,4 +1,6 @@
 import type {
+  SessionListCharacterRecord,
+  SessionListVersionCharacterRecord,
   StoryCharacterRecord,
   StoryListItemRecord,
   StoryVersionCharacterRecord
@@ -44,7 +46,11 @@ export function toStoryListItemDto(story: StoryListItemRecord): StoryListItemDto
 }
 
 export function toStoryCharacterDto(
-  character: StoryCharacterRecord | StoryVersionCharacterRecord
+  character:
+    | StoryCharacterRecord
+    | StoryVersionCharacterRecord
+    | SessionListCharacterRecord
+    | SessionListVersionCharacterRecord
 ): StoryCharacterDto {
   return {
     id: character.id,
