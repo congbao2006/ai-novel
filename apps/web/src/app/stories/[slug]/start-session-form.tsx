@@ -1,12 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   authRequest,
+  type SessionListItem,
   type SessionDetail,
   type StoryCharacter
 } from "../../../lib/api";
+import {
+  formatSessionResumeLabel,
+  getResumeSessionsForStory
+} from "../../../lib/session-resume";
 
 type StartSessionFormProps = {
   readonly storyId: string;
@@ -25,6 +30,30 @@ export function StartSessionForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [resumeSessions, setResumeSessions] = useState<SessionListItem[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    authRequest<{ sessions: SessionListItem[] }>("/sessions")
+      .then((result) => {
+        if (!active) return;
+        setResumeSessions(getResumeSessionsForStory(result.sessions, storyId));
+      })
+      .catch(() => {
+        if (!active) return;
+        setResumeSessions([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setSessionsLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [storyId]);
 
   async function startSession() {
     setError(null);
@@ -58,7 +87,55 @@ export function StartSessionForm({
 
   return (
     <div className="mt-8">
+      <section className="surface-card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold">Tiếp tục</h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Mở lại run đã lưu của story này.
+            </p>
+          </div>
+          <a className="auth-link" href="/sessions">
+            My Sessions
+          </a>
+        </div>
+
+        {!sessionsLoaded ? (
+          <p className="mt-4 text-sm text-[var(--muted)]">
+            Đang kiểm tra session đã lưu...
+          </p>
+        ) : null}
+
+        {sessionsLoaded && resumeSessions.length > 0 ? (
+          <div className="mt-4 grid gap-3">
+            {resumeSessions.map((session) => (
+              <button
+                className="rounded border border-[var(--border)] px-4 py-3 text-left hover:border-[var(--accent)]"
+                key={session.id}
+                onClick={() => router.push(`/play/${session.id}`)}
+                type="button"
+              >
+                <span className="block font-medium">Tiếp tục</span>
+                <span className="mt-1 block text-sm text-[var(--muted)]">
+                  {formatSessionResumeLabel(session)}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {sessionsLoaded && resumeSessions.length === 0 ? (
+          <p className="mt-4 text-sm text-[var(--muted)]">
+            Chưa có run active nào cho story này.
+          </p>
+        ) : null}
+      </section>
+
       <h2 className="text-xl font-semibold">Chọn nhân vật</h2>
+      <p className="mt-2 text-sm text-[var(--muted)]">
+        Chọn nhân vật chỉ dành cho run mới. Run cũ luôn nằm ở phần Tiếp tục hoặc
+        My Sessions.
+      </p>
       <div className="choice-list mt-4">
         {characters.map((character) => (
           <label key={character.id}>
@@ -88,7 +165,7 @@ export function StartSessionForm({
         onClick={startSession}
         type="button"
       >
-        {loading ? "Đang tạo..." : "Bắt đầu session"}
+        {loading ? "Đang tạo..." : "Chơi lại / New run"}
       </button>
     </div>
   );

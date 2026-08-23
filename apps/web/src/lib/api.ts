@@ -175,6 +175,31 @@ export type FactionListResponse = {
   readonly factions: Faction[];
 };
 
+export type Quest = {
+  readonly questKey: string;
+  readonly title: string;
+  readonly description: string;
+  readonly status: string;
+  readonly progress: Record<string, unknown>;
+  readonly updatedAt: string;
+};
+
+export type QuestListResponse = {
+  readonly quests: Quest[];
+};
+
+export type InventoryItem = {
+  readonly itemKey: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly quantity: number;
+  readonly metadata: Record<string, unknown>;
+};
+
+export type InventoryResponse = {
+  readonly items: InventoryItem[];
+};
+
 export type SessionDetail = SessionListItem & {
   readonly currentState: GameState | null;
   readonly recentMessages: GameMessage[];

@@ -46,6 +46,7 @@ import { BudgetService } from "../src/modules/ai/budget-service.js";
 import { GameplayService } from "../src/modules/sessions/gameplay-service.js";
 import { buildAITurnGenerationRequest } from "../src/modules/sessions/ai-turn-prompt.js";
 import type { NPCReactionService } from "../src/modules/sessions/npc-reaction-service.js";
+import { SessionService } from "../src/modules/sessions/service.js";
 
 const user = {
   userId: "11111111-1111-4111-8111-111111111111",
@@ -720,6 +721,37 @@ describe("GameplayService", () => {
     expect(sessions[0]?.lastPlayedAt.toISOString()).toBe(
       "2026-01-02T00:02:00.000Z"
     );
+  });
+
+  it("reloads the same session with persisted turn history and state", async () => {
+    const { repositories, transactionRunner } = createFixture();
+    const gameplayService = new GameplayService(
+      repositories,
+      undefined,
+      transactionRunner
+    );
+    const sessionService = new SessionService(repositories);
+
+    await gameplayService.submitTurn(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002",
+      { action: "đi Chợ Đông" }
+    );
+
+    const reloaded = await sessionService.getSession(
+      user,
+      "550e8400-e29b-41d4-a716-446655440002"
+    );
+
+    expect(reloaded.id).toBe("550e8400-e29b-41d4-a716-446655440002");
+    expect(reloaded.turnCount).toBe(1);
+    expect(reloaded.currentState?.location).toBe("Chợ Đông");
+    expect(reloaded.currentState?.version).toBe(2);
+    expect(reloaded.recentMessages).toHaveLength(2);
+    expect(reloaded.recentMessages.map((message) => message.role)).toEqual([
+      "player",
+      "assistant"
+    ]);
   });
 
   it("moves location and creates a movement world event", async () => {

@@ -305,7 +305,10 @@ function createRepositoriesFixture(options: {
     },
     gameSessions: {
       async create(input: CreateSessionInput) {
-        const session = createSessionRecord(input);
+        const session = createSessionRecord(
+          input,
+          `550e8400-e29b-41d4-a716-${String(446655440200 + sessions.length).padStart(12, "0")}`
+        );
         sessions.push(session);
         return session;
       },
@@ -601,6 +604,33 @@ describe("SessionService", () => {
     await expect(service.listSessions(otherUser)).resolves.toEqual({
       sessions: []
     });
+  });
+
+  it("creates a distinct new run without overwriting an existing session", async () => {
+    const { repositories, sessions, states } = createRepositoriesFixture({
+      ownerUserId: user.userId
+    });
+    const service = new SessionService(
+      repositories,
+      undefined,
+      createTransactionRunner(repositories)
+    );
+    const existingSessionId = "550e8400-e29b-41d4-a716-446655440099";
+
+    const result = await service.createSession(user, {
+      storyId: publishedStory.id,
+      characterId: versionCharacter.id
+    });
+    const listed = await service.listSessions(user);
+
+    expect(result.session.id).not.toBe(existingSessionId);
+    expect(sessions.map((session) => session.id)).toContain(existingSessionId);
+    expect(sessions.map((session) => session.id)).toContain(result.session.id);
+    expect(states.map((state) => state.sessionId)).toContain(existingSessionId);
+    expect(states.map((state) => state.sessionId)).toContain(result.session.id);
+    expect(listed.sessions.map((session) => session.id).sort()).toEqual(
+      [existingSessionId, result.session.id].sort()
+    );
   });
 
   it("does not mutate character template stats when building initial state", () => {

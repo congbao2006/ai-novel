@@ -11,6 +11,10 @@ import {
   type FactionListResponse,
   type GameMessage,
   type GameplayTurnResponse,
+  type InventoryItem,
+  type InventoryResponse,
+  type Quest,
+  type QuestListResponse,
   type SessionDetail
 } from "../../../lib/api";
 
@@ -24,6 +28,8 @@ export default function PlayShellPage() {
   const [submitting, setSubmitting] = useState(false);
   const [consequences, setConsequences] = useState<ConsequenceSummary[]>([]);
   const [factions, setFactions] = useState<Faction[]>([]);
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
 
   useEffect(() => {
     if (!params.sessionId) {
@@ -43,10 +49,14 @@ export default function PlayShellPage() {
       );
       setSession(result);
       setMessages(result.recentMessages);
-      const factionResult = await authRequest<FactionListResponse>(
-        `/sessions/${params.sessionId}/factions`
-      );
+      const [factionResult, questResult, inventoryResult] = await Promise.all([
+        authRequest<FactionListResponse>(`/sessions/${params.sessionId}/factions`),
+        authRequest<QuestListResponse>(`/sessions/${params.sessionId}/quests`),
+        authRequest<InventoryResponse>(`/sessions/${params.sessionId}/inventory`)
+      ]);
       setFactions(factionResult.factions);
+      setQuests(questResult.quests);
+      setInventory(inventoryResult.items);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Request failed.");
     } finally {
@@ -74,7 +84,7 @@ export default function PlayShellPage() {
         result.resultMessage
       ]);
       setConsequences([...(result.consequences ?? [])]);
-      void refreshFactions();
+      void refreshRuntimePanels();
       setSession((current) =>
         current
           ? {
@@ -92,14 +102,18 @@ export default function PlayShellPage() {
     }
   }
 
-  async function refreshFactions() {
+  async function refreshRuntimePanels() {
     try {
-      const factionResult = await authRequest<FactionListResponse>(
-        `/sessions/${params.sessionId}/factions`
-      );
+      const [factionResult, questResult, inventoryResult] = await Promise.all([
+        authRequest<FactionListResponse>(`/sessions/${params.sessionId}/factions`),
+        authRequest<QuestListResponse>(`/sessions/${params.sessionId}/quests`),
+        authRequest<InventoryResponse>(`/sessions/${params.sessionId}/inventory`)
+      ]);
       setFactions(factionResult.factions);
+      setQuests(questResult.quests);
+      setInventory(inventoryResult.items);
     } catch {
-      // Faction display is supplemental; gameplay UI should remain usable.
+      // Runtime side panels are supplemental; gameplay UI should remain usable.
     }
   }
 
@@ -172,6 +186,45 @@ export default function PlayShellPage() {
                       </div>
                       <p className="mt-2 text-sm text-[var(--muted)]">
                         Ảnh hưởng {faction.influence}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {quests.length > 0 ? (
+              <section className="mt-6">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                  Nhiệm vụ
+                </h2>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {quests.map((quest) => (
+                    <article className="surface-card" key={quest.questKey}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{quest.title}</p>
+                        <span className="status-pill">{quest.status}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        {quest.description}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {inventory.length > 0 ? (
+              <section className="mt-6">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                  Túi đồ
+                </h2>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  {inventory.map((item) => (
+                    <article className="surface-card" key={item.itemKey}>
+                      <p className="text-sm font-semibold">{item.name}</p>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        Số lượng {item.quantity}
                       </p>
                     </article>
                   ))}
