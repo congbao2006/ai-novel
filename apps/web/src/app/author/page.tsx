@@ -10,6 +10,7 @@ import {
 
 export default function AuthorDashboardPage() {
   const [stories, setStories] = useState<readonly AuthorStorySummary[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -17,39 +18,82 @@ export default function AuthorDashboardPage() {
       .then((result) => setStories(result.stories))
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : "Không tải được truyện.")
-      );
+      )
+      .finally(() => setLoaded(true));
   }, []);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-6 py-8">
-      <header className="flex items-center justify-between gap-4">
+    <main className="page-shell page-shell-wide">
+      <header className="page-header">
         <div>
-          <h1 className="text-3xl font-semibold">Authoring</h1>
-          <p className="text-sm text-zinc-600">Quản lý draft, published và archived stories.</p>
+          <p className="kicker">Creator Studio</p>
+          <h1 className="page-title">My Stories</h1>
+          <p className="page-description mt-4">
+            Manage drafts, revisions, versions, characters, abilities, and faction
+            templates before publishing playable worlds.
+          </p>
         </div>
-        <Link className="rounded bg-zinc-900 px-4 py-2 text-white" href="/author/stories/new">
-          Tạo story
+        <Link className="btn" href="/author/stories/new">
+          Create Story
         </Link>
       </header>
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <div className="panel alert-error">{error}</div> : null}
+      {!loaded ? <p className="text-sm text-[var(--muted)]">Loading studio...</p> : null}
 
-      <section className="grid gap-3">
-        {stories.map((story) => (
-          <Link
-            className="rounded border border-zinc-200 p-4 hover:border-zinc-400"
-            href={`/author/stories/${story.id}`}
-            key={story.id}
-          >
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-medium">{story.title}</h2>
-              <span className="text-sm text-zinc-600">
-                {story.status}
-                {story.currentPublishedVersionId ? " · live" : ""}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-zinc-600">{story.genre}</p>
+      {loaded && stories.length === 0 ? (
+        <div className="panel">
+          <p className="font-semibold">No stories yet.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Start with a draft, add playable characters, abilities, factions, then
+            validate and publish.
+          </p>
+          <Link className="btn mt-4" href="/author/stories/new">
+            Create First Story
           </Link>
+        </div>
+      ) : null}
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        {stories.map((story) => (
+          <article className="card" key={story.id}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="badge badge-gold">{story.genre}</p>
+                <h2 className="mt-3 text-2xl font-semibold">{story.title}</h2>
+                <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">
+                  {story.description}
+                </p>
+              </div>
+              <span className="badge">{story.status}</span>
+            </div>
+            <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase tracking-[0.12em] text-[var(--muted-2)]">
+                  Live Version
+                </dt>
+                <dd className="mt-1 font-semibold">
+                  {story.currentPublishedVersionId ? "Published" : "Not live"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-[0.12em] text-[var(--muted-2)]">
+                  Updated
+                </dt>
+                <dd className="mt-1 font-semibold">
+                  {new Date(story.updatedAt).toLocaleString()}
+                </dd>
+              </div>
+            </dl>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Link className="btn" href={`/author/stories/${story.id}`}>
+                Edit
+              </Link>
+              <Link className="btn btn-secondary" href={`/stories/${story.slug}`}>
+                Preview
+              </Link>
+            </div>
+          </article>
         ))}
       </section>
     </main>

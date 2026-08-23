@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { AuthorAbilitySection } from "../../../../components/author-ability-section";
 import {
   ApiRequestError,
   authRequest,
@@ -13,7 +15,7 @@ import {
   formatValidationIssue,
   getValidationIssueSummary
 } from "../../../../lib/authoring-validation";
-import { AuthorAbilitySection } from "../../../../components/author-ability-section";
+import { authorEditorSections } from "../../../../lib/product-navigation";
 
 export default function EditStoryPage({
   params
@@ -30,7 +32,9 @@ export default function EditStoryPage({
   const [isWorking, setIsWorking] = useState(false);
 
   useEffect(() => {
-    params.then((value) => setStoryId(value.id)).catch(() => setError("URL không hợp lệ."));
+    params
+      .then((value) => setStoryId(value.id))
+      .catch(() => setError("URL không hợp lệ."));
   }, [params]);
 
   useEffect(() => {
@@ -42,76 +46,97 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      const updated = await authRequest<AuthorStoryDetail>(`/author/stories/${storyId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          title: form.get("title"),
-          slug: form.get("slug"),
-          genre: form.get("genre"),
-          description: form.get("description"),
-          worldPrompt: form.get("worldPrompt"),
-          openingPrompt: form.get("openingPrompt"),
-          settings: {
-            initialLocation: form.get("initialLocation"),
-            initialWorldTime: form.get("initialWorldTime")
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const updated = await authRequest<AuthorStoryDetail>(
+          `/author/stories/${storyId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              title: form.get("title"),
+              slug: form.get("slug"),
+              genre: form.get("genre"),
+              description: form.get("description"),
+              worldPrompt: form.get("worldPrompt"),
+              openingPrompt: form.get("openingPrompt"),
+              settings: {
+                initialLocation: form.get("initialLocation"),
+                initialWorldTime: form.get("initialWorldTime")
+              }
+            })
           }
-        })
-      });
-      setStory(updated);
-    });
+        );
+        setStory(updated);
+      }
+    );
   }
 
   async function addCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      await authRequest(`/author/stories/${storyId}/characters`, {
-        method: "POST",
-        body: JSON.stringify({
-          type: form.get("type"),
-          name: form.get("name"),
-          description: form.get("description"),
-          personality: form.get("personality"),
-          background: form.get("background"),
-          initialLocation: form.get("initialLocation") || null,
-          initialStats: parseJsonObject(String(form.get("initialStats") || "{}")),
-          goals: parseJsonArray(String(form.get("goals") || "[]")),
-          secrets: parseJsonObject(String(form.get("secrets") || "{}"))
-        })
-      });
-      await loadStory(storyId, setStory, setError);
-      event.currentTarget.reset();
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        await authRequest(`/author/stories/${storyId}/characters`, {
+          method: "POST",
+          body: JSON.stringify({
+            type: form.get("type"),
+            name: form.get("name"),
+            description: form.get("description"),
+            personality: form.get("personality"),
+            background: form.get("background"),
+            initialLocation: form.get("initialLocation") || null,
+            initialStats: parseJsonObject(String(form.get("initialStats") || "{}")),
+            goals: parseJsonArray(String(form.get("goals") || "[]")),
+            secrets: parseJsonObject(String(form.get("secrets") || "{}"))
+          })
+        });
+        await loadStory(storyId, setStory, setError);
+        event.currentTarget.reset();
+      }
+    );
   }
 
   async function addAbility(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      const editableStory = await ensureEditableStory();
-      if (!editableStory) return;
-      const resourceStatKey = String(form.get("resourceStatKey") ?? "").trim();
-      const resourceAmount = Number(form.get("resourceAmount") || 0);
-      await authRequest(`/author/stories/${editableStory.id}/abilities`, {
-        method: "POST",
-        body: JSON.stringify({
-          abilityKey: form.get("abilityKey"),
-          name: form.get("name"),
-          description: form.get("description"),
-          category: form.get("category"),
-          rank: Number(form.get("rank") || 1),
-          cooldownTurns: Number(form.get("cooldownTurns") || 0),
-          resourceCost: resourceStatKey
-            ? { statKey: resourceStatKey, amount: resourceAmount }
-            : null
-        })
-      });
-      await loadStory(editableStory.id, setStory, setError);
-      event.currentTarget.reset();
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const editableStory = await ensureEditableStory();
+        if (!editableStory) return;
+        const resourceStatKey = String(form.get("resourceStatKey") ?? "").trim();
+        const resourceAmount = Number(form.get("resourceAmount") || 0);
+        await authRequest(`/author/stories/${editableStory.id}/abilities`, {
+          method: "POST",
+          body: JSON.stringify({
+            abilityKey: form.get("abilityKey"),
+            name: form.get("name"),
+            description: form.get("description"),
+            category: form.get("category"),
+            rank: Number(form.get("rank") || 1),
+            cooldownTurns: Number(form.get("cooldownTurns") || 0),
+            resourceCost: resourceStatKey
+              ? { statKey: resourceStatKey, amount: resourceAmount }
+              : null
+          })
+        });
+        await loadStory(editableStory.id, setStory, setError);
+        event.currentTarget.reset();
+      }
+    );
   }
 
   async function assignAbility(event: FormEvent<HTMLFormElement>) {
@@ -119,107 +144,143 @@ export default function EditStoryPage({
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
     const characterId = String(form.get("characterId") ?? "");
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      const editableStory = await ensureEditableStory();
-      if (!editableStory) return;
-      await authRequest(
-        `/author/stories/${editableStory.id}/characters/${characterId}/abilities`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            abilityId: form.get("abilityId"),
-            rank: Number(form.get("rank") || 1)
-          })
-        }
-      );
-      await loadStory(editableStory.id, setStory, setError);
-      event.currentTarget.reset();
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const editableStory = await ensureEditableStory();
+        if (!editableStory) return;
+        await authRequest(
+          `/author/stories/${editableStory.id}/characters/${characterId}/abilities`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              abilityId: form.get("abilityId"),
+              rank: Number(form.get("rank") || 1)
+            })
+          }
+        );
+        await loadStory(editableStory.id, setStory, setError);
+        event.currentTarget.reset();
+      }
+    );
   }
 
   async function deleteAbility(abilityId: string) {
     if (!storyId) return;
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      const editableStory = await ensureEditableStory();
-      if (!editableStory) return;
-      await authRequest(`/author/stories/${editableStory.id}/abilities/${abilityId}`, {
-        method: "DELETE"
-      });
-      await loadStory(editableStory.id, setStory, setError);
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const editableStory = await ensureEditableStory();
+        if (!editableStory) return;
+        await authRequest(`/author/stories/${editableStory.id}/abilities/${abilityId}`, {
+          method: "DELETE"
+        });
+        await loadStory(editableStory.id, setStory, setError);
+      }
+    );
   }
 
   async function unassignAbility(characterId: string, abilityId: string) {
     if (!storyId) return;
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      const editableStory = await ensureEditableStory();
-      if (!editableStory) return;
-      await authRequest(
-        `/author/stories/${editableStory.id}/characters/${characterId}/abilities/${abilityId}`,
-        { method: "DELETE" }
-      );
-      await loadStory(editableStory.id, setStory, setError);
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const editableStory = await ensureEditableStory();
+        if (!editableStory) return;
+        await authRequest(
+          `/author/stories/${editableStory.id}/characters/${characterId}/abilities/${abilityId}`,
+          { method: "DELETE" }
+        );
+        await loadStory(editableStory.id, setStory, setError);
+      }
+    );
   }
 
   async function addFaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      await authRequest(`/author/stories/${storyId}/factions`, {
-        method: "POST",
-        body: JSON.stringify({
-          factionKey: form.get("factionKey"),
-          name: form.get("name"),
-          description: form.get("description"),
-          initialInfluence: Number(form.get("initialInfluence") || 50),
-          initialStatus: form.get("initialStatus"),
-          resources: parseJsonObject(String(form.get("resources") || "{}")),
-          goals: parseJsonArray(String(form.get("goals") || "[]"))
-        })
-      });
-      await loadStory(storyId, setStory, setError);
-      event.currentTarget.reset();
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        await authRequest(`/author/stories/${storyId}/factions`, {
+          method: "POST",
+          body: JSON.stringify({
+            factionKey: form.get("factionKey"),
+            name: form.get("name"),
+            description: form.get("description"),
+            initialInfluence: Number(form.get("initialInfluence") || 50),
+            initialStatus: form.get("initialStatus"),
+            resources: parseJsonObject(String(form.get("resources") || "{}")),
+            goals: parseJsonArray(String(form.get("goals") || "[]"))
+          })
+        });
+        await loadStory(storyId, setStory, setError);
+        event.currentTarget.reset();
+      }
+    );
   }
 
   async function validateOrPublish(path: "validate" | "publish" | "archive") {
     if (!storyId) return;
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      if (path === "validate" || path === "publish") {
-        const validation = await authRequest<PublishValidationResponse>(
-          `/author/stories/${storyId}/validate`,
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        if (path === "validate" || path === "publish") {
+          const validation = await authRequest<PublishValidationResponse>(
+            `/author/stories/${storyId}/validate`,
+            { method: "POST" }
+          );
+          setValidationIssues(validation.issues);
+          if (!validation.valid) {
+            return getValidationIssueSummary(false, validation.issues);
+          }
+        }
+
+        const result = await authRequest<AuthorStoryDetail | PublishValidationResponse>(
+          `/author/stories/${storyId}/${path}`,
           { method: "POST" }
         );
-        setValidationIssues(validation.issues);
-        if (!validation.valid) {
-          return getValidationIssueSummary(false, validation.issues);
+        if ("valid" in result) {
+          setValidationIssues(result.issues);
+          return getValidationIssueSummary(result.valid, result.issues);
         }
+        setStory(result);
+        return path === "publish" ? "Story đã publish." : "Đã lưu.";
       }
-
-      const result = await authRequest<AuthorStoryDetail | PublishValidationResponse>(
-        `/author/stories/${storyId}/${path}`,
-        { method: "POST" }
-      );
-      if ("valid" in result) {
-        setValidationIssues(result.issues);
-        return getValidationIssueSummary(result.valid, result.issues);
-      }
-      setStory(result);
-      return path === "publish" ? "Story đã publish." : "Đã lưu.";
-    });
+    );
   }
 
   async function createRevision() {
     if (!storyId) return;
-    await runAction(setError, setMessage, setValidationIssues, setIsWorking, async () => {
-      const updated = await authRequest<AuthorStoryDetail>(
-        `/author/stories/${storyId}/revisions`,
-        { method: "POST" }
-      );
-      setStory(updated);
-    });
+    await runAction(
+      setError,
+      setMessage,
+      setValidationIssues,
+      setIsWorking,
+      async () => {
+        const updated = await authRequest<AuthorStoryDetail>(
+          `/author/stories/${storyId}/revisions`,
+          { method: "POST" }
+        );
+        setStory(updated);
+      }
+    );
   }
 
   async function ensureEditableStory(): Promise<AuthorStoryDetail | null> {
@@ -235,8 +296,8 @@ export default function EditStoryPage({
 
   if (!story) {
     return (
-      <main className="mx-auto min-h-screen max-w-4xl px-6 py-8">
-        <p>{error ?? "Đang tải..."}</p>
+      <main className="page-shell">
+        <div className="panel">{error ?? "Đang tải story editor..."}</div>
       </main>
     );
   }
@@ -245,173 +306,457 @@ export default function EditStoryPage({
   const settings = story.settings;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-8 px-6 py-8">
-      <header>
-        <h1 className="text-3xl font-semibold">{story.title}</h1>
-        <p className="text-sm text-zinc-600">
-          Status: {story.status}
-          {story.currentPublishedVersionNumber
-            ? ` · Live v${story.currentPublishedVersionNumber}`
-            : ""}
-        </p>
+    <main className="page-shell page-shell-wide">
+      <header className="page-header">
+        <div>
+          <p className="kicker">Story Editor</p>
+          <h1 className="page-title">{story.title}</h1>
+          <p className="page-description mt-3">
+            Templates define initial conditions. Runtime sessions keep their own
+            authoritative state and pinned story version.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn btn-secondary" href="/author">
+            Creator Studio
+          </Link>
+          <Link className="btn btn-secondary" href={`/stories/${story.slug}`}>
+            Public Preview
+          </Link>
+        </div>
       </header>
 
-      {error ? <p className="whitespace-pre-wrap text-sm text-red-600">{error}</p> : null}
-      {message ? <p className="whitespace-pre-wrap text-sm text-emerald-700">{message}</p> : null}
-      {validationIssues.length > 0 ? (
-        <section className="rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-          <h2 className="font-medium">Cần sửa trước khi publish</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
-            {validationIssues.map((issue, index) => (
-              <li key={`${issue.field}-${issue.code ?? "issue"}-${index}`}>
-                {formatValidationIssue(issue)}
-              </li>
-            ))}
-          </ul>
-        </section>
+      {error ? <div className="panel alert-error whitespace-pre-wrap">{error}</div> : null}
+      {message ? (
+        <div className="panel text-[var(--success)] whitespace-pre-wrap">{message}</div>
       ) : null}
 
-      <form className="grid gap-4 rounded border border-zinc-200 p-4" onSubmit={patchStory}>
-        <h2 className="text-xl font-medium">Basic info</h2>
-        <input className="rounded border p-2" defaultValue={story.title} name="title" />
-        <input className="rounded border p-2" defaultValue={story.slug} name="slug" />
-        <input className="rounded border p-2" defaultValue={story.genre} name="genre" />
-        <textarea className="min-h-24 rounded border p-2" defaultValue={story.description} name="description" />
+      <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
+        <aside className="card h-max lg:sticky lg:top-6">
+          <p className="kicker">Sections</p>
+          <nav className="mt-4 grid gap-1" aria-label="Story editor sections">
+            {authorEditorSections.map((section) => (
+              <a className="nav-link" href={`#${section.id}`} key={section.id}>
+                {section.label}
+              </a>
+            ))}
+          </nav>
+        </aside>
 
-        <h2 className="text-xl font-medium">World</h2>
-        <input
-          className="rounded border p-2"
-          defaultValue={String(settings.initialLocation ?? "")}
-          disabled={locked}
-          name="initialLocation"
-          placeholder="Initial location"
-        />
-        <input
-          className="rounded border p-2"
-          defaultValue={String(settings.initialWorldTime ?? "")}
-          disabled={locked}
-          name="initialWorldTime"
-          placeholder="Initial world time"
-        />
-        <textarea className="min-h-40 rounded border p-2" defaultValue={story.worldPrompt} disabled={locked} name="worldPrompt" />
-        <textarea className="min-h-32 rounded border p-2" defaultValue={story.openingPrompt} disabled={locked} name="openingPrompt" />
-        <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} type="submit">
-          Lưu story
-        </button>
-      </form>
+        <div className="grid gap-6">
+          <form className="grid gap-6" onSubmit={patchStory}>
+            <section className="card" id="overview">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="kicker">Overview</p>
+                  <h2 className="mt-2 text-2xl font-semibold">Basic information</h2>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="badge">{story.status}</span>
+                  <span className="badge badge-gold">
+                    {story.currentPublishedVersionNumber
+                      ? `Live v${story.currentPublishedVersionNumber}`
+                      : "No live version"}
+                  </span>
+                </div>
+              </div>
 
-      <section className="grid gap-4 rounded border border-zinc-200 p-4">
-        <h2 className="text-xl font-medium">Characters</h2>
-        <div className="grid gap-2">
-          {story.characters.map((character) => (
-            <div className="rounded border p-3 text-sm" key={character.id}>
-              <strong>{character.name}</strong> ({character.type}) - {character.description}
-              {character.abilityKeys.length > 0 ? (
-                <p className="mt-2 text-xs text-zinc-600">
-                  Abilities: {character.abilityKeys.join(", ")}
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <label className="field">
+                  <span>Title</span>
+                  <input className="input" defaultValue={story.title} name="title" />
+                </label>
+                <label className="field">
+                  <span>Slug</span>
+                  <span className="field-hint">URL-safe identity for the public page.</span>
+                  <input className="input" defaultValue={story.slug} name="slug" />
+                </label>
+                <label className="field">
+                  <span>Genre</span>
+                  <input className="input" defaultValue={story.genre} name="genre" />
+                </label>
+                <label className="field md:col-span-2">
+                  <span>Public description</span>
+                  <textarea
+                    className="textarea min-h-28"
+                    defaultValue={story.description}
+                    name="description"
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="card" id="world">
+              <p className="kicker">World</p>
+              <h2 className="mt-2 text-2xl font-semibold">Runtime configuration</h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                Published versions snapshot these instructions. Existing sessions never
+                drift when the working copy changes later.
+              </p>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <label className="field">
+                  <span>Initial location</span>
+                  <input
+                    className="input"
+                    defaultValue={String(settings.initialLocation ?? "")}
+                    disabled={locked}
+                    name="initialLocation"
+                  />
+                </label>
+                <label className="field">
+                  <span>Initial world time</span>
+                  <input
+                    className="input"
+                    defaultValue={String(settings.initialWorldTime ?? "")}
+                    disabled={locked}
+                    name="initialWorldTime"
+                  />
+                </label>
+                <label className="field md:col-span-2">
+                  <span>Internal world instructions</span>
+                  <span className="field-hint">
+                    Server-side story guidance. This is not exposed on public story pages.
+                  </span>
+                  <textarea
+                    className="textarea min-h-48"
+                    defaultValue={story.worldPrompt}
+                    disabled={locked}
+                    name="worldPrompt"
+                  />
+                </label>
+                <label className="field md:col-span-2">
+                  <span>Opening setup</span>
+                  <textarea
+                    className="textarea min-h-36"
+                    defaultValue={story.openingPrompt}
+                    disabled={locked}
+                    name="openingPrompt"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button className="btn" disabled={isWorking} type="submit">
+                  Lưu story
+                </button>
+              </div>
+            </section>
+          </form>
+
+          <section className="card" id="characters">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="kicker">Characters</p>
+                <h2 className="mt-2 text-2xl font-semibold">Playable and NPC templates</h2>
+              </div>
+              <span className="badge">{story.characters.length} templates</span>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {story.characters.length > 0 ? (
+                story.characters.map((character) => (
+                  <article className="subtle-card" key={character.id}>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-lg font-semibold">{character.name}</h3>
+                        <p className="mt-1 text-sm text-[var(--muted)]">
+                          {character.description}
+                        </p>
+                      </div>
+                      <span className="badge">{character.type}</span>
+                    </div>
+                    <dl className="mt-4 grid gap-2 text-xs text-[var(--muted)]">
+                      <div>
+                        <dt className="font-semibold text-[var(--foreground)]">
+                          Initial location
+                        </dt>
+                        <dd>{character.initialLocation ?? "Story default"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-[var(--foreground)]">
+                          Abilities
+                        </dt>
+                        <dd>
+                          {character.abilityKeys.length > 0
+                            ? character.abilityKeys.join(", ")
+                            : "None assigned"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))
+              ) : (
+                <div className="panel md:col-span-2">
+                  No character templates yet. Add at least one playable character
+                  before publishing.
+                </div>
+              )}
+            </div>
+
+            {!locked ? (
+              <form className="mt-6 grid gap-4" onSubmit={addCharacter}>
+                <h3 className="text-lg font-semibold">Create Character</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="field">
+                    <span>Type</span>
+                    <select className="select" name="type">
+                      <option value="playable">playable</option>
+                      <option value="npc">npc</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Name</span>
+                    <input className="input" name="name" required />
+                  </label>
+                  <label className="field md:col-span-2">
+                    <span>Description</span>
+                    <textarea className="textarea" name="description" required />
+                  </label>
+                  <label className="field">
+                    <span>Personality</span>
+                    <input className="input" name="personality" />
+                  </label>
+                  <label className="field">
+                    <span>Initial location</span>
+                    <input className="input" name="initialLocation" />
+                  </label>
+                  <label className="field md:col-span-2">
+                    <span>Background</span>
+                    <textarea className="textarea" name="background" />
+                  </label>
+                  <label className="field">
+                    <span>Initial stats JSON</span>
+                    <textarea
+                      className="textarea"
+                      name="initialStats"
+                      placeholder='{"hp":100}'
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Goals JSON array</span>
+                    <textarea className="textarea" name="goals" placeholder="[]" />
+                  </label>
+                  <label className="field md:col-span-2">
+                    <span>Secrets JSON object</span>
+                    <textarea className="textarea" name="secrets" placeholder="{}" />
+                  </label>
+                </div>
+                <button className="btn w-max" disabled={isWorking} type="submit">
+                  Thêm character
+                </button>
+              </form>
+            ) : (
+              <p className="mt-5 text-sm text-[var(--muted)]">
+                Runtime-critical templates are locked for this published version.
+                Create a revision to edit them.
+              </p>
+            )}
+          </section>
+
+          <div id="abilities">
+            <AuthorAbilitySection
+              disabled={isWorking}
+              handlers={{
+                addAbility,
+                assignAbility,
+                createRevision,
+                deleteAbility,
+                unassignAbility
+              }}
+              story={story}
+            />
+          </div>
+
+          <section className="card" id="factions">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="kicker">Factions</p>
+                <h2 className="mt-2 text-2xl font-semibold">World powers</h2>
+              </div>
+              <span className="badge">{story.factions.length} factions</span>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {story.factions.length > 0 ? (
+                story.factions.map((faction) => (
+                  <article className="subtle-card" key={faction.id}>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-lg font-semibold">{faction.name}</h3>
+                        <p className="mt-1 font-mono text-xs text-[var(--muted)]">
+                          {faction.factionKey}
+                        </p>
+                      </div>
+                      <span className="badge">{faction.initialStatus}</span>
+                    </div>
+                    <p className="mt-3 text-sm text-[var(--muted)]">
+                      {faction.description}
+                    </p>
+                    <p className="mt-3 text-sm font-semibold">
+                      Influence {faction.initialInfluence}
+                    </p>
+                  </article>
+                ))
+              ) : (
+                <div className="panel md:col-span-2">
+                  No faction templates. Stories without factions are still playable.
+                </div>
+              )}
+            </div>
+
+            {!locked ? (
+              <form className="mt-6 grid gap-4" onSubmit={addFaction}>
+                <h3 className="text-lg font-semibold">Create Faction</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="field">
+                    <span>Faction key</span>
+                    <input className="input" name="factionKey" required />
+                  </label>
+                  <label className="field">
+                    <span>Name</span>
+                    <input className="input" name="name" required />
+                  </label>
+                  <label className="field md:col-span-2">
+                    <span>Description</span>
+                    <textarea className="textarea" name="description" required />
+                  </label>
+                  <label className="field">
+                    <span>Status</span>
+                    <select className="select" name="initialStatus">
+                      <option value="active">active</option>
+                      <option value="weakened">weakened</option>
+                      <option value="collapsed">collapsed</option>
+                      <option value="hidden">hidden</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Influence</span>
+                    <input className="input" name="initialInfluence" type="number" />
+                  </label>
+                  <label className="field">
+                    <span>Resources JSON object</span>
+                    <textarea
+                      className="textarea"
+                      name="resources"
+                      placeholder='{"wealth":50}'
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Goals JSON array</span>
+                    <textarea className="textarea" name="goals" placeholder="[]" />
+                  </label>
+                </div>
+                <button className="btn w-max" disabled={isWorking} type="submit">
+                  Thêm faction
+                </button>
+              </form>
+            ) : null}
+          </section>
+
+          <section className="card" id="versions">
+            <p className="kicker">Versions</p>
+            <h2 className="mt-2 text-2xl font-semibold">Published snapshots</h2>
+            <div className="mt-5 grid gap-3">
+              {story.versions.length > 0 ? (
+                story.versions.map((version) => (
+                  <article
+                    className="subtle-card flex flex-wrap items-center justify-between gap-3"
+                    key={version.id}
+                  >
+                    <div>
+                      <p className="font-semibold">v{version.versionNumber}</p>
+                      <p className="text-xs text-[var(--muted)]">
+                        Published {new Date(version.publishedAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        version.id === story.currentPublishedVersionId
+                          ? "badge badge-ready"
+                          : "badge"
+                      }
+                    >
+                      {version.id === story.currentPublishedVersionId
+                        ? "Live"
+                        : version.status}
+                    </span>
+                  </article>
+                ))
+              ) : (
+                <p className="text-sm text-[var(--muted)]">
+                  Chưa có published version.
                 </p>
+              )}
+            </div>
+          </section>
+
+          <section className="card" id="publish">
+            <p className="kicker">Publish</p>
+            <h2 className="mt-2 text-2xl font-semibold">Validation and lifecycle</h2>
+            {validationIssues.length > 0 ? (
+              <div className="mt-5 panel">
+                <h3 className="font-semibold text-[var(--danger)]">
+                  Issues to fix
+                </h3>
+                <ul className="mt-3 grid gap-2 text-sm text-[var(--muted)]">
+                  {validationIssues.map((issue, index) => (
+                    <li key={`${issue.field}-${issue.code ?? "issue"}-${index}`}>
+                      {formatValidationIssue(issue)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="mt-5 panel">
+                Run validation to check basic info, world configuration, playable
+                characters, ability references, and faction templates.
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                className="btn btn-secondary"
+                disabled={isWorking}
+                onClick={() => validateOrPublish("validate")}
+                type="button"
+              >
+                Validate
+              </button>
+              {story.status === "draft" ? (
+                <button
+                  className="btn"
+                  disabled={isWorking}
+                  onClick={() => validateOrPublish("publish")}
+                  type="button"
+                >
+                  Publish
+                </button>
+              ) : null}
+              {story.status === "published" ? (
+                <>
+                  <button
+                    className="btn"
+                    disabled={isWorking}
+                    onClick={createRevision}
+                    type="button"
+                  >
+                    Create revision
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    disabled={isWorking}
+                    onClick={() => validateOrPublish("archive")}
+                    type="button"
+                  >
+                    Archive
+                  </button>
+                </>
               ) : null}
             </div>
-          ))}
+          </section>
         </div>
-        {!locked ? (
-          <form className="grid gap-2" onSubmit={addCharacter}>
-            <select className="rounded border p-2" name="type">
-              <option value="playable">playable</option>
-              <option value="npc">npc</option>
-            </select>
-            <input className="rounded border p-2" name="name" placeholder="Name" required />
-            <textarea className="rounded border p-2" name="description" placeholder="Description" required />
-            <input className="rounded border p-2" name="personality" placeholder="Personality" />
-            <input className="rounded border p-2" name="background" placeholder="Background" />
-            <input className="rounded border p-2" name="initialLocation" placeholder="Initial location" />
-            <textarea className="rounded border p-2" name="initialStats" placeholder='{"hp":100}' />
-            <textarea className="rounded border p-2" name="goals" placeholder='[]' />
-            <textarea className="rounded border p-2" name="secrets" placeholder='{}' />
-            <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} type="submit">Thêm character</button>
-          </form>
-        ) : null}
-      </section>
-
-      <AuthorAbilitySection
-        disabled={isWorking}
-        handlers={{
-          addAbility,
-          assignAbility,
-          createRevision,
-          deleteAbility,
-          unassignAbility
-        }}
-        story={story}
-      />
-
-      <section className="grid gap-4 rounded border border-zinc-200 p-4">
-        <h2 className="text-xl font-medium">Factions</h2>
-        <div className="grid gap-2">
-          {story.factions.map((faction) => (
-            <div className="rounded border p-3 text-sm" key={faction.id}>
-              <strong>{faction.name}</strong> ({faction.factionKey}) - {faction.initialInfluence}
-            </div>
-          ))}
-        </div>
-        {!locked ? (
-          <form className="grid gap-2" onSubmit={addFaction}>
-            <input className="rounded border p-2" name="factionKey" placeholder="faction_key" required />
-            <input className="rounded border p-2" name="name" placeholder="Name" required />
-            <textarea className="rounded border p-2" name="description" placeholder="Description" required />
-            <select className="rounded border p-2" name="initialStatus">
-              <option value="active">active</option>
-              <option value="weakened">weakened</option>
-              <option value="collapsed">collapsed</option>
-              <option value="hidden">hidden</option>
-            </select>
-            <input className="rounded border p-2" name="initialInfluence" placeholder="50" type="number" />
-            <textarea className="rounded border p-2" name="resources" placeholder='{"wealth":50}' />
-            <textarea className="rounded border p-2" name="goals" placeholder='[]' />
-            <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} type="submit">Thêm faction</button>
-          </form>
-        ) : null}
-      </section>
-
-      <section className="flex flex-wrap gap-3">
-        <button className="rounded border px-4 py-2 disabled:opacity-60" disabled={isWorking} onClick={() => validateOrPublish("validate")} type="button">
-          Validate
-        </button>
-        {story.status === "draft" ? (
-          <button className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} onClick={() => validateOrPublish("publish")} type="button">
-            Publish
-          </button>
-        ) : null}
-        {story.status === "published" ? (
-          <>
-            <button className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60" disabled={isWorking} onClick={createRevision} type="button">
-              Create revision
-            </button>
-            <button className="rounded border px-4 py-2 disabled:opacity-60" disabled={isWorking} onClick={() => validateOrPublish("archive")} type="button">
-              Archive
-            </button>
-          </>
-        ) : null}
-      </section>
-
-      <section className="grid gap-3 rounded border border-zinc-200 p-4">
-        <h2 className="text-xl font-medium">Versions</h2>
-        {story.versions.length > 0 ? (
-          <div className="grid gap-2">
-            {story.versions.map((version) => (
-              <div className="flex items-center justify-between rounded border p-3 text-sm" key={version.id}>
-                <span>v{version.versionNumber}</span>
-                <span className="text-zinc-600">
-                  {version.status}
-                  {version.id === story.currentPublishedVersionId ? " · live" : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-600">Chưa có published version.</p>
-        )}
-      </section>
+      </div>
     </main>
   );
 }

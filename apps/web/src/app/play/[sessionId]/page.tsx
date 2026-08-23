@@ -128,10 +128,10 @@ export default function PlayShellPage() {
   }
 
   return (
-    <main className="min-h-screen px-6 py-10">
-      <section className="mx-auto max-w-5xl">
-        <Link className="text-sm text-[var(--accent)]" href="/sessions">
-          Back to sessions
+    <main className="page-shell page-shell-wide">
+      <section>
+        <Link className="btn btn-secondary" href="/sessions">
+          Back to Sessions
         </Link>
 
         {!loaded ? (
@@ -148,171 +148,146 @@ export default function PlayShellPage() {
         ) : null}
 
         {loaded && session ? (
-          <div className="mt-8">
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-[var(--accent)]">
-              Play
-            </p>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-3xl font-semibold">{session.story.title}</h1>
-              <span className="status-pill">{session.status}</span>
-            </div>
-
-            <SessionStatusPanel session={session} />
-
-            <div className="mt-6 muted-panel">
-              <p className="text-sm leading-6 text-[var(--muted)]">
-                Gameplay engine đang xử lý ở server. Streaming chưa được bật.
-              </p>
-            </div>
-
-            {session.currentState ? (
-              <AbilityPanel stateData={session.currentState.stateData} />
-            ) : null}
-
-            {debugEnabled && session.currentState ? (
-              <SessionDebugPanel session={session} />
-            ) : null}
-
-            <div className="mt-8 grid gap-4 md:grid-cols-3">
-              <div className="surface-card">
-                <p className="text-sm text-[var(--muted)]">Nhân vật</p>
-                <p className="mt-2 font-semibold">
-                  {session.selectedCharacter?.name ?? "Chưa chọn"}
-                </p>
-              </div>
-              <div className="surface-card">
-                <p className="text-sm text-[var(--muted)]">Vị trí</p>
-                <p className="mt-2 font-semibold">
-                  {session.currentState?.location ?? "Chưa có state"}
-                </p>
-              </div>
-              <div className="surface-card">
-                <p className="text-sm text-[var(--muted)]">Turn</p>
-                <p className="mt-2 font-semibold">{session.turnCount}</p>
-              </div>
-            </div>
-
-            {factions.length > 0 ? (
-              <section className="mt-6">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
-                  Thế lực
-                </h2>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  {factions.map((faction) => (
-                    <article className="surface-card" key={faction.id}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold">{faction.name}</p>
-                        <span className="status-pill">{faction.status}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-[var(--muted)]">
-                        Ảnh hưởng {faction.influence}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {quests.length > 0 ? (
-              <section className="mt-6">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
-                  Nhiệm vụ
-                </h2>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {quests.map((quest) => (
-                    <article className="surface-card" key={quest.questKey}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold">{quest.title}</p>
-                        <span className="status-pill">{quest.status}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-[var(--muted)]">
-                        {quest.description}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {inventory.length > 0 ? (
-              <section className="mt-6">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
-                  Túi đồ
-                </h2>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  {inventory.map((item) => (
-                    <article className="surface-card" key={item.itemKey}>
-                      <p className="text-sm font-semibold">{item.name}</p>
-                      <p className="mt-2 text-sm text-[var(--muted)]">
-                        Số lượng {item.quantity}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {consequences.length > 0 ? (
-              <div className="mt-6 grid gap-2">
-                {consequences.map((item, index) => (
-                  <div
-                    className="muted-panel"
-                    key={`${item.type}-${item.title}-${index}`}
-                  >
-                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
-                      {item.type}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold">{item.title}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">
-                      {item.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="mt-6 grid gap-3">
-              {messages.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">
-                  Chưa có hành động nào trong session này.
-                </p>
-              ) : null}
-              {messages.map((message) => (
-                <article key={message.id} className="muted-panel">
-                  <p className="text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
-                    {message.role} · turn {message.turnNumber}
+          <div className="mt-6">
+            <header className="card">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="kicker">Interactive RPG Session</p>
+                  <h1 className="mt-2 text-3xl font-semibold">
+                    {session.story.title}
+                  </h1>
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    {session.selectedCharacter?.name ?? "Chưa chọn"} ·{" "}
+                    {session.currentState?.location ?? "Unknown location"} · turn{" "}
+                    {session.turnCount}
                   </p>
-                  <p className="mt-2 text-sm leading-6">{message.content}</p>
-                  {message.abilityAttempt ? (
-                    <AbilityAttemptCard attempt={message.abilityAttempt} />
-                  ) : null}
-                </article>
-              ))}
-            </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="badge">{session.status}</span>
+                  <span className="badge badge-gold">
+                    v{session.storyVersionNumber ?? "?"}
+                  </span>
+                  <Link className="btn btn-secondary" href={`/stories/${session.story.slug}`}>
+                    Back to Story
+                  </Link>
+                </div>
+              </div>
+            </header>
 
-            <form action={submitAction} className="mt-6 grid gap-3">
-              <label className="grid gap-2 text-sm text-[var(--muted)]">
-                Action
-                <textarea
-                  className="action-input"
-                  maxLength={2000}
-                  name="action"
-                  onChange={(event) => setAction(event.target.value)}
-                  placeholder="quan sát, nghỉ, đi Chợ Đông, trạng thái..."
-                  required
-                  rows={4}
-                  value={action}
+            <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+              <section className="grid gap-5">
+                <div className="card">
+                  <p className="kicker">Narrative Timeline</p>
+                  <div className="mt-6 grid gap-7">
+                    {messages.length === 0 ? (
+                      <div className="panel">
+                        <p className="font-semibold">No turns yet.</p>
+                        <p className="mt-2 text-sm text-[var(--muted)]">
+                          Type an action below to begin this run.
+                        </p>
+                      </div>
+                    ) : null}
+                    {groupMessagesByTurn(messages).map((turn) => (
+                      <article className="border-l border-[var(--border)] pl-5" key={turn.turnNumber}>
+                        <p className="kicker">Turn {turn.turnNumber}</p>
+                        {turn.player ? (
+                          <div className="mt-3 subtle-card">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted)]">
+                              You
+                            </p>
+                            <p className="mt-2 text-sm leading-7">
+                              “{turn.player.content}”
+                            </p>
+                            {turn.player.abilityAttempt ? (
+                              <AbilityAttemptCard attempt={turn.player.abilityAttempt} />
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {turn.assistant ? (
+                          <div className="mt-3">
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--accent)]">
+                              Narrator
+                            </p>
+                            <p className="timeline-prose mt-2">
+                              {turn.assistant.content}
+                            </p>
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+
+                {consequences.length > 0 ? (
+                  <section className="card">
+                    <p className="kicker">Latest Consequences</p>
+                    <div className="mt-4 grid gap-2">
+                      {consequences.map((item, index) => (
+                        <div className="subtle-card" key={`${item.type}-${item.title}-${index}`}>
+                          <p className="badge">{item.type}</p>
+                          <p className="mt-2 text-sm font-semibold">{item.title}</p>
+                          <p className="mt-1 text-sm text-[var(--muted)]">
+                            {item.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                <form action={submitAction} className="sticky bottom-4 z-20 card">
+                  <label className="field">
+                    <span>Action</span>
+                    <span className="field-hint">
+                      Try: quan sát, trạng thái, nghỉ, đi Chợ Đông, or a character action.
+                    </span>
+                    <textarea
+                      className="action-input"
+                      maxLength={2000}
+                      name="action"
+                      onChange={(event) => setAction(event.target.value)}
+                      placeholder="Tôi bước vào màn sương và hỏi Lý Thanh về dấu hiệu lạ..."
+                      required
+                      rows={4}
+                      value={action}
+                    />
+                  </label>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex gap-2">
+                      <button className="btn btn-secondary" onClick={() => setAction("quan sát")} type="button">
+                        Observe
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => setAction("trạng thái")} type="button">
+                        Status
+                      </button>
+                    </div>
+                    <button
+                      className="btn"
+                      disabled={submitting || action.trim().length === 0}
+                      type="submit"
+                    >
+                      {submitting ? "World is responding..." : "Send Action"}
+                    </button>
+                  </div>
+                  {error ? <p className="auth-error mt-3">{error}</p> : null}
+                </form>
+              </section>
+
+              <aside className="grid content-start gap-4">
+                <SessionStatusPanel session={session} />
+                {session.currentState ? (
+                  <AbilityPanel stateData={session.currentState.stateData} />
+                ) : null}
+                <RuntimePanel
+                  factions={factions}
+                  inventory={inventory}
+                  quests={quests}
                 />
-              </label>
-              {error ? <p className="auth-error">{error}</p> : null}
-              <button
-                className="auth-link justify-self-start"
-                disabled={submitting || action.trim().length === 0}
-                type="submit"
-              >
-                {submitting ? "Đang xử lý..." : "Gửi action"}
-              </button>
-            </form>
+                {debugEnabled && session.currentState ? (
+                  <SessionDebugPanel session={session} />
+                ) : null}
+              </aside>
+            </div>
           </div>
         ) : null}
       </section>
@@ -322,11 +297,11 @@ export default function PlayShellPage() {
 
 function SessionStatusPanel({ session }: { readonly session: SessionDetail }) {
   return (
-    <section className="mt-6">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+    <section className="card">
+      <h2 className="kicker">
         Session Status
       </h2>
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
+      <div className="mt-3 grid gap-3">
         <StatusCard label="Story" value={session.story.title} />
         <StatusCard label="Session" value={session.status} />
         <StatusCard
@@ -359,7 +334,7 @@ function StatusCard({
   readonly value: string;
 }) {
   return (
-    <article className="surface-card">
+    <article className="subtle-card">
       <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
         {label}
       </p>
@@ -379,13 +354,13 @@ function AbilityPanel({
   }
 
   return (
-    <section className="mt-6">
-      <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+    <section className="card">
+      <h2 className="kicker">
         Abilities
       </h2>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className="mt-3 grid gap-3">
         {abilities.map((ability) => (
-          <article className="surface-card" key={ability.abilityKey}>
+          <article className="subtle-card" key={ability.abilityKey}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold">{ability.name}</p>
@@ -393,7 +368,9 @@ function AbilityPanel({
                   {ability.abilityKey}
                 </p>
               </div>
-              <span className="status-pill">{ability.status}</span>
+              <span className={ability.status === "READY" ? "badge badge-ready" : "badge"}>
+                {ability.status}
+              </span>
             </div>
             <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
               {ability.description || "Không có mô tả."}
@@ -406,6 +383,84 @@ function AbilityPanel({
             </div>
           </article>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function RuntimePanel({
+  factions,
+  quests,
+  inventory
+}: {
+  readonly factions: Faction[];
+  readonly quests: Quest[];
+  readonly inventory: InventoryItem[];
+}) {
+  return (
+    <section className="card">
+      <p className="kicker">World State</p>
+
+      <div className="mt-4 grid gap-5">
+        <div>
+          <h3 className="font-semibold">Quests</h3>
+          <div className="mt-2 grid gap-2">
+            {quests.length > 0 ? (
+              quests.map((quest) => (
+                <article className="subtle-card" key={quest.questKey}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">{quest.title}</p>
+                    <span className="badge">{quest.status}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    {quest.description}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <p className="text-sm text-[var(--muted)]">No active quest data.</p>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h3 className="font-semibold">Factions</h3>
+          <div className="mt-2 grid gap-2">
+            {factions.length > 0 ? (
+              factions.map((faction) => (
+                <article className="subtle-card" key={faction.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">{faction.name}</p>
+                    <span className="badge">{faction.status}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    Influence {faction.influence}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <p className="text-sm text-[var(--muted)]">No faction runtime rows.</p>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h3 className="font-semibold">Inventory</h3>
+          <div className="mt-2 grid gap-2">
+            {inventory.length > 0 ? (
+              inventory.map((item) => (
+                <article className="subtle-card" key={item.itemKey}>
+                  <p className="text-sm font-semibold">{item.name}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Quantity {item.quantity}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <p className="text-sm text-[var(--muted)]">Inventory is empty.</p>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -469,6 +524,35 @@ function SessionDebugPanel({ session }: { readonly session: SessionDetail }) {
       </div>
     </details>
   );
+}
+
+function groupMessagesByTurn(messages: GameMessage[]): {
+  readonly turnNumber: number;
+  readonly player: GameMessage | null;
+  readonly assistant: GameMessage | null;
+}[] {
+  const turns = new Map<
+    number,
+    { turnNumber: number; player: GameMessage | null; assistant: GameMessage | null }
+  >();
+
+  for (const message of messages) {
+    const existing =
+      turns.get(message.turnNumber) ?? {
+        turnNumber: message.turnNumber,
+        player: null,
+        assistant: null
+      };
+    if (message.role === "player") {
+      existing.player = message;
+    }
+    if (message.role === "assistant") {
+      existing.assistant = message;
+    }
+    turns.set(message.turnNumber, existing);
+  }
+
+  return [...turns.values()].sort((left, right) => left.turnNumber - right.turnNumber);
 }
 
 function formatPlayError(caught: unknown): string {

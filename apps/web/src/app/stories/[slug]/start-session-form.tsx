@@ -86,16 +86,17 @@ export function StartSessionForm({
   }
 
   return (
-    <div className="mt-8">
-      <section className="surface-card">
+    <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+      <section className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold">Tiếp tục</h2>
+            <p className="kicker">Existing Runs</p>
+            <h2 className="mt-2 text-xl font-semibold">Tiếp tục</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
               Mở lại run đã lưu của story này.
             </p>
           </div>
-          <a className="auth-link" href="/sessions">
+          <a className="btn btn-secondary" href="/sessions">
             My Sessions
           </a>
         </div>
@@ -110,7 +111,7 @@ export function StartSessionForm({
           <div className="mt-4 grid gap-3">
             {resumeSessions.map((session) => (
               <button
-                className="rounded border border-[var(--border)] px-4 py-3 text-left hover:border-[var(--accent)]"
+                className="subtle-card text-left hover:border-[var(--accent)]"
                 key={session.id}
                 onClick={() => router.push(`/play/${session.id}`)}
                 type="button"
@@ -131,42 +132,44 @@ export function StartSessionForm({
         ) : null}
       </section>
 
-      <h2 className="text-xl font-semibold">Chọn nhân vật</h2>
-      <p className="mt-2 text-sm text-[var(--muted)]">
-        Chọn nhân vật chỉ dành cho run mới. Run cũ luôn nằm ở phần Tiếp tục hoặc
-        My Sessions.
-      </p>
-      <div className="choice-list mt-4">
-        {characters.map((character) => (
-          <label key={character.id}>
-            <span className="font-medium">
-              <input
-                checked={selectedCharacterId === character.id}
-                name="character"
-                onChange={() => setSelectedCharacterId(character.id)}
-                type="radio"
-              />
-              {character.name}
-            </span>
-            <span className="text-sm leading-6 text-[var(--muted)]">
-              {character.description}
-            </span>
-            <span className="text-sm leading-6 text-[var(--muted)]">
-              {character.background}
-            </span>
-          </label>
-        ))}
-      </div>
+      <section className="card">
+        <p className="kicker">Start New Run</p>
+        <h2 className="mt-2 text-xl font-semibold">Chọn nhân vật</h2>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Run mới sẽ tạo session riêng. Run cũ không bị ghi đè.
+        </p>
+        <div className="choice-list mt-4">
+          {characters.map((character) => (
+            <label key={character.id}>
+              <span className="font-medium">
+                <input
+                  checked={selectedCharacterId === character.id}
+                  name="character"
+                  onChange={() => setSelectedCharacterId(character.id)}
+                  type="radio"
+                />
+                {character.name}
+              </span>
+              <span className="text-sm leading-6 text-[var(--muted)]">
+                {character.description}
+              </span>
+              <span className="text-sm leading-6 text-[var(--muted)]">
+                {character.background}
+              </span>
+            </label>
+          ))}
+        </div>
 
-      {error ? <p className="auth-error mt-4">{error}</p> : null}
-      <button
-        className="mt-5 auth-link"
-        disabled={loading || !selectedCharacterId}
-        onClick={startSession}
-        type="button"
-      >
-        {loading ? "Đang tạo..." : "Chơi lại / New run"}
-      </button>
+        {error ? <p className="auth-error mt-4">{error}</p> : null}
+        <button
+          className="btn mt-5"
+          disabled={loading || !selectedCharacterId}
+          onClick={startSession}
+          type="button"
+        >
+          {loading ? "Đang tạo..." : "Chơi lại / New run"}
+        </button>
+      </section>
     </div>
   );
 }

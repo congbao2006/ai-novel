@@ -34,25 +34,30 @@ export function AuthorAbilitySection({
   );
 
   return (
-    <section className="grid gap-4 rounded border border-zinc-200 p-4">
+    <section className="card grid gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-medium">Abilities</h2>
+          <p className="kicker">Abilities</p>
+          <h2 className="mt-2 text-2xl font-semibold">Ability manager</h2>
+          <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
+            Define server-authoritative story abilities, then assign them to
+            playable characters. Runtime sessions snapshot assignments at creation.
+          </p>
           {needsRevision ? (
-            <p className="mt-1 text-sm text-zinc-600">
+            <p className="mt-2 text-sm text-[var(--muted)]">
               Thay đổi ability sẽ tạo working revision mới; phiên bản live hiện tại
               vẫn giữ nguyên cho các session đã tạo.
             </p>
           ) : null}
           {archived ? (
-            <p className="mt-1 text-sm text-zinc-600">
+            <p className="mt-2 text-sm text-[var(--muted)]">
               Story đã archived nên không thể chỉnh sửa ability.
             </p>
           ) : null}
         </div>
         {needsRevision ? (
           <button
-            className="rounded border px-4 py-2 text-sm"
+            className="btn btn-secondary"
             disabled={disabled}
             onClick={handlers.createRevision}
             type="button"
@@ -63,7 +68,7 @@ export function AuthorAbilitySection({
       </div>
 
       {story.abilities.length > 0 ? (
-        <div className="grid gap-2">
+        <div className="grid gap-3 md:grid-cols-2">
           {story.abilities.map((ability) => (
             <AbilityRow
               ability={ability}
@@ -74,112 +79,149 @@ export function AuthorAbilitySection({
           ))}
         </div>
       ) : (
-        <p className="text-sm text-zinc-600">Chưa có ability nào.</p>
+        <div className="panel">
+          <p className="font-semibold">No abilities yet.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Create an ability such as Ảnh Bộ, then assign it to a playable character.
+          </p>
+        </div>
       )}
 
       {canSubmit ? (
         <>
-          <form className="grid gap-2" onSubmit={handlers.addAbility}>
-            <input
-              className="rounded border p-2"
-              disabled={disabled}
-              name="abilityKey"
-              placeholder="shadow-step"
-              required
-            />
-            <input
-              className="rounded border p-2"
-              disabled={disabled}
-              name="name"
-              placeholder="Ảnh Bộ"
-              required
-            />
-            <textarea
-              className="rounded border p-2"
-              disabled={disabled}
-              name="description"
-              placeholder="Description"
-            />
-            <select className="rounded border p-2" disabled={disabled} name="category">
-              <option value="movement">movement</option>
-              <option value="combat">combat</option>
-              <option value="perception">perception</option>
-              <option value="social">social</option>
-              <option value="utility">utility</option>
-              <option value="magic">magic</option>
-              <option value="other">other</option>
-            </select>
-            <input
-              className="rounded border p-2"
-              disabled={disabled}
-              name="rank"
-              placeholder="1"
-              type="number"
-            />
-            <input
-              className="rounded border p-2"
-              disabled={disabled}
-              name="cooldownTurns"
-              placeholder="2"
-              type="number"
-            />
-            <input
-              className="rounded border p-2"
-              disabled={disabled}
-              name="resourceStatKey"
-              placeholder="Resource stat key, optional"
-            />
-            <input
-              className="rounded border p-2"
-              disabled={disabled}
-              name="resourceAmount"
-              placeholder="0"
-              type="number"
-            />
-            <button
-              className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
-              disabled={disabled}
-              type="submit"
-            >
+          <form className="panel grid gap-4" onSubmit={handlers.addAbility}>
+            <h3 className="text-lg font-semibold">Create Ability</h3>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="field">
+                <span>Key / slug</span>
+                <span className="field-hint">Stable identity, e.g. shadow-step.</span>
+                <input
+                  className="input"
+                  disabled={disabled}
+                  name="abilityKey"
+                  placeholder="shadow-step"
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>Display name</span>
+                <input
+                  className="input"
+                  disabled={disabled}
+                  name="name"
+                  placeholder="Ảnh Bộ"
+                  required
+                />
+              </label>
+              <label className="field md:col-span-2">
+                <span>Description</span>
+                <textarea
+                  className="textarea"
+                  disabled={disabled}
+                  name="description"
+                  placeholder="Short player-facing description"
+                />
+              </label>
+              <label className="field">
+                <span>Category</span>
+                <select className="select" disabled={disabled} name="category">
+                  <option value="movement">movement</option>
+                  <option value="combat">combat</option>
+                  <option value="perception">perception</option>
+                  <option value="social">social</option>
+                  <option value="utility">utility</option>
+                  <option value="magic">magic</option>
+                  <option value="other">other</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Default rank</span>
+                <input
+                  className="input"
+                  disabled={disabled}
+                  name="rank"
+                  placeholder="1"
+                  type="number"
+                />
+              </label>
+              <label className="field">
+                <span>Cooldown turns</span>
+                <input
+                  className="input"
+                  disabled={disabled}
+                  name="cooldownTurns"
+                  placeholder="2"
+                  type="number"
+                />
+              </label>
+              <label className="field">
+                <span>Resource key</span>
+                <input
+                  className="input"
+                  disabled={disabled}
+                  name="resourceStatKey"
+                  placeholder="stamina"
+                />
+              </label>
+              <label className="field">
+                <span>Resource cost</span>
+                <input
+                  className="input"
+                  disabled={disabled}
+                  name="resourceAmount"
+                  placeholder="0"
+                  type="number"
+                />
+              </label>
+            </div>
+            <button className="btn w-max" disabled={disabled} type="submit">
               {getAbilitySubmitLabel(story.status)}
             </button>
           </form>
 
           {story.abilities.length > 0 && playableCharacters.length > 0 ? (
-            <form className="grid gap-2" onSubmit={handlers.assignAbility}>
-              <select className="rounded border p-2" disabled={disabled} name="characterId">
-                {playableCharacters.map((character) => (
-                  <option key={character.id} value={character.id}>
-                    {character.name} ({character.type})
-                  </option>
-                ))}
-              </select>
-              <select className="rounded border p-2" disabled={disabled} name="abilityId">
-                {story.abilities.map((ability) => (
-                  <option key={ability.id} value={ability.id}>
-                    {ability.name} ({ability.abilityKey})
-                  </option>
-                ))}
-              </select>
-              <input
-                className="rounded border p-2"
-                disabled={disabled}
-                name="rank"
-                placeholder="1"
-                type="number"
-              />
-              <button
-                className="rounded border px-4 py-2 disabled:opacity-60"
-                disabled={disabled}
-                type="submit"
-              >
+            <form className="panel grid gap-4" onSubmit={handlers.assignAbility}>
+              <h3 className="text-lg font-semibold">Assign Ability</h3>
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="field">
+                  <span>Playable character</span>
+                  <select className="select" disabled={disabled} name="characterId">
+                    {playableCharacters.map((character) => (
+                      <option key={character.id} value={character.id}>
+                        {character.name} ({character.type})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Ability</span>
+                  <select className="select" disabled={disabled} name="abilityId">
+                    {story.abilities.map((ability) => (
+                      <option key={ability.id} value={ability.id}>
+                        {ability.name} ({ability.abilityKey})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Rank</span>
+                  <input
+                    className="input"
+                    disabled={disabled}
+                    name="rank"
+                    placeholder="1"
+                    type="number"
+                  />
+                </label>
+              </div>
+              <button className="btn btn-secondary w-max" disabled={disabled} type="submit">
                 {getAbilityAssignmentSubmitLabel(story.status)}
               </button>
             </form>
           ) : null}
 
           {story.abilities.length > 0 && playableCharacters.length === 0 ? (
-            <p className="text-sm text-zinc-600">
+            <p className="text-sm text-[var(--muted)]">
               Cần ít nhất một playable character để gán ability.
             </p>
           ) : null}
@@ -208,16 +250,25 @@ function AbilityRow({
   const resourceCost = formatResourceCost(ability.resourceCost);
 
   return (
-    <div className="rounded border p-3 text-sm">
+    <article className="subtle-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <strong>{ability.name}</strong> ({ability.abilityKey}) ·{" "}
-          {ability.category} · cooldown {ability.cooldownTurns}
-          {resourceCost ? ` · cost ${resourceCost}` : ""}
-          <p className="mt-1 text-zinc-600">{ability.description}</p>
+          <p className="text-lg font-semibold">{ability.name}</p>
+          <p className="mt-1 font-mono text-xs text-[var(--muted)]">
+            {ability.abilityKey}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="badge">{ability.category}</span>
+            <span className="badge">Rank {ability.rank}</span>
+            <span className="badge">Cooldown {ability.cooldownTurns}</span>
+            {resourceCost ? <span className="badge">Cost {resourceCost}</span> : null}
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+            {ability.description || "Không có mô tả."}
+          </p>
         </div>
         <button
-          className="rounded border px-3 py-1 text-xs disabled:opacity-60"
+          className="btn btn-danger min-h-0 px-3 py-1 text-xs"
           disabled={disabled}
           onClick={() => onDelete(ability.id)}
           type="button"
@@ -225,7 +276,7 @@ function AbilityRow({
           Xóa
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -250,23 +301,23 @@ function AssignedAbilities({
   }
 
   return (
-    <div className="grid gap-2">
-      <h3 className="text-sm font-medium">Ability assignments</h3>
+    <div className="grid gap-3">
+      <h3 className="text-lg font-semibold">Current assignments</h3>
       {assignedCharacters.map((character) => (
-        <div className="rounded border p-3 text-sm" key={character.id}>
+        <div className="subtle-card" key={character.id}>
           <p className="font-medium">{character.name}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {character.abilityKeys.map((abilityKey) => {
               const ability = abilitiesByKey.get(abilityKey);
               return (
                 <span
-                  className="inline-flex items-center gap-2 rounded border px-2 py-1"
+                  className="badge"
                   key={`${character.id}-${abilityKey}`}
                 >
                   {ability?.name ?? abilityKey}
                   {ability ? (
                     <button
-                      className="text-xs text-red-700 disabled:text-zinc-400"
+                      className="text-xs text-[var(--danger)] disabled:text-[var(--muted-2)]"
                       disabled={disabled}
                       onClick={() => onUnassign(character.id, ability.id)}
                       type="button"
