@@ -1,5 +1,5 @@
 import type { AIGateway } from "@ai-novel/ai-engine";
-import type { DatabaseClient, Repositories } from "@ai-novel/db";
+import type { DatabaseClient, PgPool, Repositories } from "@ai-novel/db";
 import type { AuthService } from "./modules/auth/service.js";
 import type { StoryAuthoringService } from "./modules/authoring/service.js";
 import type { GameplayService } from "./modules/sessions/gameplay-service.js";
@@ -9,6 +9,7 @@ import type { StoryService } from "./modules/stories/service.js";
 
 export type AppDependencies = {
   readonly database?: DatabaseClient;
+  readonly databasePool?: PgPool;
   readonly repositories?: Repositories;
   readonly authService?: AuthService;
   readonly storyAuthoringService?: StoryAuthoringService;

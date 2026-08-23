@@ -1,5 +1,6 @@
 import type { Repositories } from "@ai-novel/db";
 import { ConflictError } from "@ai-novel/db";
+import { elapsedMs, nowMs } from "../../performance.js";
 import {
   AuthConflictError,
   AuthValidationError,
@@ -22,6 +23,13 @@ export type AuthServiceOptions = {
   readonly repositories: Repositories;
   readonly passwordHasher: PasswordHasher;
   readonly sessionTtlSeconds: number;
+};
+
+export type AuthLookupTimings = {
+  tokenHashMs?: number;
+  userSessionQueryMs?: number;
+  touchLastUsedAtMs?: number;
+  touchedSession?: boolean;
 };
 
 export class AuthService {
@@ -92,17 +100,30 @@ export class AuthService {
     );
   }
 
-  async getCurrentUser(rawToken: string | undefined): Promise<CurrentUser> {
+  async getCurrentUser(
+    rawToken: string | undefined,
+    timings?: AuthLookupTimings
+  ): Promise<CurrentUser> {
     if (!rawToken) {
       throw new UnauthenticatedError();
     }
 
     const now = new Date();
+    const hashStartedAt = nowMs();
+    const tokenHash = hashSessionToken(rawToken);
+    if (timings) {
+      timings.tokenHashMs = elapsedMs(hashStartedAt);
+    }
+
+    const queryStartedAt = nowMs();
     const authenticatedSession =
       await this.options.repositories.authSessions.getValidUserSessionByTokenHash(
-        hashSessionToken(rawToken),
+        tokenHash,
         now
       );
+    if (timings) {
+      timings.userSessionQueryMs = elapsedMs(queryStartedAt);
+    }
 
     if (!authenticatedSession) {
       throw new UnauthenticatedError();
@@ -112,10 +133,17 @@ export class AuthService {
       now.getTime() - authenticatedSession.session.lastUsedAt.getTime() >
       sessionTouchThrottleMs
     ) {
+      const touchStartedAt = nowMs();
       await this.options.repositories.authSessions.touchLastUsedAt(
         authenticatedSession.session.id,
         now
       );
+      if (timings) {
+        timings.touchLastUsedAtMs = elapsedMs(touchStartedAt);
+        timings.touchedSession = true;
+      }
+    } else if (timings) {
+      timings.touchedSession = false;
     }
 
     return {

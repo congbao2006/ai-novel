@@ -274,4 +274,28 @@ describe("AuthService", () => {
         .testHooks.getTouchCount()
     ).toBe(0);
   });
+
+  it("records safe auth lookup timing details", async () => {
+    const existingHash = await passwordHasher.hashPassword("password123");
+    const service = new AuthService({
+      repositories: createRepositoriesFixture(existingHash),
+      passwordHasher,
+      sessionTtlSeconds: 60
+    });
+
+    const session = await service.login({
+      email: "user@example.com",
+      password: "password123"
+    });
+    const timings = {};
+
+    await expect(service.getCurrentUser(session.rawToken, timings)).resolves.toMatchObject({
+      userId: "user-1"
+    });
+    expect(timings).toMatchObject({
+      touchedSession: false
+    });
+    expect(timings).toHaveProperty("tokenHashMs");
+    expect(timings).toHaveProperty("userSessionQueryMs");
+  });
 });

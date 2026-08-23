@@ -3,7 +3,8 @@ export {
   closeDatabaseClient,
   createDatabaseClient,
   createPgPool,
-  getDatabaseClient
+  getDatabaseClient,
+  getDatabasePool
 } from "./client.js";
 export type {
   DatabaseClient,

@@ -21,6 +21,7 @@ import {
   ResourceNotFoundError,
   ServiceUnavailableError
 } from "../../errors.js";
+import { elapsedMs, nowMs } from "../../performance.js";
 import type { CurrentUser } from "../auth/dto.js";
 import { buildInitialGameState } from "./initial-state.js";
 import type { FactionInitializationService } from "./faction-initialization-service.js";
@@ -161,8 +162,18 @@ export class SessionService {
     };
   }
 
-  async listSessions(user: CurrentUser): Promise<SessionListResponseDto> {
+  async listSessions(
+    user: CurrentUser,
+    timings?: SessionListTimings
+  ): Promise<SessionListResponseDto> {
+    const referencesStartedAt = nowMs();
     const rows = await loadSessionListReferences(this.repositories, user.userId);
+    if (timings) {
+      timings.referencesQueryMs = elapsedMs(referencesStartedAt);
+      timings.referencesRowCount = rows.length;
+    }
+
+    const serializationStartedAt = nowMs();
     const items = rows.map((row) =>
       toSessionListItemDto({
         session: row.session,
@@ -172,6 +183,9 @@ export class SessionService {
         currentState: row.currentState
       })
     );
+    if (timings) {
+      timings.serializationMs = elapsedMs(serializationStartedAt);
+    }
 
     return {
       sessions: items
@@ -322,6 +336,12 @@ export class SessionService {
     };
   }
 }
+
+export type SessionListTimings = {
+  referencesQueryMs?: number;
+  referencesRowCount?: number;
+  serializationMs?: number;
+};
 
 type SessionListReferences = {
   readonly session: GameSessionRecord;

@@ -40,13 +40,25 @@ export function createDatabaseClient(pool: pg.Pool) {
 let singletonPool: PgPool | undefined;
 let singletonDatabase: DatabaseClient | undefined;
 
+export function getDatabasePool(
+  connectionString: string,
+  options: DatabasePoolOptions = {}
+): PgPool {
+  if (!singletonPool) {
+    singletonPool = createPgPool(connectionString, options);
+  }
+
+  return singletonPool;
+}
+
 export function getDatabaseClient(
   connectionString: string,
   options: DatabasePoolOptions = {}
 ): DatabaseClient {
-  if (!singletonPool || !singletonDatabase) {
-    singletonPool = createPgPool(connectionString, options);
-    singletonDatabase = createDatabaseClient(singletonPool);
+  const pool = getDatabasePool(connectionString, options);
+
+  if (!singletonDatabase) {
+    singletonDatabase = createDatabaseClient(pool);
   }
 
   return singletonDatabase;

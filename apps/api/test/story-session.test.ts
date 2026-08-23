@@ -625,7 +625,9 @@ describe("SessionService", () => {
       service.getSession(otherUser, "550e8400-e29b-41d4-a716-446655440099")
     ).rejects.toBeInstanceOf(ResourceNotFoundError);
 
-    await expect(service.listSessions(user)).resolves.toMatchObject({
+    const timings = {};
+
+    await expect(service.listSessions(user, timings)).resolves.toMatchObject({
       sessions: [
         {
           id: "550e8400-e29b-41d4-a716-446655440099",
@@ -633,6 +635,11 @@ describe("SessionService", () => {
         }
       ]
     });
+    expect(timings).toMatchObject({
+      referencesRowCount: 1
+    });
+    expect(timings).toHaveProperty("referencesQueryMs");
+    expect(timings).toHaveProperty("serializationMs");
     await expect(service.listSessions(otherUser)).resolves.toEqual({
       sessions: []
     });

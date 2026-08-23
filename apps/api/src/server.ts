@@ -3,7 +3,8 @@ import { createAIGateway, createEmbeddingGateway } from "@ai-novel/ai-engine";
 import {
   closeDatabaseClient,
   createRepositories,
-  getDatabaseClient
+  getDatabaseClient,
+  getDatabasePool
 } from "@ai-novel/db";
 import { buildApp } from "./app.js";
 import { BudgetService } from "./modules/ai/budget-service.js";
@@ -27,12 +28,16 @@ import { StoryService } from "./modules/stories/service.js";
 import { WorldSimulationService } from "./modules/sessions/world-simulation-service.js";
 
 const config = getServerConfig();
+const databasePoolOptions = {
+  max: config.database.poolMax,
+  idleTimeoutMillis: config.database.poolIdleTimeoutMs,
+  connectionTimeoutMillis: config.database.poolConnectionTimeoutMs
+};
+const databasePool = config.database.url
+  ? getDatabasePool(config.database.url, databasePoolOptions)
+  : undefined;
 const database = config.database.url
-  ? getDatabaseClient(config.database.url, {
-      max: config.database.poolMax,
-      idleTimeoutMillis: config.database.poolIdleTimeoutMs,
-      connectionTimeoutMillis: config.database.poolConnectionTimeoutMs
-    })
+  ? getDatabaseClient(config.database.url, databasePoolOptions)
   : undefined;
 const repositories = config.database.url
   ? createRepositories(database!)
@@ -195,6 +200,7 @@ const gameplayService = repositories
   : undefined;
 const dependencies = {
   ...(database ? { database } : {}),
+  ...(databasePool ? { databasePool } : {}),
   ...(repositories ? { repositories } : {}),
   ...(authService ? { authService } : {}),
   ...(storyAuthoringService ? { storyAuthoringService } : {}),
@@ -239,6 +245,19 @@ process.once("SIGINT", () => {
 });
 
 try {
+  app.log.info(
+    {
+      databasePoolMax: config.database.poolMax,
+      databasePoolIdleTimeoutMs: config.database.poolIdleTimeoutMs,
+      databasePoolConnectionTimeoutMs: config.database.poolConnectionTimeoutMs,
+      railwayRegion:
+        process.env.RAILWAY_REGION ??
+        process.env.RAILWAY_DEPLOYMENT_REGION ??
+        process.env.RAILWAY_SERVICE_REGION
+    },
+    "database pool configuration"
+  );
+
   await app.listen({
     host: config.api.host,
     port: config.api.port

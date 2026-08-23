@@ -9,6 +9,7 @@ import {
 } from "./errors.js";
 import { clearAuthCookie, getAuthCookie, setAuthCookie } from "./cookies.js";
 import { getRequiredUser, requireUser } from "./request-context.js";
+import { elapsedMs, nowMs } from "../../performance.js";
 
 const registerSchema = z.object({
   email: z.string(),
@@ -77,9 +78,39 @@ export const registerAuthRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 
-  app.get("/me", { preHandler: requireUser }, async (request) => ({
-    user: getRequiredUser(request)
-  }));
+  app.get("/me", { preHandler: requireUser }, async (request) => {
+    const serializationStartedAt = nowMs();
+    const response = {
+      user: getRequiredUser(request)
+    };
+    const serializationMs = elapsedMs(serializationStartedAt);
+    const totalMs = request.startedAtMs
+      ? Date.now() - request.startedAtMs
+      : undefined;
+
+    request.log.info(
+      {
+        requestId: request.id,
+        route: "/auth/me",
+        method: request.method,
+        tokenParseMs: request.authPerf?.tokenParseMs,
+        dbAcquireMs: request.authPerf?.dbAcquireProbe?.dbAcquireMs,
+        dbPoolTotal: request.authPerf?.dbAcquireProbe?.dbPoolTotal,
+        dbPoolIdle: request.authPerf?.dbAcquireProbe?.dbPoolIdle,
+        dbPoolWaiting: request.authPerf?.dbAcquireProbe?.dbPoolWaiting,
+        tokenHashMs: request.authPerf?.tokenHashMs,
+        userSessionQueryMs: request.authPerf?.userSessionQueryMs,
+        touchLastUsedAtMs: request.authPerf?.touchLastUsedAtMs,
+        touchedSession: request.authPerf?.touchedSession,
+        authTotalMs: request.authPerf?.authTotalMs,
+        serializationMs,
+        totalMs
+      },
+      "[perf] auth me timing"
+    );
+
+    return response;
+  });
 
   app.setErrorHandler((error, request, reply) => {
     request.log.warn(

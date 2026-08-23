@@ -6,7 +6,9 @@ import {
   sendApplicationError,
   ServiceUnavailableError
 } from "../../errors.js";
+import { elapsedMs, nowMs } from "../../performance.js";
 import { getRequiredUser, requireUser } from "../auth/request-context.js";
+import type { SessionListTimings } from "./service.js";
 
 const createSessionSchema = z.object({
   storyId: z.uuid(),
@@ -29,21 +31,41 @@ export const registerSessionsRoutes: FastifyPluginAsync = async (app) => {
       throw new ServiceUnavailableError("Session service is unavailable.");
     }
 
-    const startedAt = Date.now();
-    const result = await sessionService.listSessions(getRequiredUser(request));
-    const latencyMs = Date.now() - startedAt;
+    const timings: SessionListTimings = {};
+    const startedAt = nowMs();
+    const result = await sessionService.listSessions(
+      getRequiredUser(request),
+      timings
+    );
+    const latencyMs = elapsedMs(startedAt);
+    const totalMs = request.startedAtMs
+      ? Date.now() - request.startedAtMs
+      : undefined;
 
-    if (latencyMs > 250) {
-      request.log.warn(
-        {
-          requestId: request.id,
-          route: "/sessions",
-          sessionListMs: latencyMs,
-          sessionCount: result.sessions.length
-        },
-        "session list timing"
-      );
-    }
+    request.log.info(
+      {
+        requestId: request.id,
+        route: "/sessions",
+        method: request.method,
+        tokenParseMs: request.authPerf?.tokenParseMs,
+        dbAcquireMs: request.authPerf?.dbAcquireProbe?.dbAcquireMs,
+        dbPoolTotal: request.authPerf?.dbAcquireProbe?.dbPoolTotal,
+        dbPoolIdle: request.authPerf?.dbAcquireProbe?.dbPoolIdle,
+        dbPoolWaiting: request.authPerf?.dbAcquireProbe?.dbPoolWaiting,
+        tokenHashMs: request.authPerf?.tokenHashMs,
+        userSessionQueryMs: request.authPerf?.userSessionQueryMs,
+        touchLastUsedAtMs: request.authPerf?.touchLastUsedAtMs,
+        touchedSession: request.authPerf?.touchedSession,
+        authTotalMs: request.authPerf?.authTotalMs,
+        sessionListMs: latencyMs,
+        referencesQueryMs: timings.referencesQueryMs,
+        referencesRowCount: timings.referencesRowCount,
+        serializationMs: timings.serializationMs,
+        sessionCount: result.sessions.length,
+        totalMs
+      },
+      "[perf] session list timing"
+    );
 
     return result;
   });
