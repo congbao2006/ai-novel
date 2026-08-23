@@ -331,6 +331,9 @@ function createRepositoriesFixture(options: {
       },
       async getCurrentState(sessionId: string) {
         return states.find((state) => state.sessionId === sessionId) ?? null;
+      },
+      async listBySessionIds(sessionIds: readonly string[]) {
+        return states.filter((state) => sessionIds.includes(state.sessionId));
       }
     },
     gameMessages: {
@@ -599,7 +602,12 @@ describe("SessionService", () => {
     ).rejects.toBeInstanceOf(ResourceNotFoundError);
 
     await expect(service.listSessions(user)).resolves.toMatchObject({
-      sessions: [{ id: "550e8400-e29b-41d4-a716-446655440099" }]
+      sessions: [
+        {
+          id: "550e8400-e29b-41d4-a716-446655440099",
+          currentLocation: "Bến sông"
+        }
+      ]
     });
     await expect(service.listSessions(otherUser)).resolves.toEqual({
       sessions: []

@@ -4,6 +4,7 @@ import {
   eq,
   gt,
   gte,
+  inArray,
   isNotNull,
   isNull,
   lte,
@@ -1337,6 +1338,19 @@ export class DrizzleGameStateRepository
           .where(eq(gameStates.sessionId, sessionId))
           .limit(1)
       )
+    );
+  }
+
+  listBySessionIds(sessionIds: readonly string[]): Promise<GameStateRecord[]> {
+    if (sessionIds.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return this.run(async () =>
+      this.db
+        .select()
+        .from(gameStates)
+        .where(inArray(gameStates.sessionId, [...sessionIds]))
     );
   }
 

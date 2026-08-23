@@ -25,6 +25,7 @@ export type SessionListItemDto = {
   readonly status: string;
   readonly storyVersionId: string | null;
   readonly storyVersionNumber: number | null;
+  readonly currentLocation: string | null;
   readonly turnCount: number;
   readonly lastPlayedAt: string;
   readonly createdAt: string;
@@ -144,6 +145,7 @@ export function toSessionListItemDto(input: {
   readonly story: StoryRecord;
   readonly character: StoryCharacterRecord | StoryVersionCharacterRecord | null;
   readonly storyVersion?: StoryVersionRecord | null;
+  readonly currentState?: GameStateRecord | null;
 }): SessionListItemDto {
   return {
     id: input.session.id,
@@ -154,6 +156,7 @@ export function toSessionListItemDto(input: {
     status: input.session.status,
     storyVersionId: input.storyVersion?.id ?? input.session.storyVersionId,
     storyVersionNumber: input.storyVersion?.versionNumber ?? null,
+    currentLocation: input.currentState?.location ?? null,
     turnCount: input.session.turnCount,
     lastPlayedAt: input.session.lastPlayedAt.toISOString(),
     createdAt: input.session.createdAt.toISOString()

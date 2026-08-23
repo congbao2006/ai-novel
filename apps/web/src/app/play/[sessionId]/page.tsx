@@ -54,16 +54,15 @@ export default function PlayShellPage() {
     setError(null);
 
     try {
-      const result = await authRequest<SessionDetail>(
-        `/sessions/${params.sessionId}`
-      );
+      const [result, factionResult, questResult, inventoryResult] =
+        await Promise.all([
+          authRequest<SessionDetail>(`/sessions/${params.sessionId}`),
+          authRequest<FactionListResponse>(`/sessions/${params.sessionId}/factions`),
+          authRequest<QuestListResponse>(`/sessions/${params.sessionId}/quests`),
+          authRequest<InventoryResponse>(`/sessions/${params.sessionId}/inventory`)
+        ]);
       setSession(result);
       setMessages(result.recentMessages);
-      const [factionResult, questResult, inventoryResult] = await Promise.all([
-        authRequest<FactionListResponse>(`/sessions/${params.sessionId}/factions`),
-        authRequest<QuestListResponse>(`/sessions/${params.sessionId}/quests`),
-        authRequest<InventoryResponse>(`/sessions/${params.sessionId}/inventory`)
-      ]);
       setFactions(factionResult.factions);
       setQuests(questResult.quests);
       setInventory(inventoryResult.items);

@@ -20,6 +20,8 @@ import {
 import { getRevisionStatusCopy } from "../../../../lib/authoring-ui";
 import { authorEditorSections } from "../../../../lib/product-navigation";
 
+type AuthorEditorSectionId = (typeof authorEditorSections)[number]["id"];
+
 export default function EditStoryPage({
   params
 }: {
@@ -36,6 +38,8 @@ export default function EditStoryPage({
     Record<string, AuthorStoryVersionSnapshot>
   >({});
   const [isWorking, setIsWorking] = useState(false);
+  const [activeSection, setActiveSection] =
+    useState<AuthorEditorSectionId>("overview");
 
   useEffect(() => {
     params
@@ -405,7 +409,15 @@ export default function EditStoryPage({
   if (!story) {
     return (
       <main className="page-shell">
-        <div className="panel">{error ?? "Đang tải story editor..."}</div>
+        <div className="card">
+          <p className="kicker">Story Editor</p>
+          <div className="mt-4 grid gap-3">
+            <div className="h-8 w-2/3 rounded bg-[var(--surface-muted)]" />
+            <div className="h-4 w-full rounded bg-[var(--surface-muted)]" />
+            <div className="h-4 w-5/6 rounded bg-[var(--surface-muted)]" />
+          </div>
+          {error ? <p className="mt-5 alert-error">{error}</p> : null}
+        </div>
       </main>
     );
   }
@@ -464,15 +476,25 @@ export default function EditStoryPage({
           <p className="kicker">Sections</p>
           <nav className="mt-4 grid gap-1" aria-label="Story editor sections">
             {authorEditorSections.map((section) => (
-              <a className="nav-link" href={`#${section.id}`} key={section.id}>
+              <button
+                className={
+                  activeSection === section.id
+                    ? "nav-link bg-[var(--surface-muted)] text-[var(--foreground)]"
+                    : "nav-link"
+                }
+                key={section.id}
+                onClick={() => setActiveSection(section.id)}
+                type="button"
+              >
                 {section.label}
-              </a>
+              </button>
             ))}
           </nav>
         </aside>
 
         <div className="grid gap-6">
-          <form className="grid gap-6" onSubmit={patchStory}>
+          {activeSection === "overview" || activeSection === "world" ? (
+            <form className="grid gap-6" onSubmit={patchStory}>
             <section className="card" id="overview">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -570,8 +592,10 @@ export default function EditStoryPage({
                 </button>
               </div>
             </section>
-          </form>
+            </form>
+          ) : null}
 
+          {activeSection === "characters" ? (
           <section className="card" id="characters">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -855,7 +879,9 @@ export default function EditStoryPage({
               </p>
             )}
           </section>
+          ) : null}
 
+          {activeSection === "abilities" ? (
           <div id="abilities">
             <AuthorAbilitySection
               disabled={isWorking}
@@ -869,7 +895,9 @@ export default function EditStoryPage({
               story={story}
             />
           </div>
+          ) : null}
 
+          {activeSection === "factions" ? (
           <section className="card" id="factions">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -955,7 +983,9 @@ export default function EditStoryPage({
               </form>
             ) : null}
           </section>
+          ) : null}
 
+          {activeSection === "versions" ? (
           <section className="card" id="versions">
             <p className="kicker">Versions</p>
             <h2 className="mt-2 text-2xl font-semibold">Published snapshots</h2>
@@ -1033,7 +1063,9 @@ export default function EditStoryPage({
               )}
             </div>
           </section>
+          ) : null}
 
+          {activeSection === "publish" ? (
           <section className="card" id="publish">
             <p className="kicker">Publish</p>
             <h2 className="mt-2 text-2xl font-semibold">Validation and lifecycle</h2>
@@ -1098,6 +1130,7 @@ export default function EditStoryPage({
               ) : null}
             </div>
           </section>
+          ) : null}
         </div>
       </div>
     </main>

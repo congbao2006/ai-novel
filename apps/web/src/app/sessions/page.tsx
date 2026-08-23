@@ -2,42 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-  authRequest,
-  type SessionDetail,
-  type SessionListItem
-} from "../../lib/api";
-
-type SessionCardItem = SessionListItem & {
-  readonly location?: string | null;
-};
+import { authRequest, type SessionListItem } from "../../lib/api";
 
 export default function SessionsPage() {
-  const [sessions, setSessions] = useState<SessionCardItem[]>([]);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     authRequest<{ sessions: SessionListItem[] }>("/sessions")
-      .then(async (result) => {
-        const details = await Promise.allSettled(
-          result.sessions.map((session) =>
-            authRequest<SessionDetail>(`/sessions/${session.id}`)
-          )
-        );
-        setSessions(
-          result.sessions.map((session, index) => {
-            const detail = details[index];
-            return {
-              ...session,
-              location:
-                detail?.status === "fulfilled"
-                  ? (detail.value.currentState?.location ?? null)
-                  : null
-            };
-          })
-        );
-      })
+      .then((result) => setSessions(result.sessions))
       .catch((caught) =>
         setError(caught instanceof Error ? caught.message : "Request failed.")
       )
@@ -45,7 +19,7 @@ export default function SessionsPage() {
   }, []);
 
   const grouped = useMemo(() => {
-    return sessions.reduce<Record<string, SessionCardItem[]>>((groups, session) => {
+    return sessions.reduce<Record<string, SessionListItem[]>>((groups, session) => {
       groups[session.story.title] = [...(groups[session.story.title] ?? []), session];
       return groups;
     }, {});
@@ -113,7 +87,7 @@ export default function SessionsPage() {
                     <SessionMeta label="Turn" value={String(session.turnCount)} />
                     <SessionMeta
                       label="Location"
-                      value={session.location ?? "Unknown"}
+                      value={session.currentLocation ?? "Unknown"}
                     />
                     <SessionMeta
                       label="Story Version"

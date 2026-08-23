@@ -163,11 +163,21 @@ export class SessionService {
 
   async listSessions(user: CurrentUser): Promise<SessionListResponseDto> {
     const sessions = await this.repositories.gameSessions.listForUser(user.userId);
+    const statesBySessionId = await loadStatesBySessionId(
+      this.repositories,
+      sessions.map((session) => session.id)
+    );
     const items = await Promise.all(
       sessions.map(async (session) => {
         const { story, storyVersion, character } =
           await this.loadSessionReferences(session);
-        return toSessionListItemDto({ session, story, character, storyVersion });
+        return toSessionListItemDto({
+          session,
+          story,
+          character,
+          storyVersion,
+          currentState: statesBySessionId.get(session.id) ?? null
+        });
       })
     );
 
@@ -319,6 +329,34 @@ export class SessionService {
         .map((message) => toGameMessageDto(message, abilityAttemptsByTurn))
     };
   }
+}
+
+async function loadStatesBySessionId(
+  repositories: Repositories,
+  sessionIds: readonly string[]
+): Promise<ReadonlyMap<string, GameStateRecord>> {
+  if (sessionIds.length === 0) {
+    return new Map();
+  }
+
+  const repository = repositories.gameStates as typeof repositories.gameStates & {
+    readonly listBySessionIds?: (
+      sessionIds: readonly string[]
+    ) => Promise<GameStateRecord[]>;
+  };
+  const states = repository.listBySessionIds
+    ? await repository.listBySessionIds(sessionIds)
+    : await Promise.all(
+        sessionIds.map((sessionId) =>
+          repositories.gameStates.getCurrentState(sessionId)
+        )
+      );
+
+  return new Map(
+    states
+      .filter((state): state is GameStateRecord => state !== null)
+      .map((state) => [state.sessionId, state])
+  );
 }
 
 function compareMessagesForTranscript(

@@ -161,6 +161,7 @@ export type SessionListItem = {
   readonly status: string;
   readonly storyVersionId: string | null;
   readonly storyVersionNumber: number | null;
+  readonly currentLocation: string | null;
   readonly turnCount: number;
   readonly lastPlayedAt: string;
   readonly createdAt: string;
