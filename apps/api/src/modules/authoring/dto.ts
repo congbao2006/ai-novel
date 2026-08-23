@@ -66,6 +66,7 @@ export type AuthorStoryListResponseDto = {
 };
 
 export type PublishValidationIssueDto = {
+  readonly code: string;
   readonly field: string;
   readonly message: string;
 };

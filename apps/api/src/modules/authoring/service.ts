@@ -13,7 +13,8 @@ import {
   BadRequestError,
   ConflictApplicationError,
   ResourceNotFoundError,
-  ServiceUnavailableError
+  ServiceUnavailableError,
+  ValidationIssuesError
 } from "../../errors.js";
 import type { CurrentUser } from "../auth/dto.js";
 import {
@@ -339,7 +340,10 @@ export class StoryAuthoringService {
 
     const validation = await this.validateForPublish(user, story.id);
     if (!validation.valid) {
-      throw new BadRequestError("Story is not valid for publishing.");
+      throw new ValidationIssuesError(
+        "Story is not valid for publishing.",
+        validation.issues
+      );
     }
 
     const published = await this.runInTransaction(async (context) =>
@@ -452,7 +456,10 @@ export class StoryAuthoringService {
     ]);
     const issues = validatePublishStory(story, characters, factions);
     if (issues.length > 0) {
-      throw new BadRequestError("Story is not valid for publishing.");
+      throw new ValidationIssuesError(
+        "Story is not valid for publishing.",
+        issues
+      );
     }
 
     const versionNumber =
@@ -576,7 +583,11 @@ function validatePublishStory(
   addRequiredTextIssue(issues, "title", story.title);
   addRequiredTextIssue(issues, "slug", story.slug);
   if (!slugPattern.test(story.slug)) {
-    issues.push({ field: "slug", message: "Slug must be URL safe." });
+    issues.push({
+      code: "invalid_slug",
+      field: "slug",
+      message: "Slug must be URL safe."
+    });
   }
   addRequiredTextIssue(issues, "description", story.description);
   addRequiredTextIssue(issues, "genre", story.genre);
@@ -588,6 +599,7 @@ function validatePublishStory(
   );
   if (playableCharacters.length < 1) {
     issues.push({
+      code: "missing_playable_character",
       field: "characters",
       message: "At least one playable character is required."
     });
@@ -596,6 +608,7 @@ function validatePublishStory(
   for (const character of characters) {
     if (!isValidStats(character.initialStats)) {
       issues.push({
+        code: "invalid_initial_stats",
         field: `characters.${character.id}.initialStats`,
         message: "Initial stats must be bounded finite numeric values."
       });
@@ -605,6 +618,7 @@ function validatePublishStory(
   const settings = validateStorySettings(story.settings);
   if (!settings.initialLocation) {
     issues.push({
+      code: "missing_initial_location",
       field: "settings.initialLocation",
       message: "Initial location is required."
     });
@@ -613,6 +627,7 @@ function validatePublishStory(
   for (const faction of factions) {
     if (!safeKeyPattern.test(faction.factionKey)) {
       issues.push({
+        code: "invalid_faction_key",
         field: `factions.${faction.id}.factionKey`,
         message: "Faction key must be a safe stable key."
       });
@@ -628,7 +643,11 @@ function addRequiredTextIssue(
   value: string
 ): void {
   if (!value.trim()) {
-    issues.push({ field, message: `${field} is required.` });
+    issues.push({
+      code: "required",
+      field,
+      message: `${field} is required.`
+    });
   }
 }
 

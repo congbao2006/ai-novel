@@ -3,10 +3,16 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import {
+  ApiRequestError,
   authRequest,
   type AuthorStoryDetail,
+  type PublishValidationIssue,
   type PublishValidationResponse
 } from "../../../../lib/api";
+import {
+  formatValidationIssue,
+  getValidationIssueSummary
+} from "../../../../lib/authoring-validation";
 
 export default function EditStoryPage({
   params
@@ -17,6 +23,9 @@ export default function EditStoryPage({
   const [story, setStory] = useState<AuthorStoryDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [validationIssues, setValidationIssues] = useState<
+    readonly PublishValidationIssue[]
+  >([]);
 
   useEffect(() => {
     params.then((value) => setStoryId(value.id)).catch(() => setError("URL không hợp lệ."));
@@ -31,7 +40,7 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, async () => {
+    await runAction(setError, setMessage, setValidationIssues, async () => {
       const updated = await authRequest<AuthorStoryDetail>(`/author/stories/${storyId}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -55,7 +64,7 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, async () => {
+    await runAction(setError, setMessage, setValidationIssues, async () => {
       await authRequest(`/author/stories/${storyId}/characters`, {
         method: "POST",
         body: JSON.stringify({
@@ -79,7 +88,7 @@ export default function EditStoryPage({
     event.preventDefault();
     if (!storyId) return;
     const form = new FormData(event.currentTarget);
-    await runAction(setError, setMessage, async () => {
+    await runAction(setError, setMessage, setValidationIssues, async () => {
       await authRequest(`/author/stories/${storyId}/factions`, {
         method: "POST",
         body: JSON.stringify({
@@ -99,26 +108,34 @@ export default function EditStoryPage({
 
   async function validateOrPublish(path: "validate" | "publish" | "archive") {
     if (!storyId) return;
-    await runAction(setError, setMessage, async () => {
+    await runAction(setError, setMessage, setValidationIssues, async () => {
+      if (path === "validate" || path === "publish") {
+        const validation = await authRequest<PublishValidationResponse>(
+          `/author/stories/${storyId}/validate`,
+          { method: "POST" }
+        );
+        setValidationIssues(validation.issues);
+        if (!validation.valid) {
+          return getValidationIssueSummary(false, validation.issues);
+        }
+      }
+
       const result = await authRequest<AuthorStoryDetail | PublishValidationResponse>(
         `/author/stories/${storyId}/${path}`,
         { method: "POST" }
       );
       if ("valid" in result) {
-        setMessage(
-          result.valid
-            ? "Story hợp lệ để publish."
-            : result.issues.map((issue) => `${issue.field}: ${issue.message}`).join("\n")
-        );
-      } else {
-        setStory(result);
+        setValidationIssues(result.issues);
+        return getValidationIssueSummary(result.valid, result.issues);
       }
+      setStory(result);
+      return path === "publish" ? "Story đã publish." : "Đã lưu.";
     });
   }
 
   async function createRevision() {
     if (!storyId) return;
-    await runAction(setError, setMessage, async () => {
+    await runAction(setError, setMessage, setValidationIssues, async () => {
       const updated = await authRequest<AuthorStoryDetail>(
         `/author/stories/${storyId}/revisions`,
         { method: "POST" }
@@ -152,6 +169,18 @@ export default function EditStoryPage({
 
       {error ? <p className="whitespace-pre-wrap text-sm text-red-600">{error}</p> : null}
       {message ? <p className="whitespace-pre-wrap text-sm text-emerald-700">{message}</p> : null}
+      {validationIssues.length > 0 ? (
+        <section className="rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <h2 className="font-medium">Cần sửa trước khi publish</h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {validationIssues.map((issue, index) => (
+              <li key={`${issue.field}-${issue.code ?? "issue"}-${index}`}>
+                {formatValidationIssue(issue)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <form className="grid gap-4 rounded border border-zinc-200 p-4" onSubmit={patchStory}>
         <h2 className="text-xl font-medium">Basic info</h2>
@@ -296,14 +325,19 @@ async function loadStory(
 async function runAction(
   setError: (message: string | null) => void,
   setMessage: (message: string | null) => void,
-  action: () => Promise<void>
+  setValidationIssues: (issues: readonly PublishValidationIssue[]) => void,
+  action: () => Promise<string | void>
 ) {
   setError(null);
   setMessage(null);
+  setValidationIssues([]);
   try {
-    await action();
-    setMessage("Đã lưu.");
+    const successMessage = await action();
+    setMessage(successMessage ?? "Đã lưu.");
   } catch (reason) {
+    if (reason instanceof ApiRequestError && reason.issues) {
+      setValidationIssues(reason.issues);
+    }
     setError(reason instanceof Error ? reason.message : "Thao tác thất bại.");
   }
 }

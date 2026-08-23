@@ -23,6 +23,22 @@ export class BadRequestError extends ApplicationError {
   }
 }
 
+export type StructuredValidationIssue = {
+  readonly code?: string | undefined;
+  readonly field: string;
+  readonly message: string;
+};
+
+export class ValidationIssuesError extends ApplicationError {
+  constructor(
+    message = "Request validation failed.",
+    readonly issues: readonly StructuredValidationIssue[]
+  ) {
+    super(message, "validation_error", 400);
+    this.name = "ValidationIssuesError";
+  }
+}
+
 export class ResourceNotFoundError extends ApplicationError {
   constructor(message = "Resource was not found.") {
     super(message, "not_found", 404);
@@ -93,6 +109,7 @@ export function sendApplicationError(error: unknown, reply: {
     return reply.code(error.statusCode).send({
       error: error.code,
       message: error.message,
+      ...(error instanceof ValidationIssuesError ? { issues: error.issues } : {}),
       ...(requestId ? { requestId } : {})
     });
   }

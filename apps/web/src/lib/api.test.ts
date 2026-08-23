@@ -78,6 +78,51 @@ describe("API request helpers", () => {
     } satisfies Partial<ApiRequestError>);
   });
 
+  it("preserves structured validation issues from backend errors", async () => {
+    mockFetchJson(
+      {
+        error: "validation_error",
+        message: "Story is not valid for publishing.",
+        issues: [
+          {
+            code: "required",
+            field: "worldPrompt",
+            message: "worldPrompt is required."
+          },
+          {
+            code: "missing_playable_character",
+            field: "characters",
+            message: "At least one playable character is required."
+          }
+        ]
+      },
+      400
+    );
+
+    await expect(
+      apiRequest("/author/stories/story-1/publish", {
+        method: "POST"
+      })
+    ).rejects.toMatchObject({
+      name: "ApiRequestError",
+      statusCode: 400,
+      errorCode: "validation_error",
+      message: "Story is not valid for publishing.",
+      issues: [
+        {
+          code: "required",
+          field: "worldPrompt",
+          message: "worldPrompt is required."
+        },
+        {
+          code: "missing_playable_character",
+          field: "characters",
+          message: "At least one playable character is required."
+        }
+      ]
+    } satisfies Partial<ApiRequestError>);
+  });
+
   it("keeps unexpected server errors generic when no useful message is available", async () => {
     mockFetchJson({}, 500);
 

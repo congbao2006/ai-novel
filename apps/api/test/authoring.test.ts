@@ -12,7 +12,12 @@ import type {
   StoryVersionFactionRecord,
   StoryVersionRecord
 } from "@ai-novel/db";
-import { AccessDeniedError, ConflictApplicationError, ResourceNotFoundError } from "../src/errors.js";
+import {
+  AccessDeniedError,
+  ConflictApplicationError,
+  ResourceNotFoundError
+} from "../src/errors.js";
+import type { ValidationIssuesError } from "../src/errors.js";
 import { StoryAuthoringService } from "../src/modules/authoring/service.js";
 import { FactionInitializationService } from "../src/modules/sessions/faction-initialization-service.js";
 import { NPCInitializationService } from "../src/modules/sessions/npc-initialization-service.js";
@@ -93,6 +98,20 @@ describe("StoryAuthoringService", () => {
     expect(validation.valid).toBe(false);
     expect(validation.issues.map((issue) => issue.field)).toContain("worldPrompt");
     expect(validation.issues.map((issue) => issue.field)).toContain("characters");
+    expect(validation.issues.every((issue) => issue.code)).toBe(true);
+    await expect(service.publish(author, draft.id)).rejects.toMatchObject({
+      name: "ValidationIssuesError",
+      issues: expect.arrayContaining([
+        expect.objectContaining({
+          code: "required",
+          field: "worldPrompt"
+        }),
+        expect.objectContaining({
+          code: "missing_playable_character",
+          field: "characters"
+        })
+      ])
+    } satisfies Partial<ValidationIssuesError>);
   });
 
   it("creates a faction from the API DTO shape used by the authoring form", async () => {

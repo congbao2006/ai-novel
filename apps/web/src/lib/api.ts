@@ -84,9 +84,15 @@ export type AuthorStoryListResponse = {
   readonly stories: readonly AuthorStorySummary[];
 };
 
+export type PublishValidationIssue = {
+  readonly code?: string;
+  readonly field: string;
+  readonly message: string;
+};
+
 export type PublishValidationResponse = {
   readonly valid: boolean;
-  readonly issues: readonly { readonly field: string; readonly message: string }[];
+  readonly issues: readonly PublishValidationIssue[];
 };
 
 export type SessionListItem = {
@@ -169,7 +175,8 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
-    readonly errorCode?: string
+    readonly errorCode?: string,
+    readonly issues?: readonly PublishValidationIssue[]
   ) {
     super(message);
     this.name = "ApiRequestError";
@@ -245,13 +252,18 @@ async function createApiRequestError(
   return new ApiRequestError(
     message,
     response.status,
-    typeof body.error === "string" ? body.error : undefined
+    typeof body.error === "string" ? body.error : undefined,
+    parseValidationIssues(body.issues)
   );
 }
 
 async function parseErrorBody(
   response: Response
-): Promise<{ readonly error?: unknown; readonly message?: unknown }> {
+): Promise<{
+  readonly error?: unknown;
+  readonly message?: unknown;
+  readonly issues?: unknown;
+}> {
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const parsed = (await response.json().catch(() => ({}))) as unknown;
@@ -260,4 +272,32 @@ async function parseErrorBody(
 
   const text = await response.text().catch(() => "");
   return text.trim() ? { message: text } : {};
+}
+
+function parseValidationIssues(
+  value: unknown
+): readonly PublishValidationIssue[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const issues = value.flatMap((issue) => {
+    if (!issue || typeof issue !== "object") {
+      return [];
+    }
+    const record = issue as Record<string, unknown>;
+    if (typeof record.field !== "string" || typeof record.message !== "string") {
+      return [];
+    }
+
+    return [
+      {
+        ...(typeof record.code === "string" ? { code: record.code } : {}),
+        field: record.field,
+        message: record.message
+      }
+    ];
+  });
+
+  return issues.length > 0 ? issues : undefined;
 }
